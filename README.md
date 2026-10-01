@@ -32,7 +32,7 @@ Makes a new origin at a point you type in, so a part or sub-assembly can be orig
 It uses vehicle axes (ISO 8855): **X forward, Y to the driver's left, Z up**. In FUBC top levels the nose points toward SolidWorks +Z (the Front view looks at the front of the car), so vehicle X = +Z, Y = +X and Z = +Y. That's set once, in `Forward` in `CreateOriginCommand.cs`.
 
 1. A pop-up asks for **X (forward)**, **Y (left)** and **Z (up)** in the document's units. You can also type a unit after a number (`2 in`, `50 mm`). An empty box is 0.
-2. It makes three planes through that point, each a set distance from Front, Top or Right: **Y'Z' Plane** (at X), **X'Z' Plane** (at Y) and **X'Y' Plane** (at Z).
+2. It makes three planes through that point, each perpendicular to the axis it's named after and a set distance from a SolidWorks plane: **X' Plane** (at X, parallel to Front), **Y' Plane** (at Y, parallel to Right) and **Z' Plane** (at Z, parallel to Top).
 3. Where they cross: **X' Axis**, **Y' Axis**, **Z' Axis** and the reference point **Origin' Point** (hidden; the coordinate system shows them).
 4. On those, the coordinate system **Origin'**: origin on Origin' Point, X along X' Axis, Y along Y' Axis.
 5. It all goes in a folder called **New Origin**. Running it again adds ` 2` to the names so they stay unique.

@@ -17,8 +17,8 @@ namespace BDAT.Commands
     ///
     ///   1. A pop-up asks for X (forward), Y (left) and Z (up), in the document's units (or with a unit typed after
     ///      the number, e.g. "2 in").
-    ///   2. Three planes through that point, each offset from the Front, Top or Right plane:
-    ///        Y'Z' Plane (X = the typed X), X'Z' Plane (Y = Y) and X'Y' Plane (Z = Z).
+    ///   2. Three planes through that point, each perpendicular to one vehicle axis and named after it, and each
+    ///      offset from the Front, Top or Right plane: X' Plane (at the typed X), Y' Plane (at Y), Z' Plane (at Z).
     ///   3. Three axes where the planes cross: X' Axis, Y' Axis and Z' Axis.
     ///   4. A reference point where they all meet: Origin' Point.
     ///   5. A coordinate system, Origin', on that point with its X along X' Axis and Y along Y' Axis.
@@ -117,8 +117,8 @@ namespace BDAT.Commands
             var result = new CreateOriginTestResult();
             try
             {
-                // Planes, each normal to one vehicle axis: Y'Z' (normal X), X'Z' (normal Y), X'Y' (normal Z).
-                string[] planeNames = { "Y'Z' Plane", "X'Z' Plane", "X'Y' Plane" };
+                // Planes, each perpendicular to the vehicle axis it's named after.
+                string[] planeNames = { "X' Plane", "Y' Plane", "Z' Plane" };
                 var planes = new IFeature[3];
                 for (int i = 0; i < 3; i++)
                 {
@@ -127,7 +127,7 @@ namespace BDAT.Commands
                     made.Add(planes[i]);
                 }
 
-                // Axes where two planes cross: X' (X'Y' and X'Z'), Y' (X'Y' and Y'Z'), Z' (X'Z' and Y'Z').
+                // Axes where two planes cross: X' Axis (Z' and Y' Planes), Y' Axis (Z' and X'), Z' Axis (Y' and X').
                 IFeature xAxis = MakeAxis(doc, planes[2], planes[1], "X' Axis");
                 made.Add(xAxis);
                 IFeature yAxis = MakeAxis(doc, planes[2], planes[0], "Y' Axis");

@@ -52,7 +52,7 @@ The SolidWorks tests never close a SolidWorks they didn't start. They won't run 
 
 - Create Origin, in new unsaved parts and an assembly that are closed without saving:
   - With nothing open the button is greyed out and only says to open a part or assembly.
-  - It makes Y'Z', X'Z' and X'Y' planes, X', Y' and Z' axes, Origin' Point and the Origin' coordinate system, all in a `New Origin` folder. Origin' and the point are checked to be at the typed point, and Origin' to have X forward (+Z), Y left (+X) and Z up (+Y). Each plane's distance to a 3D sketch point is measured with SolidWorks' Measure tool, which proves it goes through the point and is on the right side of the origin. This covers negative numbers, a 0 coordinate, typed inches and an assembly.
+  - It makes X', Y' and Z' planes (each perpendicular to its axis), X', Y' and Z' axes, Origin' Point and the Origin' coordinate system, all in a `New Origin` folder. Origin' and the point are checked to be at the typed point, and Origin' to have X forward (+Z), Y left (+X) and Z up (+Y). Each plane's distance to a 3D sketch point is measured with SolidWorks' Measure tool, which proves it goes through the point and is on the right side of the origin. This covers negative numbers, a 0 coordinate, typed inches and an assembly.
   - Changing the three planes' distances (in a part and in an assembly) moves the point and Origin' with them, checked the same way.
   - Running it twice in the same part keeps every name unique.
   - Cancel, or a box that isn't a number, adds nothing to the part.

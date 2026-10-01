@@ -821,7 +821,7 @@ namespace BdatTests
                 Check(TestMode.Messages.Count == 0, "it shouldn't need to say anything, but said: " + string.Join(" | ", TestMode.Messages.ToArray()));
 
                 string suffix = runs > 1 ? " " + runs : "";
-                string[] planeNames = { "Y'Z' Plane", "X'Z' Plane", "X'Y' Plane" };
+                string[] planeNames = { "X' Plane", "Y' Plane", "Z' Plane" };
                 string[] axisNames = { "X' Axis", "Y' Axis", "Z' Axis" };
                 for (int i = 0; i < 3; i++)
                 {
@@ -849,7 +849,7 @@ namespace BdatTests
 
                 // Move it: each plane's distance becomes the new coordinate (same sign, so no flip).
                 double[] target = VehicleToModel(moveTo);
-                int[] modelAxisOf = { 2, 0, 1 }; // Y'Z' is at model Z, X'Z' at model X, X'Y' at model Y
+                int[] modelAxisOf = { 2, 0, 1 }; // X' Plane is at model Z, Y' at model X, Z' at model Y
                 for (int i = 0; i < 3; i++)
                 {
                     IFeature plane = CreateOriginCommand.FeatureByName(doc, r.Planes[i]);
@@ -903,7 +903,7 @@ namespace BdatTests
             for (int i = 0; i < 3; i++)
                 Check(Math.Abs(xyz[i] - at[i]) < 1e-7, r.Point + when + " isn't at " + atText);
 
-            int[] modelAxisOf = { 2, 0, 1 }; // Y'Z' is at model Z, X'Z' at model X, X'Y' at model Y
+            int[] modelAxisOf = { 2, 0, 1 }; // X' Plane is at model Z, Y' at model X, Z' at model Y
             for (int i = 0; i < 3; i++)
             {
                 IFeature plane = CreateOriginCommand.FeatureByName(doc, r.Planes[i]);
