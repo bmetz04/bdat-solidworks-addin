@@ -7,12 +7,12 @@ A SolidWorks add-in that puts FUBC speed-up macros on a **BDAT** toolbar, menu, 
 ### Murder Part
 Turns the open part into a single dumb solid with no threads.
 
-1. Deletes every feature folder with "thread" in its name (like the **Threads** folder on McMaster-Carr parts) along with everything inside it, plus every cosmetic thread and modeled **Thread** feature elsewhere in the tree.
-2. Exports a temporary Parasolid to `%TEMP%\BDAT\murder`. Nothing is written next to the part.
-3. Reloads the original `.SLDPRT` from disk, so the original keeps its threads.
-4. Opens the Parasolid as a new part (not saved yet), combines it into one body if it imports as several, then deletes the temporary file.
+**The part you have open is never changed.** Murder Part first asks you to confirm, naming the part and what it will remove. All the deleting happens on a hidden temporary copy.
 
-If the part has unsaved changes, it asks to save them first.
+1. Saves a copy of the part as it is right now (including unsaved changes) to `%TEMP%\BDAT\murder` and opens it invisibly. Your open part, its file and its saved/unsaved state are left exactly as they were.
+2. On the copy, deletes every feature folder with "thread" in its name (like the **Threads** folder on McMaster-Carr parts) with everything inside it, plus every cosmetic thread and modeled **Thread** feature elsewhere in the tree.
+3. Exports the copy to Parasolid, then closes the copy without saving.
+4. Opens the Parasolid as a new part (not saved yet), combines it into one body if it imports as several, then deletes the temporary files. Nothing is written next to your part.
 
 ### Update BDAT
 Checks GitHub for a newer published BDAT. If there is one, it downloads it now (Windows asks for admin once) and installs it as soon as you close SolidWorks, so the next time you open SolidWorks you're on the new version.

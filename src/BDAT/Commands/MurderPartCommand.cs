@@ -8,24 +8,28 @@ using SolidWorks.Interop.swconst;
 namespace BDAT.Commands
 {
     /// <summary>
-    /// Murder Part: strip every thread from the active part, export it to Parasolid,
-    /// then open the Parasolid as a new dumb-solid part.
+    /// Murder Part: make a thread-free, single-body Parasolid version of the active part and open it as a new part.
+    ///
+    /// The part the user has open is never modified: all the deleting happens on a hidden temporary copy.
     ///
     /// Steps:
-    ///   1. Delete every feature folder with "thread" in its name (e.g. McMaster's "Threads" folder)
-    ///      together with everything inside it, plus any cosmetic threads and Thread features elsewhere.
-    ///   2. Export to a temporary .x_t (in %TEMP%\BDAT, never next to the part).
-    ///   3. Reload the original part from disk so the .SLDPRT keeps its threads.
-    ///   4. Open the .x_t as a new unsaved part, combine its bodies into one if needed,
-    ///      then delete the temporary .x_t.
+    ///   1. Ask the user to confirm, showing which part and what will be removed.
+    ///   2. Save a copy of the part as it is right now (including unsaved changes) to %TEMP%\BDAT\murder
+    ///      and open that copy invisibly.
+    ///   3. On the copy, delete every feature folder with "thread" in its name (e.g. McMaster's "Threads" folder)
+    ///      with everything inside it, plus any cosmetic threads and Thread features elsewhere.
+    ///   4. Export the copy to a temporary .x_t, then close the copy without saving.
+    ///   5. Open the .x_t as a new unsaved part, combine its bodies into one if needed,
+    ///      then delete the temporary files.
     /// </summary>
     public sealed class MurderPartCommand : IBdatCommand
     {
         public string Title { get { return "Murder Part"; } }
 
-        public string Hint { get { return "Remove all threads, export to Parasolid and reopen it as a single dumb solid"; } }
+        public string Hint { get { return "Make a thread-free single-body copy of this part (the original isn't changed)"; } }
 
         private const string ExportSuffix = "_murdered";
+        private const string WorkCopySuffix = "_bdat_workcopy";
         private const string FolderTypeName = "FtrFolder";
         private const string FolderEndTag = "___EndTag___";
 
@@ -54,69 +58,84 @@ namespace BDAT.Commands
                 return;
             }
 
-            // The reload in step 3 restores the part from disk, so it has to be saved there.
-            string partPath = doc.GetPathName();
-            if (string.IsNullOrEmpty(partPath))
-            {
-                Tell(swApp, "Save the part first. Murder Part reloads the original from disk afterwards so it keeps its threads.",
-                    swMessageBoxIcon_e.swMbWarning);
-                return;
-            }
+            string baseName = BaseName(doc);
 
-            if (doc.GetSaveFlag())
-            {
-                int answer = swApp.SendMsgToUser2(
-                    "This part has unsaved changes. Save them and continue?",
-                    (int)swMessageBoxIcon_e.swMbQuestion, (int)swMessageBoxBtn_e.swMbOkCancel);
-                if (answer != (int)swMessageBoxResult_e.swMbHitOk) return;
+            // 1. Confirm. Scanning is read-only, so the original is still untouched at this point.
+            ThreadScan preview = FindThreads(doc);
+            if (!Confirm(swApp, doc, preview)) return;
 
-                int saveErr = 0, saveWarn = 0;
-                doc.Save3((int)swSaveAsOptions_e.swSaveAsOptions_Silent, ref saveErr, ref saveWarn);
-                if (doc.GetSaveFlag())
-                {
-                    Tell(swApp, "The part wasn't saved, so nothing was changed.", swMessageBoxIcon_e.swMbWarning);
-                    return;
-                }
-            }
-
-            // 1. Delete threads.
-            ThreadScan scan = FindThreads(doc);
-            int failedDeletes = DeleteFeatures(doc, scan.FeatureNames);
-            DeleteFolders(doc, scan.FolderNames);
-            doc.ForceRebuild3(false);
-
-            // 2. Export to a temporary Parasolid, out of the part's folder.
             CleanTempDir();
-            string xtPath = Path.Combine(TempDir, Path.GetFileNameWithoutExtension(partPath) + ExportSuffix + ".x_t");
+            string workPath = Path.Combine(TempDir, baseName + WorkCopySuffix + ".SLDPRT");
+            string xtPath = Path.Combine(TempDir, baseName + ExportSuffix + ".x_t");
 
+            // 2. Copy the part as it is now (the Copy option leaves the open document, its file and its
+            //    saved/unsaved state exactly as they were), then open the copy where nobody can see or save it.
             int errors = 0, warnings = 0;
-            bool exported = doc.Extension.SaveAs3(
-                xtPath,
+            bool copied = doc.Extension.SaveAs3(
+                workPath,
                 (int)swSaveAsVersion_e.swSaveAsCurrentVersion,
                 (int)(swSaveAsOptions_e.swSaveAsOptions_Silent | swSaveAsOptions_e.swSaveAsOptions_Copy),
                 null, null, ref errors, ref warnings);
-
-            // 3. Put the original back the way it is on disk (threads and all).
-            int reloadResult = doc.ReloadOrReplace(false, partPath, true);
-            bool originalRestored = reloadResult == (int)swComponentReloadError_e.swReloadOkay;
-
-            if (!exported || !File.Exists(xtPath))
+            if (!copied || !File.Exists(workPath))
             {
-                Tell(swApp,
-                    "Parasolid export failed (error code " + errors + ").\n\n" + RestoreNote(originalRestored),
+                Tell(swApp, "Couldn't make a working copy of the part (error code " + errors + "). Nothing was changed.",
                     swMessageBoxIcon_e.swMbStop);
                 return;
             }
 
-            // 4. Open the Parasolid as a new part, then throw the temporary file away.
+            ThreadScan scan;
+            int failedDeletes;
+            bool exported;
+            swApp.DocumentVisible(false, (int)swDocumentTypes_e.swDocPART);
+            IModelDoc2 work = null;
+            try
+            {
+                int openErr = 0, openWarn = 0;
+                work = swApp.OpenDoc6(workPath, (int)swDocumentTypes_e.swDocPART,
+                    (int)swOpenDocOptions_e.swOpenDocOptions_Silent, "", ref openErr, ref openWarn) as IModelDoc2;
+                if (work == null)
+                {
+                    Tell(swApp, "Couldn't open the working copy (error code " + openErr + "). Nothing was changed.",
+                        swMessageBoxIcon_e.swMbStop);
+                    return;
+                }
+
+                // 3. Delete threads, on the copy only.
+                scan = FindThreads(work);
+                failedDeletes = DeleteFeatures(work, scan.FeatureNames);
+                DeleteFolders(work, scan.FolderNames);
+                work.ForceRebuild3(false);
+
+                // 4. Export the copy to Parasolid.
+                exported = work.Extension.SaveAs3(
+                    xtPath,
+                    (int)swSaveAsVersion_e.swSaveAsCurrentVersion,
+                    (int)(swSaveAsOptions_e.swSaveAsOptions_Silent | swSaveAsOptions_e.swSaveAsOptions_Copy),
+                    null, null, ref errors, ref warnings);
+            }
+            finally
+            {
+                // Close the copy without saving, whatever happened above.
+                if (work != null) swApp.CloseDoc(work.GetTitle());
+                swApp.DocumentVisible(true, (int)swDocumentTypes_e.swDocPART);
+                TryDelete(workPath);
+            }
+
+            if (!exported || !File.Exists(xtPath))
+            {
+                Tell(swApp, "Parasolid export failed (error code " + errors + "). Your part wasn't changed.",
+                    swMessageBoxIcon_e.swMbStop);
+                return;
+            }
+
+            // 5. Open the Parasolid as a new part, then throw the temporary file away.
             int loadErrors = 0;
             object importData = swApp.GetImportFileData(xtPath);
             IModelDoc2 newDoc = swApp.LoadFile4(xtPath, "r", importData, ref loadErrors) as IModelDoc2;
             TryDelete(xtPath);
             if (newDoc == null)
             {
-                Tell(swApp,
-                    "SolidWorks couldn't open the exported Parasolid (error code " + loadErrors + ").\n\n" + RestoreNote(originalRestored),
+                Tell(swApp, "SolidWorks couldn't open the exported Parasolid (error code " + loadErrors + "). Your part wasn't changed.",
                     swMessageBoxIcon_e.swMbWarning);
                 return;
             }
@@ -135,8 +154,38 @@ namespace BDAT.Commands
             summary.AppendLine("Opened the result as a new part. " + bodyNote);
             summary.AppendLine("It isn't saved anywhere yet; use Save As to keep it.");
             summary.AppendLine();
-            summary.Append(RestoreNote(originalRestored));
+            summary.Append("Your original part \"" + baseName + "\" was not changed.");
             Tell(swApp, summary.ToString(), swMessageBoxIcon_e.swMbInformation);
+        }
+
+        private static bool Confirm(ISldWorks swApp, IModelDoc2 doc, ThreadScan preview)
+        {
+            var msg = new StringBuilder();
+            msg.AppendLine("Murder \"" + BaseName(doc) + "\"?");
+            msg.AppendLine();
+            msg.AppendLine("This opens a NEW part: a thread-free, single-body Parasolid version of this one.");
+            msg.AppendLine("Your original part and its file are not changed.");
+            msg.AppendLine();
+            if (preview.FolderNames.Count > 0)
+                msg.AppendLine("Will remove the " + string.Join(", ", preview.FolderNames.ToArray()) + " folder(s) and everything in them.");
+            if (preview.FeatureNames.Count > 0)
+                msg.AppendLine("Thread features found: " + preview.FeatureNames.Count + ".");
+            else
+                msg.AppendLine("No threads were found, so it would just be converted to a single dumb solid.");
+
+            int answer = swApp.SendMsgToUser2(msg.ToString(),
+                (int)swMessageBoxIcon_e.swMbQuestion, (int)swMessageBoxBtn_e.swMbYesNo);
+            return answer == (int)swMessageBoxResult_e.swMbHitYes;
+        }
+
+        /// <summary>The part's file name without extension, or its window title if it has never been saved.</summary>
+        private static string BaseName(IModelDoc2 doc)
+        {
+            string path = doc.GetPathName();
+            string name = string.IsNullOrEmpty(path) ? doc.GetTitle() : Path.GetFileNameWithoutExtension(path);
+            if (name.EndsWith(".sldprt", StringComparison.OrdinalIgnoreCase)) name = name.Substring(0, name.Length - 7);
+            foreach (char c in Path.GetInvalidFileNameChars()) name = name.Replace(c, '_');
+            return name;
         }
 
         private sealed class ThreadScan
@@ -303,7 +352,7 @@ namespace BDAT.Commands
         {
             try
             {
-                foreach (string file in Directory.GetFiles(TempDir, "*.x_t"))
+                foreach (string file in Directory.GetFiles(TempDir))
                     TryDelete(file);
             }
             catch
@@ -317,12 +366,6 @@ namespace BDAT.Commands
             try { File.Delete(path); } catch { /* cleaned up on the next run */ }
         }
 
-        private static string RestoreNote(bool originalRestored)
-        {
-            return originalRestored
-                ? "The original part was reloaded from disk, so it still has its threads."
-                : "Couldn't reload the original part. It is still open with threads removed, so close it without saving to keep its threads.";
-        }
 
         private static void Tell(ISldWorks swApp, string message, swMessageBoxIcon_e icon)
         {
