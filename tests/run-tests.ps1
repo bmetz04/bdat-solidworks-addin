@@ -24,6 +24,7 @@ $csc = Join-Path $env:WINDIR 'Microsoft.NET\Framework64\v4.0.30319\csc.exe'
 
 if (-not $NoBuild) {
     Write-Host 'Building BDAT...'
+    $env:BDAT_NO_PAUSE = '1' # build.bat pauses when double-clicked; never here
     & cmd.exe /c "`"$(Join-Path $repo 'build.bat')`" `"$ApiDir`""
     if ($LASTEXITCODE -ne 0) { Write-Host 'BDAT build failed.' -ForegroundColor Red; exit 2 }
 }
