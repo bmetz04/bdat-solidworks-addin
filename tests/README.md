@@ -48,6 +48,14 @@ The SolidWorks tests never close a SolidWorks they didn't start. They won't run 
   - Save, add to bookmark and check-in are listed as skipped, and nothing reaches the connector. Unit tests check that every way into the connector (Find, Manager, Call, Get, Set) throws in test mode, and that Save MCM's check-in step (Unlock) is refused at the connector and reports "not checked in".
   - The part file is never saved.
 
+**Real parts:** every `.SLDPRT` in `C:\Users\bacon\BDAT\test-parts` is used too. You can change the folder with `-PartsDir`.
+- The folder sits outside the repo on purpose, because McMaster's CAD files shouldn't go on GitHub.
+- Each part is copied to the run's temp folder, and only the copy is opened.
+- Murder Part on each copy: the result opens with solid volume and no cosmetic thread, the copy is untouched, and nothing is left behind. Body count isn't checked.
+- Save MCM on each copy: the name and description come from the file name, nothing is saved, and 3DEXPERIENCE is contacted 0 times.
+- After the run, the library file itself is unchanged.
+- If the folder is missing or empty, these tests are skipped.
+
 ## Publishing
 
 `tests\gate.ps1` is the hook for `publish.ps1`. It runs after the build, and a non-zero exit stops the publish. If SolidWorks isn't available it skips the SolidWorks tests with a warning, unless you pass `-RequireSolidWorks`.

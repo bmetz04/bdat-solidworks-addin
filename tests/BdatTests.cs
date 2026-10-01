@@ -428,6 +428,8 @@ namespace BdatTests
                         SaveMcmTest(swApp, samples.Threaded, null, "", "91251A540", "");
                     });
                 }
+
+                RealPartTests(swApp, options, work);
             }
             finally
             {
@@ -646,7 +648,8 @@ namespace BdatTests
                 // expectedBodies 0: any number of bodies is fine (multi-body parts may or may not be merged).
                 Check(expectedBodies == 0 ? count >= 1 : count == expectedBodies,
                     "the result should have " + (expectedBodies == 0 ? "at least 1" : expectedBodies.ToString()) + " solid bod" + (expectedBodies == 1 ? "y" : "ies") + ", it has " + count + ". Murder Part said: " + TestMode.Messages.Last().Replace("\n", " "));
-                Near(expectedVolume, Volume(result), 0.01, "result volume (thread geometry should be gone)");
+                if (expectedVolume > 0) Near(expectedVolume, Volume(result), 0.01, "result volume (thread geometry should be gone)");
+                else Check(Volume(result) > 0, "the result has no solid volume");
                 Check(!FeatureTypes(result).Contains("CosmeticThread"), "the result still has a cosmetic thread");
 
                 // The original is untouched: same file, same features, not even marked as changed.
@@ -690,6 +693,49 @@ namespace BdatTests
         }
 
         // ---- Save MCM
+
+        // ---- Real parts from the user's test-parts library
+
+        /// <summary>
+        /// Runs the checks that hold for any McMaster part on every .SLDPRT in the test-parts folder. The parts are
+        /// copied to this run's temp folder first and only the copies are opened, so the library is never touched.
+        /// </summary>
+        private static void RealPartTests(ISldWorks swApp, Options options, string work)
+        {
+            if (string.IsNullOrEmpty(options.PartsDir) || !Directory.Exists(options.PartsDir))
+            {
+                Skip("Real parts", "no test-parts folder" + (options.PartsDir == null ? "" : " at " + options.PartsDir));
+                return;
+            }
+            string[] parts = Directory.GetFiles(options.PartsDir, "*.sldprt", SearchOption.AllDirectories)
+                .Where(f => !Path.GetFileName(f).StartsWith("~$")).OrderBy(f => f).ToArray();
+            if (parts.Length == 0)
+            {
+                Skip("Real parts", options.PartsDir + " has no .SLDPRT files yet");
+                return;
+            }
+
+            foreach (string original in parts)
+            {
+                string name = Path.GetFileName(original);
+                // One folder per part, so "nothing left beside the part" only sees this part.
+                string dir = Path.Combine(work, "real", Path.GetFileNameWithoutExtension(name));
+                Directory.CreateDirectory(dir);
+                string copy = Path.Combine(dir, name);
+                File.Copy(original, copy);
+                File.SetAttributes(copy, FileAttributes.Normal);
+                string libraryBefore = Snapshot(original);
+
+                Test("Real part " + name + ": Murder Part", delegate { MurderTest(swApp, copy, 0, 0, work); });
+                Test("Real part " + name + ": Save MCM", delegate
+                {
+                    string baseName = Path.GetFileNameWithoutExtension(name);
+                    SaveMcmTest(swApp, copy, null, null,
+                        CallSaveMcmParser("DefaultName", baseName), CallSaveMcmParser("DefaultDescription", baseName));
+                });
+                Test("Real part " + name + ": library file untouched", delegate { Equal(libraryBefore, Snapshot(original), "library file"); });
+            }
+        }
 
         private static void SaveMcmTest(ISldWorks swApp, string partPath, string typedName, string typedDescription,
             string expectedName, string expectedDescription)
@@ -1065,6 +1111,7 @@ namespace BdatTests
         public bool AllowOpenDocuments;
         public bool Launch;
         public bool Keep;
+        public string PartsDir;
         public string SolidWorksExe;
         public string ExpectLoadedDll;
         public int StartTimeoutSeconds = 240;
@@ -1091,6 +1138,7 @@ namespace BdatTests
                     case "--attach": o.Attach = true; break;
                     case "--allow-open-docs": o.AllowOpenDocuments = true; break;
                     case "--keep": o.Keep = true; break;
+                    case "--parts-dir": if (++i >= args.Length) return null; o.PartsDir = args[i]; break;
                     case "--sw-exe": if (++i >= args.Length) return null; o.SolidWorksExe = args[i]; break;
                     case "--expect-loaded-dll": if (++i >= args.Length) return null; o.ExpectLoadedDll = args[i]; break;
                     case "--start-timeout": if (++i >= args.Length) return null; o.StartTimeoutSeconds = int.Parse(args[i]); break;

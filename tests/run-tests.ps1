@@ -16,6 +16,9 @@ param(
     [switch]$NoBuild,
     [switch]$Keep,
     [switch]$UseTestBuild,
+    # Real McMaster parts to test against (outside the repo: McMaster's CAD files shouldn't go on GitHub).
+    # Only copies are opened. Skipped if the folder is missing or empty.
+    [string]$PartsDir = (Join-Path (Split-Path -Parent (Split-Path -Parent $PSScriptRoot)) 'test-parts'),
     [string]$ApiDir = 'C:\Program Files\SOLIDWORKS Corp\SOLIDWORKS\api\redist'
 )
 
@@ -48,6 +51,7 @@ $harnessArgs = @()
 if ($SolidWorks) { $harnessArgs += '--solidworks', '--attach' }
 if ($Launch) { $harnessArgs += '--launch' }
 if ($Keep) { $harnessArgs += '--keep' }
+if ($PartsDir) { $harnessArgs += '--parts-dir', $PartsDir }
 
 # -UseTestBuild: for this run only, register the build under test for this Windows user (HKCU, no admin).
 # HKCU\Software\Classes wins over the machine-wide registration, so the SolidWorks the tests start loads it.
