@@ -1,13 +1,15 @@
+using System;
 using System.Collections.Generic;
 using System.Text;
 using SolidWorks.Interop.sldworks;
 using SolidWorks.Interop.swconst;
+using BDAT.Testing;
 
 namespace BDAT
 {
     /// <summary>
-    /// Read-only hooks the test runner (tests\BdatTests.exe) calls over COM on the BDAT that SolidWorks has
-    /// loaded, through ISldWorks.GetAddInObject. They report what is on the toolbar and change nothing.
+    /// Hooks the test runner (tests\BdatTests.exe) calls over COM on the BDAT that SolidWorks has loaded, through
+    /// ISldWorks.GetAddInObject. The toolbar ones only read; BdatTestRun only works in a test-mode SolidWorks.
     /// </summary>
     public partial class SwAddin
     {
@@ -27,6 +29,29 @@ namespace BDAT
             foreach (CommandEntry entry in _commands)
                 report.AppendLine(entry.Command.Title + "|" + entry.CommandId + "|" + onTab.Contains(entry.CommandId));
             return report.ToString();
+        }
+
+        /// <summary>
+        /// Runs one BDAT command inside SolidWorks, the way its button does, and returns every message it would
+        /// have shown, separated by the record separator character (U+001E). Only works in a SolidWorks started in test mode (BDAT_TEST_MODE=1);
+        /// anywhere else it refuses. answers: one character per question, 'y' or 'n' (empty means Yes to all).
+        /// </summary>
+        public string BdatTestRun(string title, string answers)
+        {
+            if (System.Environment.GetEnvironmentVariable(TestMode.EnvironmentVariable) != "1")
+                throw new InvalidOperationException("BdatTestRun only works in a SolidWorks started in BDAT test mode.");
+
+            TestMode.Reset();
+            foreach (char a in answers ?? "") TestMode.Answers.Enqueue(a == 'y' || a == 'Y');
+            foreach (CommandEntry entry in _commands)
+            {
+                if (entry.Command.Title != title) continue;
+                entry.Command.Run(_swApp);
+                if (TestMode.ConnectorAttempts != 0)
+                    throw new InvalidOperationException(title + " tried to reach 3DEXPERIENCE " + TestMode.ConnectorAttempts + " time(s).");
+                return string.Join("\u001e", TestMode.Messages.ToArray());
+            }
+            throw new ArgumentException("No BDAT command called " + title);
         }
 
         /// <summary>Where the loaded BDAT.dll lives, so the runner can tell the build under test from an installed one.</summary>

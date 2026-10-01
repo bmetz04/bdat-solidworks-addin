@@ -233,12 +233,19 @@ namespace BdatTests
                 ConstructorInfo ctor = connector.GetConstructors(BindingFlags.Instance | BindingFlags.NonPublic).First();
                 object fake = ctor.Invoke(new object[ctor.GetParameters().Length]);
 
+                string realLog = Path.Combine(Path.GetTempPath(), "BDAT", "save-mcm.log");
+                long logBefore = File.Exists(realLog) ? new FileInfo(realLog).Length : -1;
+
                 object checkedIn;
                 try { checkedIn = unlock.Invoke(null, new object[] { fake, @"C:\BDAT-test\91251A540.SLDPRT" }); }
                 catch (TargetInvocationException ex) { checkedIn = ex.InnerException; }
                 Check(TestMode.ConnectorAttempts >= 1, "check-in didn't go through the connector guard");
                 Check(!(checkedIn is bool) || !(bool)checkedIn, "check-in reported success in test mode");
                 TestMode.ConnectorAttempts = 0;
+
+                // The expected refusal stays in the test's own record, not in the user's save-mcm.log.
+                long logAfter = File.Exists(realLog) ? new FileInfo(realLog).Length : -1;
+                Check(logAfter == logBefore, "the test-mode refusal was written to " + realLog);
             });
 
             Test("Dialogs are recorded and answered in test mode", delegate
@@ -567,6 +574,9 @@ namespace BdatTests
             if (options.ExpectLoadedDll != null)
                 Check(string.Equals(Path.GetFullPath(options.ExpectLoadedDll), dll, StringComparison.OrdinalIgnoreCase),
                     "SolidWorks loaded " + dll + ", not the build under test " + options.ExpectLoadedDll);
+            // It's the build under test, in a SolidWorks started in test mode: run Murder Part inside SolidWorks,
+            // the way its button does, rather than from this process.
+            if (options.ExpectLoadedDll != null) _inProcessBdat = addin;
 
             var lines = report.Split(new[] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries).Select(l => l.Split('|')).ToList();
             Check(lines.Any(l => l[0] == "group" && l[1] == "True"), "the BDAT command group isn't registered");
@@ -586,17 +596,39 @@ namespace BdatTests
 
         // ---- Murder Part
 
+        /// <summary>The BDAT loaded in SolidWorks when it's the build under test, else null.</summary>
+        private static object _inProcessBdat;
+
+        /// <summary>
+        /// Runs Murder Part with the queued answers: inside SolidWorks when the build under test is loaded there,
+        /// otherwise from this process. Either way its messages end up in TestMode.Messages.
+        /// </summary>
+        private static void RunMurderPart(ISldWorks swApp)
+        {
+            if (_inProcessBdat == null)
+            {
+                new MurderPartCommand().Run(swApp);
+                return;
+            }
+            string answers = new string(TestMode.Answers.Select(a => a ? 'y' : 'n').ToArray());
+            TestMode.Answers.Clear();
+            string messages = (string)_inProcessBdat.GetType().InvokeMember("BdatTestRun", BindingFlags.InvokeMethod, null,
+                _inProcessBdat, new object[] { "Murder Part", answers });
+            if (!string.IsNullOrEmpty(messages)) TestMode.Messages.AddRange(messages.Split('\u001e'));
+        }
+
         private static void MurderTest(ISldWorks swApp, string partPath, double expectedVolume, string work)
         {
             string before = Snapshot(partPath);
-            string[] folderBefore = Directory.GetFiles(Path.GetDirectoryName(partPath));
             IModelDoc2 original = Open(swApp, partPath);
+            // After opening: SolidWorks puts its own ~$ lock file beside an open part.
+            string[] folderBefore = Directory.GetFiles(Path.GetDirectoryName(partPath));
             List<string> featuresBefore = FeatureNames(original);
             int docsBefore = swApp.GetDocumentCount();
             IModelDoc2 result = null;
             try
             {
-                new MurderPartCommand().Run(swApp);
+                RunMurderPart(swApp);
                 result = swApp.ActiveDoc as IModelDoc2;
 
                 Check(TestMode.Messages.Count >= 2, "expected a confirmation and a summary, got " + TestMode.Messages.Count + " message(s)");
@@ -609,7 +641,7 @@ namespace BdatTests
 
                 object[] bodies = ((IPartDoc)result).GetBodies2((int)swBodyType_e.swSolidBody, true) as object[];
                 int count = bodies == null ? 0 : bodies.Length;
-                Check(count == 1, "the result should be a single body, it has " + count);
+                Check(count == 1, "the result should be a single body, it has " + count + ". Murder Part said: " + TestMode.Messages.Last().Replace("\n", " "));
                 Near(expectedVolume, Volume(result), 0.01, "result volume (thread geometry should be gone)");
                 Check(!FeatureTypes(result).Contains("CosmeticThread"), "the result still has a cosmetic thread");
 
@@ -641,7 +673,7 @@ namespace BdatTests
             try
             {
                 TestMode.Answers.Enqueue(false);
-                new MurderPartCommand().Run(swApp);
+                RunMurderPart(swApp);
                 Check(TestMode.Messages.Count == 1, "expected only the confirmation, got " + TestMode.Messages.Count + " message(s)");
                 Check(swApp.GetDocumentCount() == docsBefore, "a document was opened after answering No");
                 Check(!original.GetSaveFlag(), "the original part was modified");
@@ -841,7 +873,7 @@ namespace BdatTests
         {
             var info = new FileInfo(path);
             using (var sha = SHA256.Create())
-            using (var stream = File.OpenRead(path))
+            using (var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete)) // SolidWorks keeps open parts open
                 return info.Length + "|" + info.LastWriteTimeUtc.Ticks + "|" + BitConverter.ToString(sha.ComputeHash(stream));
         }
 
