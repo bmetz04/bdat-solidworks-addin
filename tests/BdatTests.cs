@@ -441,7 +441,7 @@ namespace BdatTests
                 freezeBarWasOn = swApp.GetUserPreferenceToggle((int)swUserPreferenceToggle_e.swUserEnableFreezeBar);
 
                 Test("BDAT tab has every button", delegate { CheckToolbar(swApp, options); });
-                Test("XYZ Planes: needs a part open", delegate { XyzPlanesNoPartTest(swApp); });
+                Test("XYZ Planes: needs a part or assembly open", delegate { XyzPlanesNoPartTest(swApp); });
 
                 Directory.CreateDirectory(work);
                 Samples samples = null;
