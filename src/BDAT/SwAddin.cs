@@ -40,9 +40,9 @@ namespace BDAT
         {
             new CommandEntry(new MurderPartCommand(), "OnMurderPart", "CanMurderPart"),
             new CommandEntry(new SaveMcmCommand(), "OnSaveMcm", "CanSaveMcm"),
-            new CommandEntry(new XyzPlanesCommand(), "OnXyzPlanes", "CanXyzPlanes"),
-            new CommandEntry(new UpdateCommand(), "OnUpdate", "CanUpdate"),
-            new CommandEntry(new VersionCommand(), "OnVersion", "CanVersion"),
+            new CommandEntry(new XyzPlanesCommand(), "OnXyzPlanes", "CanXyzPlanes", true),
+            new CommandEntry(new UpdateCommand(), "OnUpdate", "CanUpdate", true),
+            new CommandEntry(new VersionCommand(), "OnVersion", "CanVersion", true),
         };
 
         #region ISwAddin
@@ -125,8 +125,10 @@ namespace BDAT
             foreach (CommandEntry entry in _commands)
                 entry.CommandId = group.get_CommandID(entry.ItemIndex);
 
-            // Put the buttons on a "BDAT" tab in the CommandManager ribbon when a part is open.
+            // Put the buttons on a "BDAT" tab in the CommandManager ribbon when a part is open, and the ones that
+            // work in assemblies on a "BDAT" tab when an assembly is open.
             AddCommandTab(swDocumentTypes_e.swDocPART);
+            AddCommandTab(swDocumentTypes_e.swDocASSEMBLY);
 
             SaveVersion();
         }
@@ -141,14 +143,15 @@ namespace BDAT
             tab = _cmdMgr.AddCommandTab((int)docType, AddinTitle);
             CommandTabBox box = tab.AddCommandTabBox();
 
-            int[] ids = new int[_commands.Count];
-            int[] textTypes = new int[_commands.Count];
-            for (int i = 0; i < _commands.Count; i++)
+            var ids = new List<int>();
+            var textTypes = new List<int>();
+            foreach (CommandEntry entry in _commands)
             {
-                ids[i] = _commands[i].CommandId;
-                textTypes[i] = (int)swCommandTabButtonTextDisplay_e.swCommandTabButton_TextBelow;
+                if (docType == swDocumentTypes_e.swDocASSEMBLY && !entry.InAssemblies) continue;
+                ids.Add(entry.CommandId);
+                textTypes.Add((int)swCommandTabButtonTextDisplay_e.swCommandTabButton_TextBelow);
             }
-            box.AddCommands(ids, textTypes);
+            box.AddCommands(ids.ToArray(), textTypes.ToArray());
         }
 
         // SolidWorks saves each CommandManager tab as a fixed list of button slots, e.g.
@@ -259,15 +262,23 @@ namespace BDAT
         private sealed class CommandEntry
         {
             public CommandEntry(IBdatCommand command, string callback, string enableCallback)
+                : this(command, callback, enableCallback, false)
+            {
+            }
+
+            public CommandEntry(IBdatCommand command, string callback, string enableCallback, bool inAssemblies)
             {
                 Command = command;
                 Callback = callback;
                 EnableCallback = enableCallback;
+                InAssemblies = inAssemblies;
             }
 
             public IBdatCommand Command { get; private set; }
             public string Callback { get; private set; }
             public string EnableCallback { get; private set; }
+            /// <summary>Also on the BDAT tab when an assembly is open.</summary>
+            public bool InAssemblies { get; private set; }
             public int ItemIndex { get; set; }
             public int CommandId { get; set; }
         }

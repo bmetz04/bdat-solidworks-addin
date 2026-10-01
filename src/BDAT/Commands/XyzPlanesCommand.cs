@@ -9,10 +9,11 @@ using BDAT.Testing;
 namespace BDAT.Commands
 {
     /// <summary>
-    /// XYZ Planes: type a point, get three planes through it, so the part can be origin-mated in the top level.
+    /// XYZ Planes: type a point, get three planes through it, so a part or sub-assembly can be origin-mated in the
+    /// top level. Works in parts and assemblies.
     ///
-    ///   1. A pop-up asks for X, Y and Z, in the part's units (or with a unit typed after the number, e.g. "2 in").
-    ///   2. Three planes are made through that point, parallel to the part's own planes:
+    ///   1. A pop-up asks for X, Y and Z, in the document's units (or with a unit typed after the number, e.g. "2 in").
+    ///   2. Three planes are made through that point, parallel to the document's own planes:
     ///        XY, offset from the Front plane by Z
     ///        XZ, offset from the Top plane by Y
     ///        YZ, offset from the Right plane by X
@@ -31,15 +32,22 @@ namespace BDAT.Commands
         public bool IsEnabled(ISldWorks swApp)
         {
             IModelDoc2 doc = swApp.ActiveDoc as IModelDoc2;
-            return doc != null && doc.GetType() == (int)swDocumentTypes_e.swDocPART;
+            return IsPartOrAssembly(doc);
+        }
+
+        private static bool IsPartOrAssembly(IModelDoc2 doc)
+        {
+            if (doc == null) return false;
+            int type = doc.GetType();
+            return type == (int)swDocumentTypes_e.swDocPART || type == (int)swDocumentTypes_e.swDocASSEMBLY;
         }
 
         public void Run(ISldWorks swApp)
         {
             IModelDoc2 doc = swApp.ActiveDoc as IModelDoc2;
-            if (doc == null || doc.GetType() != (int)swDocumentTypes_e.swDocPART)
+            if (!IsPartOrAssembly(doc))
             {
-                Ui.Tell(swApp, "Open a part first. XYZ Planes adds the planes to the part you have open.", swMessageBoxIcon_e.swMbWarning);
+                Ui.Tell(swApp, "Open a part or assembly first. XYZ Planes adds the planes to the one you have open.", swMessageBoxIcon_e.swMbWarning);
                 return;
             }
 
@@ -51,7 +59,7 @@ namespace BDAT.Commands
             IFeature[] bases = StandardPlanes(doc);
             if (bases == null)
             {
-                Ui.Tell(swApp, "Couldn't find this part's Front, Top and Right planes, so no planes were made.", swMessageBoxIcon_e.swMbStop);
+                Ui.Tell(swApp, "Couldn't find the Front, Top and Right planes, so no planes were made.", swMessageBoxIcon_e.swMbStop);
                 return;
             }
 
@@ -112,7 +120,7 @@ namespace BDAT.Commands
         // ---------------------------------------------------------------- planes
 
         /// <summary>
-        /// Front, Top and Right: the part's first three planes, told apart by their normals (Z, Y, X) so a renamed
+        /// Front, Top and Right: the document's first three planes, told apart by their normals (Z, Y, X) so a renamed
         /// or reordered plane still lands in the right place. Null if they can't be found.
         /// </summary>
         private static IFeature[] StandardPlanes(IModelDoc2 doc)
@@ -137,7 +145,7 @@ namespace BDAT.Commands
                 if (byNormal[slot] == null) byNormal[slot] = plane;
             }
             if (byNormal[0] != null && byNormal[1] != null && byNormal[2] != null) return byNormal;
-            // Couldn't tell them apart: every SolidWorks part starts Front, Top, Right.
+            // Couldn't tell them apart: every SolidWorks part and assembly starts Front, Top, Right.
             return planes.ToArray();
         }
 
@@ -204,13 +212,20 @@ namespace BDAT.Commands
             return ay >= ax ? 1 : 0;
         }
 
-        /// <summary>Names the feature, adding " 2", " 3"... if the part already has one with that name.</summary>
+        /// <summary>Names the feature, adding " 2", " 3"... if the document already has one with that name.</summary>
         private static void Rename(IModelDoc2 doc, IFeature feature, string name)
         {
-            IPartDoc part = (IPartDoc)doc;
             string unique = name;
-            for (int n = 2; part.FeatureByName(unique) != null && n < 100; n++) unique = name + " " + n;
+            for (int n = 2; FeatureByName(doc, unique) != null && n < 100; n++) unique = name + " " + n;
             feature.Name = unique;
+        }
+
+        internal static IFeature FeatureByName(IModelDoc2 doc, string name)
+        {
+            IPartDoc part = doc as IPartDoc;
+            if (part != null) return part.FeatureByName(name) as IFeature;
+            IAssemblyDoc assembly = doc as IAssemblyDoc;
+            return assembly == null ? null : assembly.FeatureByName(name) as IFeature;
         }
 
         private static void Delete(IModelDoc2 doc, IFeature feature)
@@ -274,7 +289,7 @@ namespace BDAT.Commands
             new KeyValuePair<string, LengthUnit>("\"", Inches),
         };
 
-        /// <summary>The part's length unit (Tools > Options > Document Properties > Units).</summary>
+        /// <summary>The document's length unit (Tools > Options > Document Properties > Units).</summary>
         private static LengthUnit DocumentUnit(IModelDoc2 doc)
         {
             int unit = doc.Extension.GetUserPreferenceInteger(

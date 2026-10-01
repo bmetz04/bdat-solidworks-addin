@@ -490,6 +490,10 @@ namespace BdatTests
                 {
                     XyzPlanesTest(swApp, new[] { "5mm", "5mm", "5mm" }, new[] { 0.005, 0.005, 0.005 }, 2);
                 });
+                Test("XYZ Planes: in an assembly", delegate
+                {
+                    XyzPlanesTest(swApp, new[] { "-100mm", "250mm", "0.5 in" }, new[] { -0.100, 0.250, 0.0127 }, 1, true);
+                });
                 Test("XYZ Planes: Cancel makes nothing", delegate { XyzPlanesNothingTest(swApp, null); });
                 Test("XYZ Planes: a bad number makes nothing", delegate { XyzPlanesNothingTest(swApp, new[] { "1", "abc", "3" }); });
 
@@ -764,7 +768,7 @@ namespace BdatTests
         {
             Check(swApp.GetDocumentCount() == 0, "this test needs SolidWorks with nothing open");
             var command = new XyzPlanesCommand();
-            Check(!command.IsEnabled(swApp), "XYZ Planes should be greyed out with no part open");
+            Check(!command.IsEnabled(swApp), "XYZ Planes should be greyed out with nothing open");
             TestMode.PlaneCoordinates = new[] { "1", "2", "3" };
             command.Run(swApp);
             Check(TestMode.LastXyzPlanes == null, "XYZ Planes made planes with no part open");
@@ -772,17 +776,17 @@ namespace BdatTests
         }
 
         /// <summary>
-        /// Runs XYZ Planes runs times in a new part with the typed coordinates, then checks the planes it made the
+        /// Runs XYZ Planes runs times in a new part (or assembly) with the typed coordinates, then checks the planes it made the
         /// last time: named with the point, in a folder, and (measured from a 3D sketch point, independently of how
         /// BDAT places them) each one through the point on the right side of the origin.
         /// </summary>
-        private static void XyzPlanesTest(ISldWorks swApp, string[] typed, double[] expected, int runs)
+        private static void XyzPlanesTest(ISldWorks swApp, string[] typed, double[] expected, int runs, bool assembly = false)
         {
-            IModelDoc2 doc = Samples.NewPart(swApp);
+            IModelDoc2 doc = assembly ? Samples.NewAssembly(swApp) : Samples.NewPart(swApp);
             try
             {
                 var command = new XyzPlanesCommand();
-                Check(command.IsEnabled(swApp), "XYZ Planes should be enabled with a part open");
+                Check(command.IsEnabled(swApp), "XYZ Planes should be enabled with a" + (assembly ? "n assembly" : " part") + " open");
                 for (int run = 1; run <= runs; run++)
                 {
                     TestMode.LastXyzPlanes = null;
@@ -802,7 +806,7 @@ namespace BdatTests
                 for (int i = 0; i < 3; i++) Equal(prefixes[i] + label + suffix, r.Planes[i], "plane " + (i + 1) + " name");
                 Equal("Origin " + label + suffix, r.Folder, "folder name");
 
-                IFeature folder = ((IPartDoc)doc).FeatureByName(r.Folder) as IFeature;
+                IFeature folder = XyzPlanesCommand.FeatureByName(doc, r.Folder);
                 Check(folder != null && folder.GetTypeName2() == "FtrFolder", "no \"" + r.Folder + "\" folder in the tree");
 
                 // A point at (50, 50, 50) mm. A plane through the expected point is |50 mm - coordinate| from it;
@@ -817,7 +821,7 @@ namespace BdatTests
                 int[] axisOf = { 2, 1, 0 }; // XY is at Z, XZ at Y, YZ at X
                 for (int i = 0; i < 3; i++)
                 {
-                    IFeature plane = ((IPartDoc)doc).FeatureByName(r.Planes[i]) as IFeature;
+                    IFeature plane = XyzPlanesCommand.FeatureByName(doc, r.Planes[i]);
                     Check(plane != null && plane.GetTypeName2() == "RefPlane", "no plane called \"" + r.Planes[i] + "\"");
                     double want = Math.Abs(p - expected[axisOf[i]]);
                     double got = Distance(doc, plane, probe);
@@ -1186,6 +1190,16 @@ namespace BdatTests
             var doc = swApp.NewDocument(template, 0, 0, 0) as IModelDoc2;
             if (doc == null) throw new Exception("couldn't make a new part");
             doc.SketchManager.AddToDB = true; // no snapping while sketching
+            return doc;
+        }
+
+        internal static IModelDoc2 NewAssembly(ISldWorks swApp)
+        {
+            string template = swApp.GetUserPreferenceStringValue((int)swUserPreferenceStringValue_e.swDefaultTemplateAssembly);
+            if (string.IsNullOrEmpty(template) || !File.Exists(template)) throw new Exception("no default assembly template (" + template + ")");
+            var doc = swApp.NewDocument(template, 0, 0, 0) as IModelDoc2;
+            if (doc == null) throw new Exception("couldn't make a new assembly");
+            doc.SketchManager.AddToDB = true;
             return doc;
         }
 

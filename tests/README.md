@@ -49,9 +49,9 @@ The SolidWorks tests never close a SolidWorks they didn't start. They won't run 
   - Save, add to bookmark and check-in are listed as skipped, and nothing reaches the connector. Unit tests check that every way into the connector (Find, Manager, Call, Get, Set) throws in test mode, and that Save MCM's check-in step (Unlock) is refused at the connector and reports "not checked in".
   - The part file is never saved.
 
-- XYZ Planes, in new unsaved parts that are closed without saving:
-  - With no part open the button is greyed out and only says to open a part.
-  - It makes XY, XZ and YZ planes named with the point, in an `Origin (...)` folder. Each plane's distance to a 3D sketch point is measured with SolidWorks' Measure tool, which proves it goes through the point and is on the right side of the origin. This covers negative numbers, a 0 coordinate and typed inches.
+- XYZ Planes, in new unsaved parts and an assembly that are closed without saving:
+  - With nothing open the button is greyed out and only says to open a part or assembly.
+  - It makes XY, XZ and YZ planes named with the point, in an `Origin (...)` folder. Each plane's distance to a 3D sketch point is measured with SolidWorks' Measure tool, which proves it goes through the point and is on the right side of the origin. This covers negative numbers, a 0 coordinate, typed inches and an assembly.
   - Running it twice in the same part keeps every name unique.
   - Cancel, or a box that isn't a number, adds nothing to the part.
 
