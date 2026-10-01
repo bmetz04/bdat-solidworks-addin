@@ -12,10 +12,12 @@ namespace BDAT.Commands
     /// then open the Parasolid as a new dumb-solid part.
     ///
     /// Steps:
-    ///   1. Delete all cosmetic threads and modeled Thread features (modeled threads become plain cylinders).
-    ///   2. Save a copy as &lt;PartName&gt;_murdered.x_t in the same folder as the part.
+    ///   1. Delete every feature folder with "thread" in its name (e.g. McMaster's "Threads" folder)
+    ///      together with everything inside it, plus any cosmetic threads and Thread features elsewhere.
+    ///   2. Export to a temporary .x_t (in %TEMP%\BDAT, never next to the part).
     ///   3. Reload the original part from disk so the .SLDPRT keeps its threads.
-    ///   4. Open the .x_t as a new part and, if it came in as several bodies, try to combine them into one.
+    ///   4. Open the .x_t as a new unsaved part, combine its bodies into one if needed,
+    ///      then delete the temporary .x_t.
     /// </summary>
     public sealed class MurderPartCommand : IBdatCommand
     {
@@ -24,6 +26,18 @@ namespace BDAT.Commands
         public string Hint { get { return "Remove all threads, export to Parasolid and reopen it as a single dumb solid"; } }
 
         private const string ExportSuffix = "_murdered";
+        private const string FolderTypeName = "FtrFolder";
+        private const string FolderEndTag = "___EndTag___";
+
+        private static string TempDir
+        {
+            get
+            {
+                string dir = Path.Combine(Path.GetTempPath(), "BDAT", "murder");
+                Directory.CreateDirectory(dir);
+                return dir;
+            }
+        }
 
         public bool IsEnabled(ISldWorks swApp)
         {
@@ -40,11 +54,11 @@ namespace BDAT.Commands
                 return;
             }
 
-            // We need a folder to put the .x_t in, and the reload in step 3 discards unsaved work.
+            // The reload in step 3 restores the part from disk, so it has to be saved there.
             string partPath = doc.GetPathName();
             if (string.IsNullOrEmpty(partPath))
             {
-                Tell(swApp, "Save the part to a folder first so Murder Part knows where to put the Parasolid.",
+                Tell(swApp, "Save the part first. Murder Part reloads the original from disk afterwards so it keeps its threads.",
                     swMessageBoxIcon_e.swMbWarning);
                 return;
             }
@@ -66,15 +80,14 @@ namespace BDAT.Commands
             }
 
             // 1. Delete threads.
-            int cosmeticCount, modeledCount;
-            List<IFeature> threads = FindThreadFeatures(doc, out cosmeticCount, out modeledCount);
-            int failedDeletes = DeleteFeatures(doc, threads);
+            ThreadScan scan = FindThreads(doc);
+            int failedDeletes = DeleteFeatures(doc, scan.FeatureNames);
+            DeleteFolders(doc, scan.FolderNames);
             doc.ForceRebuild3(false);
 
-            // 2. Export to Parasolid next to the original.
-            string xtPath = Path.Combine(
-                Path.GetDirectoryName(partPath),
-                Path.GetFileNameWithoutExtension(partPath) + ExportSuffix + ".x_t");
+            // 2. Export to a temporary Parasolid, out of the part's folder.
+            CleanTempDir();
+            string xtPath = Path.Combine(TempDir, Path.GetFileNameWithoutExtension(partPath) + ExportSuffix + ".x_t");
 
             int errors = 0, warnings = 0;
             bool exported = doc.Extension.SaveAs3(
@@ -95,14 +108,15 @@ namespace BDAT.Commands
                 return;
             }
 
-            // 4. Open the Parasolid as a new part.
+            // 4. Open the Parasolid as a new part, then throw the temporary file away.
             int loadErrors = 0;
             object importData = swApp.GetImportFileData(xtPath);
             IModelDoc2 newDoc = swApp.LoadFile4(xtPath, "r", importData, ref loadErrors) as IModelDoc2;
+            TryDelete(xtPath);
             if (newDoc == null)
             {
                 Tell(swApp,
-                    "Exported " + xtPath + "\nbut SolidWorks couldn't open it (error code " + loadErrors + ").\n\n" + RestoreNote(originalRestored),
+                    "SolidWorks couldn't open the exported Parasolid (error code " + loadErrors + ").\n\n" + RestoreNote(originalRestored),
                     swMessageBoxIcon_e.swMbWarning);
                 return;
             }
@@ -110,86 +124,152 @@ namespace BDAT.Commands
             string bodyNote = MergeBodies(newDoc);
 
             var summary = new StringBuilder();
-            summary.AppendLine("Removed " + cosmeticCount + " cosmetic thread(s) and " + modeledCount + " modeled thread feature(s).");
+            if (scan.FolderNames.Count > 0)
+                summary.AppendLine("Deleted the " + string.Join(", ", scan.FolderNames.ToArray()) + " folder(s) and everything in them.");
+            summary.AppendLine("Removed " + scan.FeatureNames.Count + " thread feature(s) in total.");
             if (failedDeletes > 0)
-                summary.AppendLine(failedDeletes + " thread(s) couldn't be deleted and may still be in the export.");
+                summary.AppendLine(failedDeletes + " feature(s) couldn't be deleted, so some thread geometry may remain.");
+            if (scan.FeatureNames.Count == 0)
+                summary.AppendLine("No threads were found, so the part was exported as it is.");
             summary.AppendLine();
-            summary.AppendLine("Exported to:");
-            summary.AppendLine(xtPath);
-            summary.AppendLine();
-            summary.AppendLine("Opened it as a new part (not saved yet). " + bodyNote);
+            summary.AppendLine("Opened the result as a new part. " + bodyNote);
+            summary.AppendLine("It isn't saved anywhere yet; use Save As to keep it.");
             summary.AppendLine();
             summary.Append(RestoreNote(originalRestored));
             Tell(swApp, summary.ToString(), swMessageBoxIcon_e.swMbInformation);
         }
 
-        /// <summary>Walks the whole feature tree, including sub-features (where cosmetic threads live).</summary>
-        private static List<IFeature> FindThreadFeatures(IModelDoc2 doc, out int cosmeticCount, out int modeledCount)
+        private sealed class ThreadScan
         {
-            var found = new List<IFeature>();
+            public readonly List<string> FeatureNames = new List<string>();
+            public readonly List<string> FolderNames = new List<string>();
+        }
+
+        /// <summary>
+        /// Collects, in feature-tree order, every feature inside a thread folder plus every cosmetic
+        /// thread or Thread feature anywhere in the tree (including sub-features, where cosmetic threads live).
+        /// </summary>
+        private static ThreadScan FindThreads(IModelDoc2 doc)
+        {
+            var scan = new ThreadScan();
             var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-            cosmeticCount = 0;
-            modeledCount = 0;
 
             IFeature feat = doc.FirstFeature() as IFeature;
             while (feat != null)
             {
-                Visit(feat, found, seen, ref cosmeticCount, ref modeledCount);
+                if (IsThreadFolder(feat))
+                {
+                    scan.FolderNames.Add(feat.Name);
+                    CollectFolder(feat, scan, seen);
+                }
+                else
+                {
+                    Visit(feat, scan, seen);
+                }
                 feat = feat.GetNextFeature() as IFeature;
             }
-            return found;
+            return scan;
         }
 
-        private static void Visit(IFeature feat, List<IFeature> found, HashSet<string> seen,
-            ref int cosmeticCount, ref int modeledCount)
+        private static bool IsThreadFolder(IFeature feat)
         {
-            ThreadKind kind = Classify(feat);
-            if (kind != ThreadKind.None && seen.Add(feat.Name))
+            string name = feat.Name ?? "";
+            return string.Equals(feat.GetTypeName2(), FolderTypeName, StringComparison.OrdinalIgnoreCase)
+                && name.IndexOf(FolderEndTag, StringComparison.Ordinal) < 0
+                && name.IndexOf("thread", StringComparison.OrdinalIgnoreCase) >= 0;
+        }
+
+        private static void CollectFolder(IFeature folderFeat, ThreadScan scan, HashSet<string> seen)
+        {
+            IFeatureFolder folder = folderFeat.GetSpecificFeature2() as IFeatureFolder;
+            object[] contents = folder == null ? null : folder.GetFeatures() as object[];
+            if (contents == null) return;
+
+            foreach (object item in contents)
             {
-                found.Add(feat);
-                if (kind == ThreadKind.Cosmetic) cosmeticCount++;
-                else modeledCount++;
+                IFeature inner = item as IFeature;
+                if (inner == null) continue;
+                if (string.Equals(inner.GetTypeName2(), FolderTypeName, StringComparison.OrdinalIgnoreCase))
+                {
+                    CollectFolder(inner, scan, seen); // nested folder: take its contents too
+                    if (!scan.FolderNames.Contains(inner.Name)) scan.FolderNames.Add(inner.Name);
+                }
+                else if (seen.Add(inner.Name))
+                {
+                    scan.FeatureNames.Add(inner.Name);
+                }
             }
+        }
+
+        private static void Visit(IFeature feat, ThreadScan scan, HashSet<string> seen)
+        {
+            if (IsThreadFeature(feat) && seen.Add(feat.Name))
+                scan.FeatureNames.Add(feat.Name);
 
             IFeature sub = feat.GetFirstSubFeature() as IFeature;
             while (sub != null)
             {
-                Visit(sub, found, seen, ref cosmeticCount, ref modeledCount);
+                Visit(sub, scan, seen);
                 sub = sub.GetNextSubFeature() as IFeature;
             }
         }
 
-        private enum ThreadKind { None, Cosmetic, Modeled }
-
-        private static ThreadKind Classify(IFeature feat)
+        private static bool IsThreadFeature(IFeature feat)
         {
             string typeName = feat.GetTypeName2() ?? "";
-            if (typeName.Equals("CosmeticThread", StringComparison.OrdinalIgnoreCase))
-                return ThreadKind.Cosmetic;
-            if (typeName.Equals("Thread", StringComparison.OrdinalIgnoreCase))
-                return ThreadKind.Modeled;
+            if (typeName.Equals("CosmeticThread", StringComparison.OrdinalIgnoreCase)
+                || typeName.Equals("Thread", StringComparison.OrdinalIgnoreCase))
+                return true;
 
             // Fall back to the feature definition in case the type name differs between versions.
             object definition = null;
             try { definition = feat.GetDefinition(); } catch { /* some features have no definition */ }
-            if (definition is ICosmeticThreadFeatureData) return ThreadKind.Cosmetic;
-            if (definition is IThreadFeatureData) return ThreadKind.Modeled;
-            return ThreadKind.None;
+            return definition is ICosmeticThreadFeatureData || definition is IThreadFeatureData;
         }
 
-        /// <summary>Deletes each feature on its own so one failure doesn't stop the rest. Returns the failure count.</summary>
-        private static int DeleteFeatures(IModelDoc2 doc, List<IFeature> features)
+        /// <summary>
+        /// Deletes features newest-first so children go before their parents. Features are looked up by
+        /// name each time because deleting one can take others with it. Returns how many couldn't be deleted.
+        /// </summary>
+        private static int DeleteFeatures(IModelDoc2 doc, List<string> names)
         {
+            IPartDoc part = (IPartDoc)doc;
             int failed = 0;
-            foreach (IFeature feat in features)
+            for (int i = names.Count - 1; i >= 0; i--)
             {
-                doc.ClearSelection2(true);
-                bool selected = feat.Select2(false, -1);
-                bool deleted = selected && doc.Extension.DeleteSelection2((int)swDeleteSelectionOptions_e.swDelete_Absorbed);
+                IFeature feat = part.FeatureByName(names[i]) as IFeature;
+                if (feat == null) continue; // already removed along with something else
+
+                bool deleted = DeleteOne(doc, feat, (int)swDeleteSelectionOptions_e.swDelete_Absorbed);
+                if (!deleted)
+                {
+                    // Something outside the folder depends on it (e.g. a chamfer on a thread edge): take that too.
+                    feat = part.FeatureByName(names[i]) as IFeature;
+                    deleted = feat == null || DeleteOne(doc, feat,
+                        (int)(swDeleteSelectionOptions_e.swDelete_Absorbed | swDeleteSelectionOptions_e.swDelete_Children));
+                }
                 if (!deleted) failed++;
             }
             doc.ClearSelection2(true);
             return failed;
+        }
+
+        /// <summary>Removes the (now empty) thread folders themselves, innermost first.</summary>
+        private static void DeleteFolders(IModelDoc2 doc, List<string> folderNames)
+        {
+            IPartDoc part = (IPartDoc)doc;
+            for (int i = folderNames.Count - 1; i >= 0; i--)
+            {
+                IFeature folder = part.FeatureByName(folderNames[i]) as IFeature;
+                if (folder != null) DeleteOne(doc, folder, 0);
+            }
+            doc.ClearSelection2(true);
+        }
+
+        private static bool DeleteOne(IModelDoc2 doc, IFeature feat, int options)
+        {
+            doc.ClearSelection2(true);
+            return feat.Select2(false, -1) && doc.Extension.DeleteSelection2(options);
         }
 
         /// <summary>Combines multiple imported solid bodies into one when they touch.</summary>
@@ -216,6 +296,25 @@ namespace BDAT.Commands
             {
                 return "It came in as " + count + " bodies and combining them failed, so they were left separate.";
             }
+        }
+
+        /// <summary>Clears leftovers from earlier runs (e.g. a file SolidWorks still had locked last time).</summary>
+        private static void CleanTempDir()
+        {
+            try
+            {
+                foreach (string file in Directory.GetFiles(TempDir, "*.x_t"))
+                    TryDelete(file);
+            }
+            catch
+            {
+                // Not worth failing the command over.
+            }
+        }
+
+        private static void TryDelete(string path)
+        {
+            try { File.Delete(path); } catch { /* cleaned up on the next run */ }
         }
 
         private static string RestoreNote(bool originalRestored)
