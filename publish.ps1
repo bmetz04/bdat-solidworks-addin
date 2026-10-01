@@ -37,6 +37,27 @@ if (Test-Path $versionFile) {
 $version = "v$number (" + (Get-Date -Format 'yyyy-MM-dd HH:mm') + ')'
 $changes = git status --porcelain -- . ':!release'
 
+# Release notes: draft them from the commits since the last publish, then let Ben edit them in Notepad.
+$lastPublish = (git log -1 --format=%H --grep='^Publish BDAT')
+$range = if ($lastPublish) { "$lastPublish..HEAD" } else { 'HEAD' }
+$draft = @(git log --no-merges --format='- %s' $range | Where-Object { $_ -notmatch '^- Publish BDAT' })
+if ($changes) { $draft += '- (describe your uncommitted changes here)' }
+$notesFile = Join-Path $env:TEMP 'BDAT release notes.txt'
+$header = @(
+    "# Release notes for BDAT $version",
+    '# Write what changed, one "- " line per change, in words the team will understand.',
+    '# Lines starting with # are ignored. Save and close Notepad to continue. Leave it empty to cancel.',
+    '')
+Set-Content -Path $notesFile -Value ($header + $draft) -Encoding UTF8
+Write-Host 'Write the release notes in Notepad, then save and close it.'
+Start-Process notepad.exe -ArgumentList "`"$notesFile`"" -Wait
+$notes = @(Get-Content $notesFile -Encoding UTF8 | Where-Object { $_ -notmatch '^\s*#' }) -join "`r`n"
+$notes = $notes.Trim()
+if (-not $notes) { Finish 'No release notes, so nothing was published.' 1 }
+Write-Host ''
+Write-Host "Release notes for $($version):"
+Write-Host $notes
+
 # Stamp the version into the DLL, so the BDAT version button shows it.
 $assemblyInfo = Join-Path $repo 'build\AssemblyInfo.cs'
 $text = [IO.File]::ReadAllText($assemblyInfo)
@@ -65,6 +86,16 @@ $release = Join-Path $repo 'release'
 if (-not (Test-Path $release)) { New-Item -ItemType Directory -Path $release | Out-Null }
 Copy-Item (Join-Path $repo 'src\BDAT\bin\Release\net48\BDAT.dll') $release -Force
 Set-Content -Path $versionFile -Value $version
+
+# Latest notes for the Update BDAT button, plus the full history in RELEASE-NOTES.md.
+[IO.File]::WriteAllText((Join-Path $release 'notes.txt'), $notes + "`r`n")
+$historyFile = Join-Path $repo 'RELEASE-NOTES.md'
+$history = if (Test-Path $historyFile) { [IO.File]::ReadAllText($historyFile) } else { "# BDAT release notes`r`n" }
+$marker = $history.IndexOf("`n## ")
+$entry = "## $version`r`n`r`n$notes`r`n`r`n"
+if ($marker -ge 0) { $history = $history.Substring(0, $marker + 1) + $entry + $history.Substring($marker + 1) }
+else { $history = $history.TrimEnd() + "`r`n`r`n" + $entry }
+[IO.File]::WriteAllText($historyFile, $history)
 
 git add -A
 git commit -q -m "Publish BDAT $version"

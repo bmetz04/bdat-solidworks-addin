@@ -9,6 +9,9 @@ namespace BDAT
         /// <summary>Folder on GitHub that Publish BDAT.bat pushes builds to.</summary>
         public const string ReleaseUrl = "https://raw.githubusercontent.com/bmetz04/bdat-solidworks-addin/main/release/";
 
+        /// <summary>Every published version and what changed in it.</summary>
+        public const string ReleaseNotesPage = "https://github.com/bmetz04/bdat-solidworks-addin/blob/main/RELEASE-NOTES.md";
+
         /// <summary>The installer, which also does updates.</summary>
         public const string SetupUrl = "https://raw.githubusercontent.com/bmetz04/bdat-solidworks-addin/main/BDAT%20Setup.bat";
 

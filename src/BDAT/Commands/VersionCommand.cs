@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.Windows.Forms;
 using SolidWorks.Interop.sldworks;
 
@@ -14,9 +15,11 @@ namespace BDAT.Commands
 
         public void Run(ISldWorks swApp)
         {
-            MessageBox.Show(
-                "Running BDAT " + BuildInfo.Version + "\n\nLoaded from:\n" + BuildInfo.DllPath,
-                "BDAT version", MessageBoxButtons.OK, MessageBoxIcon.Information);
+            DialogResult answer = MessageBox.Show(
+                "Running BDAT " + BuildInfo.Version + "\n\nLoaded from:\n" + BuildInfo.DllPath +
+                "\n\nOpen the release notes to see what changed in each version?",
+                "BDAT version", MessageBoxButtons.YesNo, MessageBoxIcon.Information);
+            if (answer == DialogResult.Yes) Process.Start(BuildInfo.ReleaseNotesPage);
         }
     }
 }

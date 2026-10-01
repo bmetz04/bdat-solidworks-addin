@@ -13,4 +13,4 @@ Close SolidWorks and double-click **Update BDAT** on the desktop.
 
 ## Publishing a new version (Ben)
 
-Ben's PC has the code checked out at `C:\Users\bacon\BDAT\bdat-solidworks-addin`. After changing the code there, double-click **Publish BDAT.bat** in that folder. It builds BDAT, asks to confirm, and pushes the build to the `release` folder on GitHub, which is where everyone's **Update BDAT** downloads from.
+Ben's PC has the code checked out at `C:\Users\bacon\BDAT\bdat-solidworks-addin`. After changing the code there, double-click **Publish BDAT.bat** in that folder. It opens Notepad with draft release notes (edit, save, close), builds BDAT, asks to confirm, and pushes the build to the `release` folder on GitHub, which is where everyone's **Update BDAT** downloads from.

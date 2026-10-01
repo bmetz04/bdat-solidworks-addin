@@ -1,0 +1,1 @@
+- Update BDAT always gets the newest build, even right after a publish.

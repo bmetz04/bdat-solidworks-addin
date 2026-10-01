@@ -27,6 +27,7 @@ namespace BDAT.Commands
         {
             string running = BuildInfo.Version;
             string latest;
+            string notes = "";
             string installer = Path.Combine(Path.GetTempPath(), "BDAT", "BDAT Update.bat");
             try
             {
@@ -34,11 +35,14 @@ namespace BDAT.Commands
                 using (WebClient web = new WebClient())
                 {
                     web.Headers.Add("Cache-Control", "no-cache");
+                    web.Encoding = System.Text.Encoding.UTF8;
                     // The query string stops GitHub's download cache from handing back an older build.
                     string nocache = "?t=" + DateTime.UtcNow.Ticks;
                     latest = web.DownloadString(BuildInfo.ReleaseUrl + "version.txt" + nocache).Trim();
                     Directory.CreateDirectory(Path.GetDirectoryName(installer));
                     web.DownloadFile(BuildInfo.SetupUrl + nocache, installer);
+                    try { notes = web.DownloadString(BuildInfo.ReleaseUrl + "notes.txt" + nocache).Trim(); }
+                    catch (WebException) { notes = ""; } // Builds published before release notes existed.
                 }
             }
             catch (Exception ex)
@@ -55,8 +59,11 @@ namespace BDAT.Commands
                 return;
             }
 
+            if (notes.Length > 1500) notes = notes.Substring(0, 1500) + "\n...";
+            string whatsNew = notes.Length > 0 ? "What's new in " + latest + ":\n" + notes + "\n\n" : "";
+
             DialogResult answer = MessageBox.Show(
-                "Update BDAT from " + running + " to " + latest + "?\n\n" +
+                "Update BDAT from " + running + " to " + latest + "?\n\n" + whatsNew +
                 "Windows will ask for admin rights. The update downloads now and installs as soon as you close " +
                 "SolidWorks, so the new version is there the next time you open it.",
                 Caption, MessageBoxButtons.YesNo, MessageBoxIcon.Question);
