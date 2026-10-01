@@ -30,9 +30,11 @@ It uses the API of the "3DEXPERIENCE PLM Services" connector add-in (see `Connec
 Makes a new origin at a point you type in, so a part or sub-assembly can be origin-mated in the top-level assembly. Works in parts and assemblies (it's on the BDAT tab in both). SolidWorks can't move the real origin, so this adds the next best thing.
 
 1. A pop-up asks for **X**, **Y** and **Z** in the document's units. You can also type a unit after a number (`2 in`, `50 mm`). An empty box is 0.
-2. It adds three planes through that point, parallel to the document's own planes: **X'** (Right, moved to X), **Y'** (Top, moved to Y) and **Z'** (Front, moved to Z). Negative coordinates go to the other side of the origin.
-3. It adds a coordinate system called **Origin'** at the point, with its axes along the document's X, Y and Z.
-4. They all go in a folder named with the point, like `Origin' (10, 20, 30 mm)`. Running it again adds ` 2` to the names so they stay unique.
+2. It puts a point there, in a hidden 3D sketch called **Origin' point**.
+3. On that point it makes a coordinate system called **Origin'** (axes along the document's X, Y and Z) and three planes: **X'** (parallel to Right), **Y'** (parallel to Top) and **Z'** (parallel to Front).
+4. They all go in a folder called **New Origin**. Running it again adds ` 2` to the names so they stay unique.
+
+**To move it later**, right-click **Origin' point** > Edit Sketch, then drag the point or click it and type new X, Y, Z. Origin' and the planes follow.
 
 In the top level, mate Origin' to the assembly's origin or coordinate system (one coordinate system mate), or mate X', Y' and Z' to the assembly's planes.
 

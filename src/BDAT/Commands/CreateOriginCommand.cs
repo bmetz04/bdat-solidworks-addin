@@ -14,11 +14,13 @@ namespace BDAT.Commands
     ///
     ///   1. A pop-up asks for X, Y and Z, in the document's units (or with a unit typed after the number, e.g. "2 in").
     ///   2. Three planes are made through that point, parallel to the document's own planes:
-    ///        X', the Right plane moved to X
-    ///        Y', the Top plane moved to Y
-    ///        Z', the Front plane moved to Z
+    ///        X', parallel to Right, at X
+    ///        Y', parallel to Top, at Y
+    ///        Z', parallel to Front, at Z
     ///   3. A coordinate system called Origin' is made at the point, with its axes along the document's X, Y and Z.
-    ///   4. All four go in a folder named with the point, e.g. "Origin' (10, 20, 30 mm)".
+    ///   4. They all hang on one point in a hidden 3D sketch, "Origin' point". To move the origin, edit that sketch
+    ///      and drag the point or type new X, Y, Z for it; the planes and coordinate system follow.
+    ///   5. All of it goes in a folder called "New Origin".
     /// Running it again in the same document adds " 2", " 3"... to the names.
     /// </summary>
     public sealed class CreateOriginCommand : IBdatCommand
@@ -66,14 +68,20 @@ namespace BDAT.Commands
 
             string label = PointLabel(point, unit);
             var made = new List<IFeature>();
-            IFeature origin;
+            IFeature sketch, origin;
             try
             {
-                // X' from Right (axis 0), Y' from Top (axis 1), Z' from Front (axis 2).
-                made.Add(MakePlane(doc, bases[2], 0, point[0], "X'"));
-                made.Add(MakePlane(doc, bases[1], 1, point[1], "Y'"));
-                made.Add(MakePlane(doc, bases[0], 2, point[2], "Z'"));
-                origin = MakeCoordinateSystem(doc, point, made);
+                // Everything hangs on one sketch point, so moving the point moves the whole origin.
+                SketchPoint sketchPoint;
+                sketch = MakePoint(doc, point, out sketchPoint);
+                made.Add(sketch);
+                Rename(doc, sketch, "Origin' point");
+                // X' parallel to Right (axis 0), Y' to Top (axis 1), Z' to Front (axis 2).
+                made.Add(MakePlane(doc, sketchPoint, bases[2], 0, point[0], "X'"));
+                made.Add(MakePlane(doc, sketchPoint, bases[1], 1, point[1], "Y'"));
+                made.Add(MakePlane(doc, sketchPoint, bases[0], 2, point[2], "Z'"));
+                origin = MakeCoordinateSystem(doc, sketchPoint, point);
+                made.Add(origin);
             }
             catch (Exception ex)
             {
@@ -84,7 +92,14 @@ namespace BDAT.Commands
                 return;
             }
 
-            string folder = PutInFolder(doc, made, "Origin' " + label);
+            // Hide the sketch: the coordinate system shows where the point is.
+            doc.ClearSelection2(true);
+            sketch.Select2(false, 0);
+            doc.BlankSketch();
+            doc.ClearSelection2(true);
+
+            // No coordinates in the name: they'd be wrong as soon as the origin is moved.
+            string folder = PutInFolder(doc, made, "New Origin");
             doc.ClearSelection2(true);
             doc.GraphicsRedraw2();
 
@@ -93,7 +108,10 @@ namespace BDAT.Commands
                 var names = new List<string>();
                 foreach (IFeature f in made)
                     if (f.GetTypeName2() == "RefPlane") names.Add(f.Name);
-                TestMode.LastCreateOrigin = new CreateOriginTestResult { Planes = names.ToArray(), Origin = origin.Name, Folder = folder };
+                TestMode.LastCreateOrigin = new CreateOriginTestResult
+                {
+                    Planes = names.ToArray(), Origin = origin.Name, Point = sketch.Name, Folder = folder,
+                };
             }
         }
 
@@ -154,109 +172,84 @@ namespace BDAT.Commands
         }
 
         /// <summary>
-        /// A plane parallel to basePlane, at coordinate on the axis it's normal to. Checked after it's made: if the
-        /// offset went the wrong way it's remade flipped, so negative coordinates work whatever SolidWorks defaults to.
+        /// The point everything hangs on: a lone point in a 3D sketch called "Origin' point", with no relations or
+        /// dimensions so it can be moved later (edit the sketch, then drag the point or type its X, Y and Z).
         /// </summary>
-        private static IFeature MakePlane(IModelDoc2 doc, IFeature basePlane, int axis, double coordinate, string name)
+        private static IFeature MakePoint(IModelDoc2 doc, double[] point, out SketchPoint sketchPoint)
         {
-            if (Math.Abs(coordinate) < Tolerance)
-            {
-                IFeature same = InsertPlane(doc, basePlane, (int)swRefPlaneReferenceConstraints_e.swRefPlaneReferenceConstraint_Coincident, 0);
-                if (same == null) throw new InvalidOperationException("SolidWorks didn't make the " + name + " plane.");
-                Rename(doc, same, name);
-                return same;
-            }
-
-            int distance = (int)swRefPlaneReferenceConstraints_e.swRefPlaneReferenceConstraint_Distance;
-            int flip = (int)swRefPlaneReferenceConstraints_e.swRefPlaneReferenceConstraint_OptionFlip;
-            foreach (int constraint in new[] { distance, distance | flip })
-            {
-                IFeature plane = InsertPlane(doc, basePlane, constraint, Math.Abs(coordinate));
-                if (plane == null) continue;
-                double[] t = PlaneTransform(plane);
-                if (t != null && Math.Abs(t[9 + axis] - coordinate) < Tolerance)
-                {
-                    Rename(doc, plane, name);
-                    return plane;
-                }
-                Delete(doc, plane);
-            }
-            throw new InvalidOperationException("SolidWorks didn't put the " + name + " plane where it should be.");
-        }
-
-        /// <summary>
-        /// The Origin' coordinate system at point, axes along the document's. Added to made (with the sketch point it
-        /// hangs on, if it needs one). Checked after it's made; throws if it can't be put in the right place.
-        /// </summary>
-        private static IFeature MakeCoordinateSystem(IModelDoc2 doc, double[] point, List<IFeature> made)
-        {
-            // SolidWorks 2019 and later can place one by numbers, with nothing for it to depend on.
-            IFeature cs = ByNumbers(doc, point);
-            if (cs != null && !At(doc, cs, point)) { Delete(doc, cs); cs = null; }
-            if (cs != null)
-            {
-                Rename(doc, cs, "Origin'");
-                made.Add(cs);
-                return cs;
-            }
-
-            // Otherwise on a point in a 3D sketch, which stays hidden next to it.
             IFeature last = doc.FeatureByPositionReverse(0) as IFeature;
             doc.ClearSelection2(true);
             doc.SketchManager.Insert3DSketch(true);
             bool addToDb = doc.SketchManager.AddToDB;
-            doc.SketchManager.AddToDB = true; // no snapping to whatever is near
-            SketchPoint sketchPoint = doc.SketchManager.CreatePoint(point[0], point[1], point[2]);
+            doc.SketchManager.AddToDB = true; // no snapping (and no relations) to whatever is near
+            sketchPoint = doc.SketchManager.CreatePoint(point[0], point[1], point[2]);
             doc.SketchManager.AddToDB = addToDb;
             doc.SketchManager.Insert3DSketch(true);
             IFeature sketch = doc.FeatureByPositionReverse(0) as IFeature;
-            if (sketchPoint == null || sketch == null || ReferenceEquals(sketch, last))
-                throw new InvalidOperationException("SolidWorks didn't make the point for the coordinate system.");
-            made.Add(sketch);
-            Rename(doc, sketch, "Origin' point");
-
-            doc.ClearSelection2(true);
-            SelectData origin = ((ISelectionMgr)doc.SelectionManager).CreateSelectData() as SelectData;
-            origin.Mark = 1; // the coordinate system's origin
-            if (!sketchPoint.Select4(false, origin))
-                throw new InvalidOperationException("couldn't select the point for the coordinate system.");
-            cs = doc.FeatureManager.InsertCoordinateSystem(false, false, false) as IFeature;
-            doc.ClearSelection2(true);
-            if (cs == null) throw new InvalidOperationException("SolidWorks didn't make the coordinate system.");
-            made.Add(cs);
-            if (!At(doc, cs, point)) throw new InvalidOperationException("SolidWorks didn't put the coordinate system at the point.");
-            Rename(doc, cs, "Origin'");
-
-            sketch.Select2(false, 0);
-            doc.BlankSketch(); // hide the point; the coordinate system shows where it is
-            doc.ClearSelection2(true);
-            return cs;
+            if (sketch == null || ReferenceEquals(sketch, last))
+                throw new InvalidOperationException("SolidWorks didn't make the point.");
+            if (sketchPoint == null)
+            {
+                Delete(doc, sketch);
+                throw new InvalidOperationException("SolidWorks didn't make the point.");
+            }
+            return sketch;
         }
 
         /// <summary>
-        /// FeatureManager.CreateCoordinateSystemUsingNumericalValues (SolidWorks 2019+), found by name so BDAT still
-        /// builds against older SolidWorks. Null if it isn't there or doesn't work.
+        /// A plane through the Origin' point, parallel to basePlane, so it follows the point when it moves. Checked
+        /// after it's made: it must be at coordinate on the axis it's normal to.
         /// </summary>
-        private static IFeature ByNumbers(IModelDoc2 doc, double[] point)
+        private static IFeature MakePlane(IModelDoc2 doc, SketchPoint origin, IFeature basePlane, int axis, double coordinate, string name)
         {
-            try
+            IFeature last = doc.FeatureByPositionReverse(0) as IFeature;
+            doc.ClearSelection2(true);
+            if (!SelectPoint(doc, origin, 0) || !basePlane.Select2(true, 1))
+                throw new InvalidOperationException("couldn't select the point and plane for " + name + ".");
+            object made = doc.FeatureManager.InsertRefPlane(
+                (int)swRefPlaneReferenceConstraints_e.swRefPlaneReferenceConstraint_Coincident, 0,
+                (int)swRefPlaneReferenceConstraints_e.swRefPlaneReferenceConstraint_Parallel, 0, 0, 0);
+            doc.ClearSelection2(true);
+            // InsertRefPlane hands back the RefPlane; the feature is the newest one in the tree.
+            IFeature plane = made == null ? null : made as IFeature ?? doc.FeatureByPositionReverse(0) as IFeature;
+            if (plane == null || ReferenceEquals(plane, last) || plane.GetTypeName2() != "RefPlane")
+                throw new InvalidOperationException("SolidWorks didn't make the " + name + " plane.");
+            double[] t = PlaneTransform(plane);
+            if (t == null || Math.Abs(t[9 + axis] - coordinate) > Tolerance)
             {
-                System.Reflection.MethodInfo m = typeof(IFeatureManager).GetMethod("CreateCoordinateSystemUsingNumericalValues");
-                if (m == null) return null;
-                System.Reflection.ParameterInfo[] p = m.GetParameters();
-                // (origin defined, x, y, z, rotation defined, angle x, angle y, angle z)
-                if (p.Length != 8 || p[0].ParameterType != typeof(bool) || p[4].ParameterType != typeof(bool)) return null;
-                IFeature last = doc.FeatureByPositionReverse(0) as IFeature;
-                doc.ClearSelection2(true);
-                object made = m.Invoke(doc.FeatureManager, new object[] { true, point[0], point[1], point[2], false, 0.0, 0.0, 0.0 });
-                IFeature cs = made as IFeature ?? doc.FeatureByPositionReverse(0) as IFeature;
-                if (cs == null || ReferenceEquals(cs, last) || cs.GetTypeName2() != "CoordSys") return null;
-                return cs;
+                Delete(doc, plane);
+                throw new InvalidOperationException("SolidWorks didn't put the " + name + " plane where it should be.");
             }
-            catch
+            Rename(doc, plane, name);
+            return plane;
+        }
+
+        /// <summary>The Origin' coordinate system on the point, axes along the document's. Checked after it's made.</summary>
+        private static IFeature MakeCoordinateSystem(IModelDoc2 doc, SketchPoint origin, double[] point)
+        {
+            IFeature last = doc.FeatureByPositionReverse(0) as IFeature;
+            doc.ClearSelection2(true);
+            if (!SelectPoint(doc, origin, 1)) // mark 1: the coordinate system's origin
+                throw new InvalidOperationException("couldn't select the point for the coordinate system.");
+            IFeature cs = doc.FeatureManager.InsertCoordinateSystem(false, false, false) as IFeature;
+            doc.ClearSelection2(true);
+            if (cs == null || ReferenceEquals(cs, last))
+                throw new InvalidOperationException("SolidWorks didn't make the coordinate system.");
+            if (!At(doc, cs, point))
             {
-                return null;
+                Delete(doc, cs);
+                throw new InvalidOperationException("SolidWorks didn't put the coordinate system at the point.");
             }
+            Rename(doc, cs, "Origin'");
+            return cs;
+        }
+
+        private static bool SelectPoint(IModelDoc2 doc, SketchPoint point, int mark)
+        {
+            SelectData data = ((ISelectionMgr)doc.SelectionManager).CreateSelectData() as SelectData;
+            if (data == null) return false;
+            data.Mark = mark;
+            return point.Select4(true, data);
         }
 
         /// <summary>The coordinate system's origin is at point and its axes are the document's.</summary>
@@ -272,20 +265,6 @@ namespace BDAT.Commands
             for (int i = 0; i < 3; i++)
                 if (Math.Abs(d[9 + i] - point[i]) > Tolerance) return false;
             return true;
-        }
-
-        private static IFeature InsertPlane(IModelDoc2 doc, IFeature basePlane, int constraint, double value)
-        {
-            IFeature last = doc.FeatureByPositionReverse(0) as IFeature;
-            doc.ClearSelection2(true);
-            if (!basePlane.Select2(false, 0)) return null;
-            object made = doc.FeatureManager.InsertRefPlane(constraint, value, 0, 0, 0, 0);
-            doc.ClearSelection2(true);
-            if (made == null) return null;
-            // InsertRefPlane hands back the RefPlane; the feature is the newest one in the tree.
-            IFeature feature = made as IFeature ?? doc.FeatureByPositionReverse(0) as IFeature;
-            if (feature == null || ReferenceEquals(feature, last) || feature.GetTypeName2() != "RefPlane") return null;
-            return feature;
         }
 
         /// <summary>The plane's MathTransform array: rotation rows in 0-8, origin (metres) in 9-11.</summary>
@@ -455,7 +434,7 @@ namespace BDAT.Commands
             return null;
         }
 
-        /// <summary>"(10, 20, 30 mm)": the point in the part's units, for plane and folder names.</summary>
+        /// <summary>"(10, 20, 30 mm)": the point in the document's units, for messages.</summary>
         internal static string PointLabel(double[] point, LengthUnit unit)
         {
             return "(" + Number(point[0], unit) + ", " + Number(point[1], unit) + ", " + Number(point[2], unit) + " " + unit.Name + ")";

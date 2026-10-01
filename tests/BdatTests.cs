@@ -307,7 +307,7 @@ namespace BdatTests
                 Check(pointError != null && pointError.StartsWith("Y:"), "a bad Y should be reported as Y, got: " + pointError);
             });
 
-            Test("Create Origin labels the folder with the point", delegate
+            Test("Create Origin formats the point for messages", delegate
             {
                 Equal("(10, -20.5, 0 mm)", CreateOriginCommand.PointLabel(new[] { 0.010, -0.0205, -0.0 }, CreateOriginCommand.Millimetres), "mm label");
                 Equal("(1, 0.5, -2 in)", CreateOriginCommand.PointLabel(new[] { 0.0254, 0.0127, -0.0508 }, CreateOriginCommand.Inches), "inch label");
@@ -481,6 +481,14 @@ namespace BdatTests
                 Test("Create Origin: makes the origin and planes at the point", delegate
                 {
                     CreateOriginTest(swApp, new[] { "10mm", "-20mm", "30mm" }, new[] { 0.010, -0.020, 0.030 }, 1);
+                });
+                Test("Create Origin: moving the point moves everything", delegate
+                {
+                    CreateOriginTest(swApp, new[] { "10mm", "-20mm", "30mm" }, new[] { 0.010, -0.020, 0.030 }, 1, false, new[] { -0.040, 0.015, 0.005 });
+                });
+                Test("Create Origin: moving it in an assembly", delegate
+                {
+                    CreateOriginTest(swApp, new[] { "10mm", "20mm", "30mm" }, new[] { 0.010, 0.020, 0.030 }, 1, true, new[] { 0.120, -0.060, 0.0 });
                 });
                 Test("Create Origin: a 0 coordinate and inches", delegate
                 {
@@ -777,11 +785,10 @@ namespace BdatTests
 
         /// <summary>
         /// Runs Create Origin runs times in a new part (or assembly) with the typed coordinates, then checks what it made
-        /// the last time: the Origin' coordinate system at the point with the document's axes, and X', Y', Z' planes
-        /// (measured from a 3D sketch point, independently of how BDAT places them) through the point on the right side
-        /// of the origin, all in a folder named with the point.
+        /// the last time (see CheckOrigin). With moveTo, it then moves the Origin' point there the way a user would
+        /// (edit the sketch, change the point) and checks everything followed.
         /// </summary>
-        private static void CreateOriginTest(ISldWorks swApp, string[] typed, double[] expected, int runs, bool assembly = false)
+        private static void CreateOriginTest(ISldWorks swApp, string[] typed, double[] expected, int runs, bool assembly = false, double[] moveTo = null)
         {
             IModelDoc2 doc = assembly ? Samples.NewAssembly(swApp) : Samples.NewPart(swApp);
             try
@@ -799,32 +806,16 @@ namespace BdatTests
                 Check(TestMode.Messages.Count == 0, "it shouldn't need to say anything, but said: " + string.Join(" | ", TestMode.Messages.ToArray()));
                 Check(r.Planes != null && r.Planes.Length == 3, "expected 3 planes");
 
-                CreateOriginCommand.LengthUnit unit = CreateOriginCommand.UnitFor(doc.Extension.GetUserPreferenceInteger(
-                    (int)swUserPreferenceIntegerValue_e.swUnitsLinear, (int)swUserPreferenceOption_e.swDetailingNoOptionSpecified));
-                string label = CreateOriginCommand.PointLabel(expected, unit);
                 string suffix = runs > 1 ? " " + runs : "";
                 string[] planeNames = { "X'", "Y'", "Z'" };
                 for (int i = 0; i < 3; i++) Equal(planeNames[i] + suffix, r.Planes[i], "plane " + (i + 1) + " name");
                 Equal("Origin'" + suffix, r.Origin, "coordinate system name");
-                Equal("Origin' " + label + suffix, r.Folder, "folder name");
-
-                IFeature cs = CreateOriginCommand.FeatureByName(doc, r.Origin);
-                Check(cs != null && cs.GetTypeName2() == "CoordSys", "no \"" + r.Origin + "\" coordinate system in the tree");
-                MathTransform csTransform = doc.Extension.GetCoordinateSystemTransformByName(r.Origin) as MathTransform;
-                double[] cst = csTransform == null ? null : csTransform.ArrayData as double[];
-                Check(cst != null && cst.Length >= 12, "couldn't read where " + r.Origin + " is");
-                for (int i = 0; i < 3; i++)
-                    Check(Math.Abs(cst[9 + i] - expected[i]) < 1e-7, r.Origin + " is at (" + (cst[9] * 1000).ToString("0.###") + ", " +
-                        (cst[10] * 1000).ToString("0.###") + ", " + (cst[11] * 1000).ToString("0.###") + ") mm, not at the point");
-                double[] identity = { 1, 0, 0, 0, 1, 0, 0, 0, 1 };
-                for (int i = 0; i < 9; i++)
-                    Check(Math.Abs(cst[i] - identity[i]) < 1e-6, r.Origin + "'s axes aren't the document's X, Y and Z");
-
+                Equal("Origin' point" + suffix, r.Point, "point sketch name");
+                Equal("New Origin" + suffix, r.Folder, "folder name");
                 IFeature folder = CreateOriginCommand.FeatureByName(doc, r.Folder);
                 Check(folder != null && folder.GetTypeName2() == "FtrFolder", "no \"" + r.Folder + "\" folder in the tree");
 
-                // A point at (50, 50, 50) mm. A plane through the expected point is |50 mm - coordinate| from it;
-                // one on the wrong side of the origin would be |50 mm + coordinate|.
+                // A point at (50, 50, 50) mm to measure the planes from, made before any move so it stays put.
                 const double p = 0.050;
                 doc.ClearSelection2(true);
                 doc.SketchManager.Insert3DSketch(true);
@@ -832,20 +823,56 @@ namespace BdatTests
                 doc.SketchManager.Insert3DSketch(true);
                 Check(probe != null, "couldn't make the 3D sketch point to measure from");
 
-                int[] axisOf = { 0, 1, 2 }; // X' is at X, Y' at Y, Z' at Z
-                for (int i = 0; i < 3; i++)
-                {
-                    IFeature plane = CreateOriginCommand.FeatureByName(doc, r.Planes[i]);
-                    Check(plane != null && plane.GetTypeName2() == "RefPlane", "no plane called \"" + r.Planes[i] + "\"");
-                    double want = Math.Abs(p - expected[axisOf[i]]);
-                    double got = Distance(doc, plane, probe);
-                    Check(Math.Abs(want - got) < 1e-7, r.Planes[i] + " is " + (got * 1000).ToString("0.###") + " mm from (50, 50, 50) mm, expected " +
-                        (want * 1000).ToString("0.###") + " mm" + (Math.Abs(p + expected[axisOf[i]] - got) < 1e-7 ? " (it's on the wrong side of the origin)" : ""));
-                }
+                CheckOrigin(doc, r, expected, probe, p, "");
+                if (moveTo == null) return;
+
+                IFeature sketch = CreateOriginCommand.FeatureByName(doc, r.Point);
+                Check(sketch != null, "no \"" + r.Point + "\" sketch");
+                object[] points = ((ISketch)sketch.GetSpecificFeature2()).GetSketchPoints2() as object[];
+                Check(points != null && points.Length == 1, "\"" + r.Point + "\" should hold exactly one point");
+                doc.ClearSelection2(true);
+                sketch.Select2(false, 0);
+                doc.EditSketch();
+                bool moved = ((SketchPoint)points[0]).SetCoords(moveTo[0], moveTo[1], moveTo[2]);
+                doc.SketchManager.Insert3DSketch(true);
+                doc.ClearSelection2(true);
+                doc.ForceRebuild3(false);
+                Check(moved, "couldn't move the point (it should have no relations or dimensions holding it)");
+                CheckOrigin(doc, r, moveTo, probe, p, " after moving the point");
             }
             finally
             {
                 swApp.CloseDoc(doc.GetTitle()); // never saved
+            }
+        }
+
+        /// <summary>
+        /// Origin' is at expected with the document's axes, and each of X', Y', Z' goes through expected on the right side
+        /// of the origin: measured from the probe at (p, p, p) with SolidWorks' Measure tool, independently of how BDAT
+        /// places them. A plane through the point is |p - coordinate| from the probe; on the wrong side, |p + coordinate|.
+        /// </summary>
+        private static void CheckOrigin(IModelDoc2 doc, CreateOriginTestResult r, double[] expected, SketchPoint probe, double p, string when)
+        {
+            IFeature cs = CreateOriginCommand.FeatureByName(doc, r.Origin);
+            Check(cs != null && cs.GetTypeName2() == "CoordSys", "no \"" + r.Origin + "\" coordinate system in the tree");
+            MathTransform csTransform = doc.Extension.GetCoordinateSystemTransformByName(r.Origin) as MathTransform;
+            double[] cst = csTransform == null ? null : csTransform.ArrayData as double[];
+            Check(cst != null && cst.Length >= 12, "couldn't read where " + r.Origin + " is");
+            for (int i = 0; i < 3; i++)
+                Check(Math.Abs(cst[9 + i] - expected[i]) < 1e-7, r.Origin + when + " is at (" + (cst[9] * 1000).ToString("0.###") + ", " +
+                    (cst[10] * 1000).ToString("0.###") + ", " + (cst[11] * 1000).ToString("0.###") + ") mm, not at the point");
+            double[] identity = { 1, 0, 0, 0, 1, 0, 0, 0, 1 };
+            for (int i = 0; i < 9; i++)
+                Check(Math.Abs(cst[i] - identity[i]) < 1e-6, r.Origin + "'s axes" + when + " aren't the document's X, Y and Z");
+
+            for (int i = 0; i < 3; i++) // X' is at X, Y' at Y, Z' at Z
+            {
+                IFeature plane = CreateOriginCommand.FeatureByName(doc, r.Planes[i]);
+                Check(plane != null && plane.GetTypeName2() == "RefPlane", "no plane called \"" + r.Planes[i] + "\"");
+                double want = Math.Abs(p - expected[i]);
+                double got = Distance(doc, plane, probe);
+                Check(Math.Abs(want - got) < 1e-7, r.Planes[i] + when + " is " + (got * 1000).ToString("0.###") + " mm from (50, 50, 50) mm, expected " +
+                    (want * 1000).ToString("0.###") + " mm" + (Math.Abs(p + expected[i] - got) < 1e-7 ? " (it's on the wrong side of the origin)" : ""));
             }
         }
 

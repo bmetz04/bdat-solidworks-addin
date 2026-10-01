@@ -40,7 +40,7 @@ namespace BDAT.Commands
 
             var intro = new Label
             {
-                Text = "Makes a new origin here: a coordinate system called Origin'\nand X', Y', Z' planes, for origin mates in the top level.",
+                Text = "Makes a new origin here: a coordinate system called Origin'\nand X', Y', Z' planes, for origin mates in the top level.\nTo move it later, edit the Origin' point sketch.",
                 AutoSize = true,
                 Margin = new Padding(3, 0, 3, 10),
             };

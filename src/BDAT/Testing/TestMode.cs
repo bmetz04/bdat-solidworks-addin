@@ -112,6 +112,9 @@ namespace BDAT.Testing
         /// <summary>The Origin' coordinate system's name.</summary>
         public string Origin;
 
+        /// <summary>The 3D sketch holding the point it all hangs on.</summary>
+        public string Point;
+
         /// <summary>The folder they were put in, or null if there isn't one.</summary>
         public string Folder;
     }
