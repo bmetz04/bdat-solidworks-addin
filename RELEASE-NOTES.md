@@ -2,6 +2,13 @@
 
 Newest first. Publish BDAT adds an entry here every time a new version goes out.
 
+## v5 (2026-10-01 12:15)
+
+- Add Save MCM button: save McMaster parts to 3DEXPERIENCE in Vendor CAD > McMaster Carr
+- Murder Part: stop merging bodies; multi-body parts stay multi-body
+- Let Murder Part leave multi-body parts multi-body
+- Fix the harness after the first live SolidWorks runs
+
 ## v4 (2026-09-30 22:26)
 
 - Update BDAT always gets the newest build, even right after a publish.
