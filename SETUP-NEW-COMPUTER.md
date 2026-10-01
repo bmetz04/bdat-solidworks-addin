@@ -1,19 +1,16 @@
 # Putting BDAT on a computer
 
-Do this once per computer. After that, the **Update BDAT** shortcut on the desktop is the only thing anyone needs to click.
+1. Get **BDAT Setup.bat** (Ben can send it to you, or download it from https://github.com/bmetz04/bdat-solidworks-addin/raw/main/BDAT%20Setup.bat with right-click > Save link as).
+2. Close SolidWorks and double-click **BDAT Setup.bat**. Click **Yes** when Windows asks for admin rights.
+   If Windows shows "Windows protected your PC", click **More info** > **Run anyway**.
+3. Start SolidWorks. BDAT shows up as a tab when a part is open.
 
-1. Install **Git for Windows** from https://git-scm.com/download/win (defaults are fine), or run `winget install Git.Git`.
-2. Ask Ben to add your GitHub account to the `bdat-solidworks-addin` repo, and accept the invite.
-3. Open a Command Prompt and run:
-   ```
-   git clone https://github.com/bmetz04/bdat-solidworks-addin.git "%USERPROFILE%\BDAT\bdat-solidworks-addin"
-   ```
-   Git asks you to sign in to GitHub the first time; it remembers you after that.
-4. Open that folder and double-click **Update BDAT.bat**. It builds BDAT, registers it with SolidWorks (click **Yes** on the Windows prompt), and puts an **Update BDAT** shortcut on your desktop.
-5. Start SolidWorks. BDAT shows up as a tab when a part is open.
+No Git, compiler or GitHub account needed. Setup installs BDAT into `C:\ProgramData\BDAT` and puts an **Update BDAT** shortcut on the desktop.
 
 ## Updating
 
-Close SolidWorks and double-click **Update BDAT** on the desktop. It pulls the latest version, rebuilds, and re-registers. If SolidWorks is still open it waits for you to close it.
+Close SolidWorks and double-click **Update BDAT** on the desktop.
 
-If it says it can't pull because files changed, someone edited the code in that folder. Run `git status` there to see what changed, then commit it or undo it with `git checkout -- .`.
+## Publishing a new version (Ben)
+
+Ben's PC has the code checked out at `C:\Users\bacon\BDAT\bdat-solidworks-addin`. After changing the code there, double-click **Publish BDAT.bat** in that folder. It builds BDAT, asks to confirm, and pushes the build to the `release` folder on GitHub, which is where everyone's **Update BDAT** downloads from.

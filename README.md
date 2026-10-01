@@ -16,7 +16,9 @@ If the part has unsaved changes, it asks to save them first.
 
 ## Getting it and keeping it updated
 
-See [SETUP-NEW-COMPUTER.md](SETUP-NEW-COMPUTER.md) to put BDAT on a computer. After that, close SolidWorks and click the **Update BDAT** desktop shortcut whenever you want the latest version. It pulls from GitHub, rebuilds, and re-registers in one go.
+Teammates: close SolidWorks and double-click **BDAT Setup.bat**. It downloads the latest build, registers it, and adds an **Update BDAT** desktop shortcut for later updates. See [SETUP-NEW-COMPUTER.md](SETUP-NEW-COMPUTER.md).
+
+To release a new version to the team, run **Publish BDAT.bat** on the developer PC.
 
 ## Build (once, on Windows)
 
