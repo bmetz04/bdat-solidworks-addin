@@ -1,0 +1,2 @@
+# BDAT
+Solidworks Plugin
