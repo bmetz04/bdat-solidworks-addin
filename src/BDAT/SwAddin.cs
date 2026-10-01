@@ -21,7 +21,7 @@ namespace BDAT
     [ComVisible(true)]
     [Guid("d8d33ac0-63b3-49bc-b09a-e46207ce999b")]
     [ProgId("BDAT.SwAddin")]
-    public class SwAddin : ISwAddin
+    public partial class SwAddin : ISwAddin
     {
         private const string AddinTitle = "BDAT";
         private const string AddinDescription = "BDAT: FUBC speed-up macros for SolidWorks";

@@ -1,0 +1,986 @@
+// BDAT automated tests. Built and run by tests\run-tests.ps1; see tests\README.md.
+//
+// Two layers:
+//   unit        No SolidWorks needed: Save MCM name/description parsing, name validation, the connector guard,
+//               the toolbar command list, Update BDAT and the version button in test mode.
+//   solidworks  Drives a SolidWorks over COM: makes sample parts in a temp folder, checks the BDAT tab on the
+//               BDAT that SolidWorks has loaded, and runs Murder Part and Save MCM (from the BDAT.dll under test,
+//               in test mode) against the samples.
+//
+// Nothing here ever reaches 3DEXPERIENCE: BDAT's test mode makes any connector call throw and counts it, and
+// every test checks the count is still 0. The sample parts are only ever saved to the temp folder.
+//
+// Must stay C# 5 (built with the csc that ships with Windows).
+
+using System;
+using System.Collections.Generic;
+using System.Diagnostics;
+using System.IO;
+using System.Linq;
+using System.Reflection;
+using System.Runtime.InteropServices;
+using System.Security.Cryptography;
+using System.Text.RegularExpressions;
+using System.Threading;
+using BDAT;
+using BDAT.Commands;
+using BDAT.Testing;
+using SolidWorks.Interop.sldworks;
+using SolidWorks.Interop.swconst;
+
+namespace BdatTests
+{
+    internal static class Program
+    {
+        // Exit codes, read by tests\gate.ps1.
+        private const int ExitPassed = 0;
+        private const int ExitFailed = 1;
+        private const int ExitUsage = 2;
+        private const int ExitSolidWorksUnavailable = 3;
+
+        private const string BdatClsid = "{D8D33AC0-63B3-49BC-B09A-E46207CE999B}";
+
+        private static readonly List<string> Failures = new List<string>();
+        private static int _passed;
+        private static int _skipped;
+
+        [STAThread]
+        private static int Main(string[] args)
+        {
+            var options = Options.Parse(args);
+            if (options == null)
+            {
+                Console.WriteLine(Options.Usage);
+                return ExitUsage;
+            }
+
+            Console.WriteLine("BDAT tests, BDAT.dll " + BuildInfo.Version + " from " + BuildInfo.DllPath);
+            Console.WriteLine();
+
+            RunUnitTests();
+
+            if (options.SolidWorks)
+            {
+                int code = RunSolidWorksTests(options);
+                if (code == ExitSolidWorksUnavailable) return Summarize(Failures.Count == 0 ? code : ExitFailed);
+            }
+
+            return Summarize(Failures.Count == 0 ? ExitPassed : ExitFailed);
+        }
+
+        private static int Summarize(int code)
+        {
+            Console.WriteLine();
+            Console.WriteLine(_passed + " passed, " + Failures.Count + " failed, " + _skipped + " skipped.");
+            foreach (string f in Failures) Console.WriteLine("  FAILED " + f);
+            if (code == ExitSolidWorksUnavailable) Console.WriteLine("SolidWorks tests did not run (see above).");
+            return code;
+        }
+
+        // ------------------------------------------------------------------ test plumbing
+
+        private sealed class TestFailure : Exception
+        {
+            public TestFailure(string message) : base(message) { }
+        }
+
+        private sealed class TestSkipped : Exception
+        {
+            public TestSkipped(string message) : base(message) { }
+        }
+
+        private static void Test(string name, Action body)
+        {
+            TestMode.Begin();
+            try
+            {
+                body();
+                if (TestMode.ConnectorAttempts != 0)
+                    throw new TestFailure("something tried to reach 3DEXPERIENCE " + TestMode.ConnectorAttempts + " time(s)");
+                _passed++;
+                Console.WriteLine("PASS " + name);
+            }
+            catch (TestSkipped ex)
+            {
+                Skip(name, ex.Message);
+            }
+            catch (Exception ex)
+            {
+                string why = ex is TestFailure ? ex.Message : ex.GetType().Name + ": " + ex.Message;
+                Failures.Add(name + ": " + why);
+                Console.WriteLine("FAIL " + name + ": " + why);
+            }
+            finally
+            {
+                TestMode.End();
+            }
+        }
+
+        private static void Skip(string name, string why)
+        {
+            _skipped++;
+            Console.WriteLine("SKIP " + name + ": " + why);
+        }
+
+        private static void Check(bool condition, string message)
+        {
+            if (!condition) throw new TestFailure(message);
+        }
+
+        private static void Equal(string expected, string actual, string what)
+        {
+            if (!string.Equals(expected, actual, StringComparison.Ordinal))
+                throw new TestFailure(what + ": expected \"" + expected + "\", got \"" + actual + "\"");
+        }
+
+        private static void Near(double expected, double actual, double relTolerance, string what)
+        {
+            if (Math.Abs(expected - actual) > Math.Abs(expected) * relTolerance)
+                throw new TestFailure(what + ": expected " + expected.ToString("G6") + ", got " + actual.ToString("G6"));
+        }
+
+        // ------------------------------------------------------------------ unit tests (no SolidWorks)
+
+        private static void RunUnitTests()
+        {
+            Console.WriteLine("== Unit tests (no SolidWorks) ==");
+
+            // Save MCM: Name = McMaster part number (before the first underscore),
+            // Description = everything after it. A Murder Part copy's "_murdered" is ignored.
+            var parseCases = new[]
+            {
+                new[] { "91251A540_Socket Head Screw", "91251A540", "Socket Head Screw" },
+                new[] { "91251A540_Socket Head Screw.SLDPRT", "91251A540", "Socket Head Screw" },
+                new[] { "91251A540", "91251A540", "" },
+                new[] { "91251A540_Socket_Head Screw", "91251A540", "Socket_Head Screw" },
+                new[] { "91251A540_Socket Head Screw_murdered", "91251A540", "Socket Head Screw" },
+                new[] { "91251A540_Socket Head Screw_MURDERED", "91251A540", "Socket Head Screw" },
+                new[] { "  91251A540 _  Socket Head Screw  ", "91251A540", "Socket Head Screw" },
+            };
+            foreach (string[] c in parseCases)
+            {
+                string[] tc = c;
+                Test("Save MCM parses \"" + tc[0] + "\"", delegate
+                {
+                    // SolidWorks hands Save MCM the file name without its extension.
+                    string fileName = tc[0].EndsWith(".SLDPRT", StringComparison.OrdinalIgnoreCase)
+                        ? Path.GetFileNameWithoutExtension(tc[0]) : tc[0];
+                    Equal(tc[1], CallSaveMcmParser("DefaultName", fileName), "name");
+                    Equal(tc[2], CallSaveMcmParser("DefaultDescription", fileName), "description");
+                });
+            }
+
+            Test("Save MCM name validation", delegate
+            {
+                Check(NameError("91251A540") == null, "a part number should be a valid name");
+                Check(NameError("Socket Head Screw") == null, "spaces should be allowed");
+                Check(NameError("") != null, "an empty name should be refused");
+                Check(NameError("a/b") != null, "a slash should be refused");
+                Check(NameError("a:b") != null, "a colon should be refused");
+                Check(NameError("a?b") != null, "a question mark should be refused");
+            });
+
+            Test("Connector refuses to start in test mode", delegate
+            {
+                bool threw = false;
+                try { BdatStatic("BDAT.Connector", "Find"); }
+                catch (TargetInvocationException ex) { threw = ex.InnerException is InvalidOperationException; }
+                Check(threw, "Connector.Find() should throw in test mode");
+                Check(TestMode.ConnectorAttempts == 1, "the attempt should be counted");
+                TestMode.ConnectorAttempts = 0; // expected here; every other test requires 0
+            });
+
+            Test("Dialogs are recorded and answered in test mode", delegate
+            {
+                TestMode.Answers.Enqueue(false);
+                Check(Ui.Show(null, "q1", "t", System.Windows.Forms.MessageBoxButtons.YesNo,
+                    System.Windows.Forms.MessageBoxIcon.Question) == System.Windows.Forms.DialogResult.No, "queued No");
+                Check(Ui.Show(null, "q2", "t", System.Windows.Forms.MessageBoxButtons.YesNo,
+                    System.Windows.Forms.MessageBoxIcon.Question) == System.Windows.Forms.DialogResult.Yes, "default Yes");
+                Check(TestMode.Messages.Count == 2, "both questions should be recorded");
+            });
+
+            Test("Toolbar has the expected BDAT buttons, in order", delegate
+            {
+                List<string> titles = CommandTitles(new SwAddin());
+                Check(titles.Count == 4, "expected 4 buttons, got " + titles.Count + ": " + string.Join(", ", titles.ToArray()));
+                Equal("Murder Part", titles[0], "button 1");
+                Equal("Save MCM", titles[1], "button 2");
+                Equal("Update BDAT", titles[2], "button 3");
+                Check(Regex.IsMatch(titles[3], @"^BDAT (v\d+|dev build)$"), "button 4 should be the version (BDAT vN), got \"" + titles[3] + "\"");
+            });
+
+            Test("Every toolbar callback exists on SwAddin", delegate
+            {
+                foreach (string callback in CommandCallbacks(new SwAddin()))
+                {
+                    MethodInfo m = typeof(SwAddin).GetMethod(callback, BindingFlags.Public | BindingFlags.Instance);
+                    Check(m != null, "SolidWorks calls " + callback + "() by name but SwAddin has no public method with that name");
+                }
+            });
+
+            Test("Version button shows the version and opens nothing when answered No", delegate
+            {
+                TestMode.Answers.Enqueue(false);
+                new VersionCommand().Run(null);
+                Check(TestMode.Messages.Count == 1, "expected one message, got " + TestMode.Messages.Count);
+                Check(TestMode.Messages[0].Contains(BuildInfo.Version), "the message should show " + BuildInfo.Version);
+            });
+
+            Test("Update BDAT in test mode never downloads or starts the installer", delegate
+            {
+                string installer = Path.Combine(Path.GetTempPath(), "BDAT", "BDAT Update.bat");
+                DateTime before = File.Exists(installer) ? File.GetLastWriteTimeUtc(installer) : DateTime.MinValue;
+                new UpdateCommand().Run(null); // answers Yes to "Update?" if a newer version is published
+                DateTime after = File.Exists(installer) ? File.GetLastWriteTimeUtc(installer) : DateTime.MinValue;
+                Check(before == after, "the installer was downloaded");
+                Check(TestMode.Messages.Count >= 1, "it should say something (latest / newer / offline)");
+                Console.WriteLine("     (" + FirstLine(TestMode.Messages[0]) + ")");
+            });
+        }
+
+        /// <summary>Save MCM's parsers belong to the Save MCM code, so they're looked up by name rather than compiled against.</summary>
+        private static string CallSaveMcmParser(string method, string fileName)
+        {
+            MethodInfo m = BdatType("BDAT.Commands.SaveMcmCommand").GetMethod(method, BindingFlags.Static | BindingFlags.Public | BindingFlags.NonPublic,
+                null, new[] { typeof(string) }, null);
+            if (m == null) throw new TestFailure("SaveMcmCommand has no static " + method + "(string) yet");
+            return (string)m.Invoke(null, new object[] { fileName });
+        }
+
+        // Save MCM is looked up by name so this harness still builds while Save MCM is being written; its tests
+        // then fail with "not there yet" instead of the whole run failing to compile.
+        private static Type BdatType(string fullName)
+        {
+            Type t = typeof(SwAddin).Assembly.GetType(fullName);
+            if (t == null) throw new TestFailure("BDAT.dll has no " + fullName + " yet");
+            return t;
+        }
+
+        private static object BdatStatic(string typeName, string method, params object[] args)
+        {
+            MethodInfo m = BdatType(typeName).GetMethod(method, BindingFlags.Static | BindingFlags.Public | BindingFlags.NonPublic);
+            if (m == null) throw new TestFailure(typeName + " has no static " + method + "()");
+            return m.Invoke(null, args);
+        }
+
+        private static string NameError(string name)
+        {
+            return (string)BdatStatic("BDAT.Commands.SaveMcmForm", "NameError", name);
+        }
+
+        private static IBdatCommand NewSaveMcm()
+        {
+            return (IBdatCommand)Activator.CreateInstance(BdatType("BDAT.Commands.SaveMcmCommand"));
+        }
+
+        private static IEnumerable<object> CommandEntries(SwAddin addin)
+        {
+            FieldInfo f = typeof(SwAddin).GetField("_commands", BindingFlags.Instance | BindingFlags.NonPublic);
+            if (f == null) throw new TestFailure("SwAddin has no _commands list");
+            return ((System.Collections.IEnumerable)f.GetValue(addin)).Cast<object>();
+        }
+
+        private static object Prop(object o, string name)
+        {
+            return o.GetType().GetProperty(name, BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic).GetValue(o, null);
+        }
+
+        private static List<string> CommandTitles(SwAddin addin)
+        {
+            return CommandEntries(addin).Select(e => ((IBdatCommand)Prop(e, "Command")).Title).ToList();
+        }
+
+        private static List<string> CommandCallbacks(SwAddin addin)
+        {
+            var names = new List<string>();
+            foreach (object e in CommandEntries(addin))
+            {
+                names.Add((string)Prop(e, "Callback"));
+                names.Add((string)Prop(e, "EnableCallback"));
+            }
+            return names;
+        }
+
+        private static string FirstLine(string s)
+        {
+            int nl = s.IndexOf('\n');
+            return nl < 0 ? s : s.Substring(0, nl).Trim();
+        }
+
+        // ------------------------------------------------------------------ SolidWorks tests
+
+        private static int RunSolidWorksTests(Options options)
+        {
+            Console.WriteLine();
+            Console.WriteLine("== SolidWorks tests ==");
+
+            MessageFilter.Register();
+            Process launched = null;
+            ISldWorks swApp = null;
+            string work = Path.Combine(Path.GetTempPath(), "BDAT-tests", DateTime.Now.ToString("yyyyMMdd-HHmmss"));
+            try
+            {
+                string why;
+                swApp = Connect(options, out launched, out why);
+                if (swApp == null)
+                {
+                    Console.WriteLine("Can't run the SolidWorks tests: " + why);
+                    return ExitSolidWorksUnavailable;
+                }
+                Console.WriteLine("SolidWorks " + swApp.RevisionNumber() + (launched != null ? " (started for these tests)" : " (attached)"));
+
+                Test("BDAT tab has every button", delegate { CheckToolbar(swApp, options); });
+
+                Directory.CreateDirectory(work);
+                Samples samples = null;
+                Test("Make sample parts", delegate { samples = Samples.Create(swApp, work); });
+                if (samples == null)
+                {
+                    Skip("Murder Part / Save MCM", "the sample parts couldn't be made");
+                }
+                else
+                {
+                    Test("Murder Part: threaded part", delegate { MurderTest(swApp, samples.Threaded, samples.ThreadedSolidVolume, work); });
+                    Test("Murder Part: two-body part", delegate { MurderTest(swApp, samples.TwoBody, samples.TwoBodyVolume, work); });
+                    Test("Murder Part: answering No changes nothing", delegate { MurderCancelTest(swApp, samples.Threaded); });
+                    Test("Save MCM: fills in part number and description", delegate
+                    {
+                        SaveMcmTest(swApp, samples.Threaded, null, null, "91251A540", "Socket Head Screw");
+                    });
+                    Test("Save MCM: Murder Part copy", delegate
+                    {
+                        SaveMcmTest(swApp, samples.Murdered, null, null, "91251A540", "Socket Head Screw");
+                    });
+                    Test("Save MCM: uses what was typed in the pop-up", delegate
+                    {
+                        SaveMcmTest(swApp, samples.Threaded, "SHCS M5", "Alloy steel socket head screw, M5 x 20 mm", "SHCS M5", "Alloy steel socket head screw, M5 x 20 mm");
+                    });
+                    Test("Save MCM: refuses a bad name", delegate { SaveMcmRefusedTest(swApp, samples.Threaded, "bad/name", "x", null); });
+                    Test("Save MCM: empty description, answer No stops", delegate { SaveMcmRefusedTest(swApp, samples.Threaded, null, "", false); });
+                    Test("Save MCM: empty description, answer Yes saves without one", delegate
+                    {
+                        TestMode.Answers.Enqueue(true);
+                        SaveMcmTest(swApp, samples.Threaded, null, "", "91251A540", "");
+                    });
+                }
+            }
+            finally
+            {
+                if (swApp != null && launched != null) Shutdown(swApp, launched);
+                if (!options.Keep) TryDeleteDir(work);
+                else Console.WriteLine("Kept the sample parts in " + work);
+                MessageFilter.Revoke();
+            }
+            return 0;
+        }
+
+        private static ISldWorks Connect(Options options, out Process launched, out string why)
+        {
+            launched = null;
+            why = null;
+            Process[] running = Process.GetProcessesByName("SLDWORKS");
+
+            if (running.Length > 0)
+            {
+                if (!options.Attach)
+                {
+                    why = "SolidWorks is already running (" + Describe(running) + "). Close it, or run with -Attach to use it " +
+                          "(only works when no documents are open).";
+                    return null;
+                }
+                // SolidWorks shows the active document in its title ("SOLIDWORKS ... - [part.sldprt *]"). If there is
+                // one, don't even connect: that's someone's work.
+                if (!options.AllowOpenDocuments && running.Any(p => WindowTitle(p).Contains("[")))
+                {
+                    why = "the running SolidWorks has a document open (" + Describe(running) + "). Save and close it first; " +
+                          "the tests won't run next to someone's work.";
+                    return null;
+                }
+                ISldWorks attached = null;
+                try { attached = (ISldWorks)Marshal.GetActiveObject("SldWorks.Application"); }
+                catch (COMException) { }
+                if (attached == null) { why = "couldn't attach to the running SolidWorks"; return null; }
+                int open = attached.GetDocumentCount();
+                if (open > 0 && !options.AllowOpenDocuments)
+                {
+                    why = "the running SolidWorks has " + open + " document(s) open. Save and close them first; the tests won't run next to someone's work.";
+                    return null;
+                }
+                return attached;
+            }
+
+            if (!options.Launch)
+            {
+                why = "SolidWorks isn't running and -Launch wasn't given.";
+                return null;
+            }
+
+            string exe = options.SolidWorksExe ?? FindSolidWorksExe();
+            if (exe == null || !File.Exists(exe)) { why = "couldn't find SLDWORKS.exe"; return null; }
+
+            var start = new ProcessStartInfo(exe);
+            start.UseShellExecute = false;
+            // The BDAT that SolidWorks loads runs in test mode too, so nothing in this SolidWorks can save to 3DEXPERIENCE.
+            start.EnvironmentVariables[TestMode.EnvironmentVariable] = "1";
+            launched = Process.Start(start);
+
+            DateTime giveUp = DateTime.Now.AddSeconds(options.StartTimeoutSeconds);
+            while (DateTime.Now < giveUp)
+            {
+                if (launched.HasExited) { why = "SolidWorks exited while starting (code " + launched.ExitCode + ")"; return null; }
+                try
+                {
+                    var sw = (ISldWorks)Marshal.GetActiveObject("SldWorks.Application");
+                    if (sw != null && sw.StartupProcessCompleted)
+                    {
+                        sw.Visible = true;
+                        return sw;
+                    }
+                }
+                catch (COMException) { }
+                Thread.Sleep(2000);
+            }
+            why = "SolidWorks didn't finish starting within " + options.StartTimeoutSeconds + " s. If it is waiting for a " +
+                  "3DEXPERIENCE sign-in, the tests can't use a SolidWorks they start; open SolidWorks yourself and use -Attach.";
+            return null;
+        }
+
+        private static string Describe(Process[] processes)
+        {
+            return string.Join("; ", processes.Select(p =>
+            {
+                string title = WindowTitle(p);
+                return "pid " + p.Id + (title.Length > 0 ? " \"" + title + "\"" : "");
+            }).ToArray());
+        }
+
+        private static string WindowTitle(Process p)
+        {
+            try { return p.MainWindowTitle ?? ""; }
+            catch { return ""; }
+        }
+
+        private static string FindSolidWorksExe()
+        {
+            foreach (string root in new[] { System.Environment.GetEnvironmentVariable("ProgramFiles"), @"C:\Program Files" })
+            {
+                if (string.IsNullOrEmpty(root)) continue;
+                string exe = Path.Combine(root, @"SOLIDWORKS Corp\SOLIDWORKS\SLDWORKS.exe");
+                if (File.Exists(exe)) return exe;
+            }
+            return null;
+        }
+
+        private static void Shutdown(ISldWorks swApp, Process launched)
+        {
+            try { swApp.CloseAllDocuments(true); } catch { } // only our own SolidWorks, which only has test documents
+            try { swApp.ExitApp(); } catch { }
+            if (!launched.WaitForExit(60000))
+            {
+                try { launched.Kill(); } catch { }
+            }
+        }
+
+        // ---- BDAT tab
+
+        private static void CheckToolbar(ISldWorks swApp, Options options)
+        {
+            object addin = swApp.GetAddInObject(BdatClsid);
+            Check(addin != null, "BDAT isn't loaded in this SolidWorks (Tools > Add-Ins)");
+
+            string dll, report;
+            try
+            {
+                dll = (string)addin.GetType().InvokeMember("BdatTestDllPath", BindingFlags.InvokeMethod, null, addin, null);
+                report = (string)addin.GetType().InvokeMember("BdatTestToolbar", BindingFlags.InvokeMethod, null, addin, null);
+            }
+            catch (Exception ex)
+            {
+                // Before publishing, SolidWorks still has the previously installed BDAT loaded; the button list of
+                // the build under test is covered by the unit tests.
+                string why = "the BDAT loaded in SolidWorks is an older build without test hooks (probably the installed one), " +
+                    "so its tab can't be checked (" + ex.GetType().Name + ")";
+                if (options.ExpectLoadedDll != null) throw new TestFailure(why);
+                throw new TestSkipped(why);
+            }
+            Console.WriteLine("     loaded BDAT: " + dll);
+            if (options.ExpectLoadedDll != null)
+                Check(string.Equals(Path.GetFullPath(options.ExpectLoadedDll), dll, StringComparison.OrdinalIgnoreCase),
+                    "SolidWorks loaded " + dll + ", not the build under test " + options.ExpectLoadedDll);
+
+            var lines = report.Split(new[] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries).Select(l => l.Split('|')).ToList();
+            Check(lines.Any(l => l[0] == "group" && l[1] == "True"), "the BDAT command group isn't registered");
+            Check(lines.Any(l => l[0] == "tab" && l[1] == "True"), "there's no BDAT tab for parts");
+
+            var buttons = lines.Where(l => l.Length == 3).ToList();
+            foreach (string expected in new[] { "Murder Part", "Save MCM", "Update BDAT" })
+            {
+                string[] b = buttons.FirstOrDefault(l => l[0] == expected);
+                Check(b != null, "no " + expected + " button");
+                Check(b[2] == "True", expected + " isn't on the BDAT tab");
+            }
+            string[] version = buttons.FirstOrDefault(l => Regex.IsMatch(l[0], @"^BDAT (v\d+|dev build)$"));
+            Check(version != null, "no BDAT version button");
+            Check(version[2] == "True", version[0] + " isn't on the BDAT tab");
+        }
+
+        // ---- Murder Part
+
+        private static void MurderTest(ISldWorks swApp, string partPath, double expectedVolume, string work)
+        {
+            string before = Snapshot(partPath);
+            string[] folderBefore = Directory.GetFiles(Path.GetDirectoryName(partPath));
+            IModelDoc2 original = Open(swApp, partPath);
+            List<string> featuresBefore = FeatureNames(original);
+            int docsBefore = swApp.GetDocumentCount();
+            IModelDoc2 result = null;
+            try
+            {
+                new MurderPartCommand().Run(swApp);
+                result = swApp.ActiveDoc as IModelDoc2;
+
+                Check(TestMode.Messages.Count >= 2, "expected a confirmation and a summary, got " + TestMode.Messages.Count + " message(s)");
+                Check(!TestMode.Messages.Last().Contains("failed") && !TestMode.Messages.Last().Contains("Couldn't"),
+                    "Murder Part reported a problem: " + TestMode.Messages.Last());
+                Check(result != null && !ReferenceEquals(result, original) && result.GetTitle() != original.GetTitle(),
+                    "no new part was opened");
+                Check(swApp.GetDocumentCount() == docsBefore + 1, "expected exactly one new document");
+                Check(string.IsNullOrEmpty(result.GetPathName()), "the result should be unsaved, but it's at " + result.GetPathName());
+
+                object[] bodies = ((IPartDoc)result).GetBodies2((int)swBodyType_e.swSolidBody, true) as object[];
+                int count = bodies == null ? 0 : bodies.Length;
+                Check(count == 1, "the result should be a single body, it has " + count);
+                Near(expectedVolume, Volume(result), 0.01, "result volume (thread geometry should be gone)");
+                Check(!FeatureTypes(result).Contains("CosmeticThread"), "the result still has a cosmetic thread");
+
+                // The original is untouched: same file, same features, not even marked as changed.
+                Equal(before, Snapshot(partPath), "original file (size/time/hash)");
+                Check(!original.GetSaveFlag(), "the original part was modified in SolidWorks");
+                Check(featuresBefore.SequenceEqual(FeatureNames(original)), "the original part's feature tree changed");
+
+                // No leftovers beside the part or in BDAT's temp folder.
+                string[] folderAfter = Directory.GetFiles(Path.GetDirectoryName(partPath));
+                var extra = folderAfter.Except(folderBefore, StringComparer.OrdinalIgnoreCase).ToList();
+                Check(extra.Count == 0, "Murder Part left files beside the part: " + string.Join(", ", extra.Select(Path.GetFileName).ToArray()));
+                string murderTemp = Path.Combine(Path.GetTempPath(), "BDAT", "murder");
+                string[] leftovers = Directory.Exists(murderTemp) ? Directory.GetFiles(murderTemp) : new string[0];
+                Check(leftovers.Length == 0, "temporary files left in " + murderTemp + ": " + string.Join(", ", leftovers.Select(Path.GetFileName).ToArray()));
+            }
+            finally
+            {
+                if (result != null && !ReferenceEquals(result, original)) swApp.CloseDoc(result.GetTitle());
+                swApp.CloseDoc(original.GetTitle());
+            }
+        }
+
+        private static void MurderCancelTest(ISldWorks swApp, string partPath)
+        {
+            string before = Snapshot(partPath);
+            IModelDoc2 original = Open(swApp, partPath);
+            int docsBefore = swApp.GetDocumentCount();
+            try
+            {
+                TestMode.Answers.Enqueue(false);
+                new MurderPartCommand().Run(swApp);
+                Check(TestMode.Messages.Count == 1, "expected only the confirmation, got " + TestMode.Messages.Count + " message(s)");
+                Check(swApp.GetDocumentCount() == docsBefore, "a document was opened after answering No");
+                Check(!original.GetSaveFlag(), "the original part was modified");
+                Equal(before, Snapshot(partPath), "original file");
+            }
+            finally
+            {
+                swApp.CloseDoc(original.GetTitle());
+            }
+        }
+
+        // ---- Save MCM
+
+        private static void SaveMcmTest(ISldWorks swApp, string partPath, string typedName, string typedDescription,
+            string expectedName, string expectedDescription)
+        {
+            string before = Snapshot(partPath);
+            IModelDoc2 doc = Open(swApp, partPath);
+            try
+            {
+                IBdatCommand command = NewSaveMcm();
+                Check(command.IsEnabled(swApp), "Save MCM should be enabled with a part open");
+                TestMode.SaveMcmName = typedName;
+                TestMode.SaveMcmDescription = typedDescription;
+                command.Run(swApp);
+
+                SaveMcmTestResult r = TestMode.LastSaveMcm;
+                Check(r != null, "Save MCM stopped early: " + string.Join(" | ", TestMode.Messages.ToArray()));
+                Equal(expectedName, r.Name, "name");
+                Equal(expectedDescription, r.Description, "description");
+                Check(r.Destination.EndsWith("McMaster Carr"), "destination should be the McMaster Carr bookmark, got " + r.Destination);
+
+                // The file-level property (CAD Family) and each configuration's (Physical Product).
+                var scopes = new List<string> { "" };
+                string[] configs = doc.GetConfigurationNames() as string[];
+                if (configs != null) scopes.AddRange(configs);
+                foreach (string scope in scopes)
+                {
+                    string where = scope.Length == 0 ? "file" : "configuration \"" + scope + "\"";
+                    string property = DescriptionProperty(doc, scope);
+                    if (expectedDescription.Length > 0) Equal(expectedDescription, property, "Description custom property (" + where + ")");
+                    else Check(string.IsNullOrEmpty(property), "an empty description shouldn't set the " + where + " property");
+                }
+
+                Equal(before, Snapshot(partPath), "the part file (test mode must not save)");
+            }
+            finally
+            {
+                swApp.CloseDoc(doc.GetTitle()); // closes without saving
+            }
+        }
+
+        private static void SaveMcmRefusedTest(ISldWorks swApp, string partPath, string typedName, string typedDescription, bool? answer)
+        {
+            IModelDoc2 doc = Open(swApp, partPath);
+            try
+            {
+                TestMode.SaveMcmName = typedName;
+                TestMode.SaveMcmDescription = typedDescription;
+                if (answer.HasValue) TestMode.Answers.Enqueue(answer.Value);
+                NewSaveMcm().Run(swApp);
+                Check(TestMode.LastSaveMcm == null, "Save MCM should have stopped, but would have saved \"" +
+                    (TestMode.LastSaveMcm == null ? "" : TestMode.LastSaveMcm.Name) + "\"");
+                Check(TestMode.Messages.Count >= 1, "it should have told the user why");
+                Check(string.IsNullOrEmpty(DescriptionProperty(doc)), "the Description property shouldn't be set");
+            }
+            finally
+            {
+                swApp.CloseDoc(doc.GetTitle());
+            }
+        }
+
+        private static string DescriptionProperty(IModelDoc2 doc, string configuration = "")
+        {
+            CustomPropertyManager props = doc.Extension.get_CustomPropertyManager(configuration);
+            string value, resolved;
+            bool wasResolved;
+            props.Get5("Description", false, out value, out resolved, out wasResolved);
+            return value ?? "";
+        }
+
+        // ---- SolidWorks helpers
+
+        private static IModelDoc2 Open(ISldWorks swApp, string path)
+        {
+            int errors = 0, warnings = 0;
+            var doc = swApp.OpenDoc6(path, (int)swDocumentTypes_e.swDocPART, (int)swOpenDocOptions_e.swOpenDocOptions_Silent,
+                "", ref errors, ref warnings) as IModelDoc2;
+            if (doc == null) throw new TestFailure("couldn't open " + path + " (error " + errors + ")");
+            int activateErrors = 0;
+            swApp.ActivateDoc3(doc.GetTitle(), false, (int)swRebuildOnActivation_e.swDontRebuildActiveDoc, ref activateErrors);
+            return doc;
+        }
+
+        internal static double Volume(IModelDoc2 doc)
+        {
+            double total = 0;
+            object[] bodies = ((IPartDoc)doc).GetBodies2((int)swBodyType_e.swSolidBody, true) as object[];
+            if (bodies == null) return 0;
+            foreach (object b in bodies)
+            {
+                double[] props = ((IBody2)b).GetMassProperties(1.0) as double[];
+                if (props != null && props.Length > 3) total += props[3];
+            }
+            return total;
+        }
+
+        private static List<string> FeatureNames(IModelDoc2 doc)
+        {
+            return Features(doc).Select(f => f.Name).ToList();
+        }
+
+        internal static List<string> FeatureTypes(IModelDoc2 doc)
+        {
+            return Features(doc).Select(f => f.GetTypeName2()).ToList();
+        }
+
+        private static List<IFeature> Features(IModelDoc2 doc)
+        {
+            var all = new List<IFeature>();
+            IFeature f = doc.FirstFeature() as IFeature;
+            while (f != null)
+            {
+                all.Add(f);
+                IFeature sub = f.GetFirstSubFeature() as IFeature;
+                while (sub != null)
+                {
+                    all.Add(sub);
+                    sub = sub.GetNextSubFeature() as IFeature;
+                }
+                f = f.GetNextFeature() as IFeature;
+            }
+            return all;
+        }
+
+        /// <summary>Size, write time and SHA-256 of a file, to prove it wasn't touched.</summary>
+        private static string Snapshot(string path)
+        {
+            var info = new FileInfo(path);
+            using (var sha = SHA256.Create())
+            using (var stream = File.OpenRead(path))
+                return info.Length + "|" + info.LastWriteTimeUtc.Ticks + "|" + BitConverter.ToString(sha.ComputeHash(stream));
+        }
+
+        private static void TryDeleteDir(string dir)
+        {
+            try { if (Directory.Exists(dir)) Directory.Delete(dir, true); } catch { }
+        }
+    }
+
+    /// <summary>The sample parts, made fresh for each run in the run's temp folder.</summary>
+    internal sealed class Samples
+    {
+        private const double Radius = 0.005;    // 10 mm diameter
+        private const double Length = 0.020;    // 20 mm long
+        private const double HoleRadius = 0.002;
+        private const double StubLength = 0.010;
+
+        /// <summary>McMaster-style: a cylinder with a cosmetic thread, and a "Threads" folder holding a cut.</summary>
+        public string Threaded;
+        /// <summary>The same part saved as a Murder Part copy name.</summary>
+        public string Murdered;
+        /// <summary>Two touching bodies, which Murder Part must combine.</summary>
+        public string TwoBody;
+
+        /// <summary>The threaded part's volume with everything in the Threads folder removed.</summary>
+        public double ThreadedSolidVolume { get { return Math.PI * Radius * Radius * Length; } }
+        public double TwoBodyVolume { get { return Math.PI * Radius * Radius * (Length + StubLength); } }
+
+        public static Samples Create(ISldWorks swApp, string folder)
+        {
+            var s = new Samples();
+            s.Threaded = Path.Combine(folder, "91251A540_Socket Head Screw.SLDPRT");
+            s.Murdered = Path.Combine(folder, "91251A540_Socket Head Screw_murdered.SLDPRT");
+            s.TwoBody = Path.Combine(folder, "TwoBody.SLDPRT");
+
+            IModelDoc2 doc = NewPart(swApp);
+            try
+            {
+                IFeature plane = FirstPlane(doc);
+                Extrude(doc, plane, Radius, Length, false, true);
+
+                // The "modeled thread": a cut kept in a Threads folder, the way McMaster ships them.
+                IFeature cut = Cut(doc, plane, HoleRadius);
+                doc.ClearSelection2(true);
+                cut.Select2(false, 0);
+                IFeature threads = doc.FeatureManager.InsertFeatureTreeFolder2(
+                    (int)swFeatureTreeFolderType_e.swFeatureTreeFolder_Containing) as IFeature;
+                if (threads == null) throw new Exception("couldn't make the Threads folder");
+                threads.Name = "Threads";
+
+                AddCosmeticThread(doc);
+                doc.ForceRebuild3(false);
+
+                List<string> types = Program.FeatureTypes(doc);
+                if (!types.Contains("CosmeticThread")) throw new Exception("the sample has no cosmetic thread (types: " + string.Join(",", types.ToArray()) + ")");
+                double hollow = Math.PI * (Radius * Radius - HoleRadius * HoleRadius) * Length;
+                double v = Program.Volume(doc);
+                if (Math.Abs(v - hollow) > hollow * 0.01) throw new Exception("the sample's volume is " + v + ", expected " + hollow);
+
+                SaveAs(doc, s.Threaded);
+                SaveAs(doc, s.Murdered, true);
+            }
+            finally
+            {
+                swApp.CloseDoc(doc.GetTitle());
+            }
+
+            doc = NewPart(swApp);
+            try
+            {
+                IFeature plane = FirstPlane(doc);
+                Extrude(doc, plane, Radius, Length, false, false);
+                Extrude(doc, plane, Radius, StubLength, true, false);
+                object[] bodies = ((IPartDoc)doc).GetBodies2((int)swBodyType_e.swSolidBody, true) as object[];
+                if (bodies == null || bodies.Length != 2) throw new Exception("the two-body sample has " + (bodies == null ? 0 : bodies.Length) + " bodies");
+                SaveAs(doc, s.TwoBody);
+            }
+            finally
+            {
+                swApp.CloseDoc(doc.GetTitle());
+            }
+            return s;
+        }
+
+        private static IModelDoc2 NewPart(ISldWorks swApp)
+        {
+            string template = swApp.GetUserPreferenceStringValue((int)swUserPreferenceStringValue_e.swDefaultTemplatePart);
+            if (string.IsNullOrEmpty(template) || !File.Exists(template)) throw new Exception("no default part template (" + template + ")");
+            var doc = swApp.NewDocument(template, 0, 0, 0) as IModelDoc2;
+            if (doc == null) throw new Exception("couldn't make a new part");
+            doc.SketchManager.AddToDB = true; // no snapping while sketching
+            return doc;
+        }
+
+        /// <summary>The first reference plane (Front Plane), found by type so it works in any language.</summary>
+        private static IFeature FirstPlane(IModelDoc2 doc)
+        {
+            IFeature f = doc.FirstFeature() as IFeature;
+            while (f != null && f.GetTypeName2() != "RefPlane") f = f.GetNextFeature() as IFeature;
+            if (f == null) throw new Exception("no reference plane in the template");
+            return f;
+        }
+
+        private static void SketchCircle(IModelDoc2 doc, IFeature plane, double radius)
+        {
+            doc.ClearSelection2(true);
+            plane.Select2(false, 0);
+            doc.SketchManager.InsertSketch(true);
+            doc.SketchManager.CreateCircleByRadius(0, 0, 0, radius);
+            doc.SketchManager.InsertSketch(true);
+            doc.ClearSelection2(true);
+            IFeature sketch = doc.FeatureByPositionReverse(0) as IFeature;
+            sketch.Select2(false, 0);
+        }
+
+        private static void Extrude(IModelDoc2 doc, IFeature plane, double radius, double depth, bool flip, bool merge)
+        {
+            SketchCircle(doc, plane, radius);
+            IFeature f = doc.FeatureManager.FeatureExtrusion2(true, false, flip,
+                (int)swEndConditions_e.swEndCondBlind, 0, depth, 0, false, false, false, false, 0, 0,
+                false, false, false, false, merge, true, true,
+                (int)swStartConditions_e.swStartSketchPlane, 0, false) as IFeature;
+            if (f == null) throw new Exception("extrude failed");
+        }
+
+        private static IFeature Cut(IModelDoc2 doc, IFeature plane, double radius)
+        {
+            SketchCircle(doc, plane, radius);
+            IFeature f = doc.FeatureManager.FeatureCut4(false, false, false,
+                (int)swEndConditions_e.swEndCondThroughAll, (int)swEndConditions_e.swEndCondThroughAll, 0, 0,
+                false, false, false, false, 0, 0, false, false, false, false, false, true, true, false, false, false,
+                (int)swStartConditions_e.swStartSketchPlane, 0, false, false) as IFeature;
+            if (f == null) throw new Exception("cut failed");
+            return f;
+        }
+
+        /// <summary>Cosmetic thread on the outer circular edge of the cylinder.</summary>
+        private static void AddCosmeticThread(IModelDoc2 doc)
+        {
+            IEdge edge = null;
+            object[] bodies = ((IPartDoc)doc).GetBodies2((int)swBodyType_e.swSolidBody, true) as object[];
+            foreach (object b in bodies ?? new object[0])
+            {
+                foreach (object e in (object[])((IBody2)b).GetEdges())
+                {
+                    ICurve curve = ((IEdge)e).GetCurve() as ICurve;
+                    if (curve == null || !curve.IsCircle()) continue;
+                    double[] p = curve.CircleParams as double[];
+                    if (p != null && Math.Abs(p[6] - Radius) < 1e-6) { edge = (IEdge)e; break; }
+                }
+                if (edge != null) break;
+            }
+            if (edge == null) throw new Exception("no outer circular edge for the cosmetic thread");
+
+            doc.ClearSelection2(true);
+            ((IEntity)edge).Select4(false, null);
+            IFeature thread = doc.FeatureManager.InsertCosmeticThread3(
+                (int)swCosmeticStandardType_e.swStandardType_StandardNone, "", "", 2 * Radius * 0.84,
+                (int)swCosmeticEndConditions_e.swEndConditionBlind, Length / 2, "M10 test thread") as IFeature;
+            if (thread == null)
+            {
+                doc.ClearSelection2(true);
+                ((IEntity)edge).Select4(false, null);
+                thread = doc.FeatureManager.InsertCosmeticThread2(
+                    (short)swCosmeticThreadType_e.swApplyCosmeticThread_Blind, 2 * Radius * 0.84, Length / 2, "M10 test thread") as IFeature;
+            }
+            if (thread == null) throw new Exception("couldn't add a cosmetic thread");
+            doc.ClearSelection2(true);
+        }
+
+        private static void SaveAs(IModelDoc2 doc, string path, bool copy = false)
+        {
+            int errors = 0, warnings = 0;
+            int options = (int)swSaveAsOptions_e.swSaveAsOptions_Silent;
+            if (copy) options |= (int)swSaveAsOptions_e.swSaveAsOptions_Copy;
+            bool ok = doc.Extension.SaveAs3(path, (int)swSaveAsVersion_e.swSaveAsCurrentVersion, options, null, null, ref errors, ref warnings);
+            if (!ok || !File.Exists(path)) throw new Exception("couldn't save " + path + " (error " + errors + ")");
+        }
+    }
+
+    internal sealed class Options
+    {
+        public bool SolidWorks;
+        public bool Attach;
+        public bool AllowOpenDocuments;
+        public bool Launch;
+        public bool Keep;
+        public string SolidWorksExe;
+        public string ExpectLoadedDll;
+        public int StartTimeoutSeconds = 240;
+
+        public const string Usage =
+            "BdatTests.exe [--solidworks [--launch] [--attach [--allow-open-docs]] [--sw-exe PATH]\n" +
+            "              [--expect-loaded-dll PATH] [--start-timeout SECONDS] [--keep]]\n" +
+            "  (no options)   unit tests only, no SolidWorks\n" +
+            "  --solidworks   also run the SolidWorks tests\n" +
+            "  --launch       start a SolidWorks for the tests when none is running, and close it afterwards\n" +
+            "  --attach       use an already running SolidWorks (refused if it has documents open)\n" +
+            "  --keep         keep the sample parts folder\n" +
+            "Exit codes: 0 passed, 1 failed, 2 bad arguments, 3 SolidWorks not available.";
+
+        public static Options Parse(string[] args)
+        {
+            var o = new Options();
+            for (int i = 0; i < args.Length; i++)
+            {
+                switch (args[i].ToLowerInvariant())
+                {
+                    case "--solidworks": o.SolidWorks = true; break;
+                    case "--launch": o.Launch = true; break;
+                    case "--attach": o.Attach = true; break;
+                    case "--allow-open-docs": o.AllowOpenDocuments = true; break;
+                    case "--keep": o.Keep = true; break;
+                    case "--sw-exe": if (++i >= args.Length) return null; o.SolidWorksExe = args[i]; break;
+                    case "--expect-loaded-dll": if (++i >= args.Length) return null; o.ExpectLoadedDll = args[i]; break;
+                    case "--start-timeout": if (++i >= args.Length) return null; o.StartTimeoutSeconds = int.Parse(args[i]); break;
+                    default: return null;
+                }
+            }
+            return o;
+        }
+    }
+
+    /// <summary>Retries COM calls SolidWorks rejects while it's busy, instead of failing them.</summary>
+    [ComImport, Guid("00000016-0000-0000-C000-000000000046"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+    internal interface IOleMessageFilter
+    {
+        [PreserveSig] int HandleInComingCall(int dwCallType, IntPtr hTaskCaller, int dwTickCount, IntPtr lpInterfaceInfo);
+        [PreserveSig] int RetryRejectedCall(IntPtr hTaskCallee, int dwTickCount, int dwRejectType);
+        [PreserveSig] int MessagePending(IntPtr hTaskCallee, int dwTickCount, int dwPendingType);
+    }
+
+    internal sealed class MessageFilter : IOleMessageFilter
+    {
+        [DllImport("Ole32.dll")]
+        private static extern int CoRegisterMessageFilter(IOleMessageFilter newFilter, out IOleMessageFilter oldFilter);
+
+        public static void Register()
+        {
+            IOleMessageFilter old;
+            CoRegisterMessageFilter(new MessageFilter(), out old);
+        }
+
+        public static void Revoke()
+        {
+            IOleMessageFilter old;
+            CoRegisterMessageFilter(null, out old);
+        }
+
+        public int HandleInComingCall(int dwCallType, IntPtr hTaskCaller, int dwTickCount, IntPtr lpInterfaceInfo) { return 0; }
+
+        public int RetryRejectedCall(IntPtr hTaskCallee, int dwTickCount, int dwRejectType)
+        {
+            const int SERVERCALL_RETRYLATER = 2;
+            return dwRejectType == SERVERCALL_RETRYLATER && dwTickCount < 120000 ? 250 : -1;
+        }
+
+        public int MessagePending(IntPtr hTaskCallee, int dwTickCount, int dwPendingType) { return 2; }
+    }
+}
