@@ -44,8 +44,8 @@ The SolidWorks tests never close a SolidWorks they didn't start. They won't run 
   - The part number and description are filled in, and what's typed in the pop-up is used.
   - The Description property is set on the file and on every configuration.
   - A bad name and an empty description that's answered No both stop it.
-  - The view ends up isometric and the freeze bar is at the end of the tree. "Enable Freeze bar" must be on in Tools > Options > General.
-  - Save, add to bookmark and check-in are listed as skipped, and nothing reaches the connector. A separate unit test checks that every way into the connector (Find, Manager, Call, Get, Set) throws in test mode.
+  - The view ends up isometric and the freeze bar is at the end of the tree. Save MCM turns on the "Enable Freeze bar" option, and the tests put your setting back afterwards.
+  - Save, add to bookmark and check-in are listed as skipped, and nothing reaches the connector. Unit tests check that every way into the connector (Find, Manager, Call, Get, Set) throws in test mode, and that Save MCM's check-in step (Unlock) is refused at the connector and reports "not checked in".
   - The part file is never saved.
 
 ## Publishing

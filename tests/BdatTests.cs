@@ -222,6 +222,25 @@ namespace BdatTests
                 TestMode.ConnectorAttempts = 0;
             });
 
+            // Check-in (unlocking the part) is the last step of Save MCM. Run it directly to prove it can't
+            // reach the platform in test mode: it must be refused at the connector and report "not checked in".
+            Test("Save MCM check-in can't reach 3DEXPERIENCE in test mode", delegate
+            {
+                Type connector = BdatType("BDAT.Connector");
+                MethodInfo unlock = BdatType("BDAT.Commands.SaveMcmCommand").GetMethod("Unlock",
+                    BindingFlags.Static | BindingFlags.NonPublic | BindingFlags.Public, null, new[] { connector, typeof(string) }, null);
+                Check(unlock != null, "SaveMcmCommand has no Unlock(Connector, string) check-in step yet");
+                ConstructorInfo ctor = connector.GetConstructors(BindingFlags.Instance | BindingFlags.NonPublic).First();
+                object fake = ctor.Invoke(new object[ctor.GetParameters().Length]);
+
+                object checkedIn;
+                try { checkedIn = unlock.Invoke(null, new object[] { fake, @"C:\BDAT-test\91251A540.SLDPRT" }); }
+                catch (TargetInvocationException ex) { checkedIn = ex.InnerException; }
+                Check(TestMode.ConnectorAttempts >= 1, "check-in didn't go through the connector guard");
+                Check(!(checkedIn is bool) || !(bool)checkedIn, "check-in reported success in test mode");
+                TestMode.ConnectorAttempts = 0;
+            });
+
             Test("Dialogs are recorded and answered in test mode", delegate
             {
                 TestMode.Answers.Enqueue(false);
@@ -350,6 +369,7 @@ namespace BdatTests
             MessageFilter.Register();
             Process launched = null;
             ISldWorks swApp = null;
+            bool? freezeBarWasOn = null;
             string work = Path.Combine(Path.GetTempPath(), "BDAT-tests", DateTime.Now.ToString("yyyyMMdd-HHmmss"));
             try
             {
@@ -361,6 +381,9 @@ namespace BdatTests
                     return ExitSolidWorksUnavailable;
                 }
                 Console.WriteLine("SolidWorks " + swApp.RevisionNumber() + (launched != null ? " (started for these tests)" : " (attached)"));
+
+                // Save MCM turns on the freeze bar option; put the user's setting back afterwards.
+                freezeBarWasOn = swApp.GetUserPreferenceToggle((int)swUserPreferenceToggle_e.swUserEnableFreezeBar);
 
                 Test("BDAT tab has every button", delegate { CheckToolbar(swApp, options); });
 
@@ -399,6 +422,10 @@ namespace BdatTests
             }
             finally
             {
+                if (swApp != null && freezeBarWasOn.HasValue)
+                {
+                    try { swApp.SetUserPreferenceToggle((int)swUserPreferenceToggle_e.swUserEnableFreezeBar, freezeBarWasOn.Value); } catch { }
+                }
                 if (swApp != null && launched != null) Shutdown(swApp, launched);
                 if (!options.Keep) TryDeleteDir(work);
                 else Console.WriteLine("Kept the sample parts in " + work);
