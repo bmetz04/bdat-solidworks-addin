@@ -29,14 +29,17 @@ It uses the API of the "3DEXPERIENCE PLM Services" connector add-in (see `Connec
 ### Create Origin
 Makes a new origin at a point you type in, so a part or sub-assembly can be origin-mated in the top-level assembly. Works in parts and assemblies (it's on the BDAT tab in both). SolidWorks can't move the real origin, so this adds the next best thing.
 
-1. A pop-up asks for **X**, **Y** and **Z** in the document's units. You can also type a unit after a number (`2 in`, `50 mm`). An empty box is 0.
-2. It puts a point there, in a hidden 3D sketch called **Origin' point**.
-3. On that point it makes a coordinate system called **Origin'** (axes along the document's X, Y and Z) and three planes: **X'** (parallel to Right), **Y'** (parallel to Top) and **Z'** (parallel to Front).
-4. They all go in a folder called **New Origin**. Running it again adds ` 2` to the names so they stay unique.
+It uses vehicle axes (ISO 8855): **X forward, Y to the driver's left, Z up**. In FUBC top levels the nose points toward SolidWorks +Z (the Front view looks at the front of the car), so vehicle X = +Z, Y = +X and Z = +Y. That's set once, in `Forward` in `CreateOriginCommand.cs`.
 
-**To move it later**, right-click **Origin' point** > Edit Sketch, then drag the point or click it and type new X, Y, Z. Origin' and the planes follow.
+1. A pop-up asks for **X (forward)**, **Y (left)** and **Z (up)** in the document's units. You can also type a unit after a number (`2 in`, `50 mm`). An empty box is 0.
+2. It makes three planes through that point, each a set distance from Front, Top or Right: **Y'Z' Plane** (at X), **X'Z' Plane** (at Y) and **X'Y' Plane** (at Z).
+3. Where they cross: **X' Axis**, **Y' Axis**, **Z' Axis** and the reference point **Origin' Point** (hidden; the coordinate system shows them).
+4. On those, the coordinate system **Origin'**: origin on Origin' Point, X along X' Axis, Y along Y' Axis.
+5. It all goes in a folder called **New Origin**. Running it again adds ` 2` to the names so they stay unique.
 
-In the top level, mate Origin' to the assembly's origin or coordinate system (one coordinate system mate), or mate X', Y' and Z' to the assembly's planes.
+Everything is fully defined from the three plane distances. **To move it**, edit the planes' distances (double-click a plane in the tree); the axes, point and Origin' follow.
+
+In the top level, mate Origin' to the assembly's origin or coordinate system (one coordinate system mate), or mate the planes to the assembly's planes.
 
 ### Update BDAT
 Checks GitHub for a newer published BDAT. If there is one, it downloads it now (Windows asks for admin once) and installs it as soon as you close SolidWorks, so the next time you open SolidWorks you're on the new version.

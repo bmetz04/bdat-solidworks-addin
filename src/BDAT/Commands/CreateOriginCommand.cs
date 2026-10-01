@@ -12,25 +12,69 @@ namespace BDAT.Commands
     /// Create Origin: type a point, get a new origin there, so a part or sub-assembly can be origin-mated in the top
     /// level. Works in parts and assemblies. (SolidWorks can't move the real origin, so this is the next best thing.)
     ///
-    ///   1. A pop-up asks for X, Y and Z, in the document's units (or with a unit typed after the number, e.g. "2 in").
-    ///   2. Three planes are made through that point, parallel to the document's own planes:
-    ///        X', parallel to Right, at X
-    ///        Y', parallel to Top, at Y
-    ///        Z', parallel to Front, at Z
-    ///   3. A coordinate system called Origin' is made at the point, with its axes along the document's X, Y and Z.
-    ///   4. They all hang on one point in a hidden 3D sketch, "Origin' point". To move the origin, edit that sketch
-    ///      and drag the point or type new X, Y, Z for it; the planes and coordinate system follow.
-    ///   5. All of it goes in a folder called "New Origin".
-    /// Running it again in the same document adds " 2", " 3"... to the names.
+    /// It uses vehicle axes (ISO 8855): X forward, Y to the driver's left, Z up. Which SolidWorks direction is
+    /// "forward" is set once, in Forward below.
+    ///
+    ///   1. A pop-up asks for X (forward), Y (left) and Z (up), in the document's units (or with a unit typed after
+    ///      the number, e.g. "2 in").
+    ///   2. Three planes through that point, each offset from the Front, Top or Right plane:
+    ///        Y'Z' Plane (X = the typed X), X'Z' Plane (Y = Y) and X'Y' Plane (Z = Z).
+    ///   3. Three axes where the planes cross: X' Axis, Y' Axis and Z' Axis.
+    ///   4. A reference point where they all meet: Origin' Point.
+    ///   5. A coordinate system, Origin', on that point with its X along X' Axis and Y along Y' Axis.
+    ///   6. All of it in a folder called "New Origin".
+    /// Everything is fully defined from the three plane offsets, so to move the origin you edit those distances and
+    /// the axes, point and coordinate system follow. Running it again in the same document adds " 2", " 3"... to the
+    /// names.
     /// </summary>
     public sealed class CreateOriginCommand : IBdatCommand
     {
         public string Title { get { return "Create Origin"; } }
 
-        public string Hint { get { return "Make a new origin (coordinate system and X', Y', Z' planes) at a point you type in, for origin mates"; } }
+        public string Hint { get { return "Make a new origin (Origin' coordinate system with vehicle X forward, Y left, Z up, plus planes and axes) at a point you type in"; } }
 
-        // Plane positions are checked to this many metres after they're made.
+        /// <summary>Which SolidWorks direction the car's nose points in.</summary>
+        internal enum ForwardDirection { PlusZ, PlusX, MinusX, MinusZ }
+
+        /// <summary>FUBC's convention (Ben, 2026-10-01): the nose points at +Z, so the Front view looks at the front of the car.</summary>
+        internal const ForwardDirection Forward = ForwardDirection.PlusZ;
+
+        // Positions are checked to this many metres after they're made.
         private const double Tolerance = 1e-8;
+
+        /// <summary>
+        /// Vehicle X (forward), Y (left) and Z (up) as SolidWorks directions. Z is always SolidWorks +Y (up), and
+        /// Y = Z x X so the frame is right-handed.
+        /// </summary>
+        internal static double[][] VehicleAxes(ForwardDirection forward)
+        {
+            double[] x;
+            switch (forward)
+            {
+                case ForwardDirection.PlusX: x = new double[] { 1, 0, 0 }; break;
+                case ForwardDirection.MinusX: x = new double[] { -1, 0, 0 }; break;
+                case ForwardDirection.MinusZ: x = new double[] { 0, 0, -1 }; break;
+                default: x = new double[] { 0, 0, 1 }; break;
+            }
+            double[] z = { 0, 1, 0 };
+            double[] y = Cross(z, x);
+            return new[] { x, y, z };
+        }
+
+        internal static double[] Cross(double[] a, double[] b)
+        {
+            return new[] { a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0] };
+        }
+
+        /// <summary>A point typed in vehicle coordinates, as SolidWorks model coordinates (metres).</summary>
+        internal static double[] ToModel(double[] vehicle, double[][] axes)
+        {
+            var p = new double[3];
+            for (int i = 0; i < 3; i++)
+                for (int k = 0; k < 3; k++)
+                    p[k] += vehicle[i] * axes[i][k];
+            return p;
+        }
 
         public bool IsEnabled(ISldWorks swApp)
         {
@@ -55,10 +99,10 @@ namespace BDAT.Commands
             }
 
             LengthUnit unit = DocumentUnit(doc);
-            double[] point;
-            if (!AskForPoint(swApp, unit, out point)) return;
+            double[] vehicle;
+            if (!AskForPoint(swApp, unit, out vehicle)) return;
 
-            // Front, Top and Right, whatever they're called in this part.
+            // Front, Top and Right, whatever they're called here, indexed by the SolidWorks axis they're normal to.
             IFeature[] bases = StandardPlanes(doc);
             if (bases == null)
             {
@@ -66,22 +110,50 @@ namespace BDAT.Commands
                 return;
             }
 
-            string label = PointLabel(point, unit);
+            double[][] axes = VehicleAxes(Forward);
+            double[] point = ToModel(vehicle, axes);
+            string label = PointLabel(vehicle, unit);
             var made = new List<IFeature>();
-            IFeature sketch, origin;
+            var result = new CreateOriginTestResult();
             try
             {
-                // Everything hangs on one sketch point, so moving the point moves the whole origin.
-                SketchPoint sketchPoint;
-                sketch = MakePoint(doc, point, out sketchPoint);
-                made.Add(sketch);
-                Rename(doc, sketch, "Origin' point");
-                // X' parallel to Right (axis 0), Y' to Top (axis 1), Z' to Front (axis 2).
-                made.Add(MakePlane(doc, sketchPoint, bases[2], 0, point[0], "X'"));
-                made.Add(MakePlane(doc, sketchPoint, bases[1], 1, point[1], "Y'"));
-                made.Add(MakePlane(doc, sketchPoint, bases[0], 2, point[2], "Z'"));
-                origin = MakeCoordinateSystem(doc, sketchPoint, point);
-                made.Add(origin);
+                // Planes, each normal to one vehicle axis: Y'Z' (normal X), X'Z' (normal Y), X'Y' (normal Z).
+                string[] planeNames = { "Y'Z' Plane", "X'Z' Plane", "X'Y' Plane" };
+                var planes = new IFeature[3];
+                for (int i = 0; i < 3; i++)
+                {
+                    int swAxis = DominantAxis(axes[i][0], axes[i][1], axes[i][2]);
+                    planes[i] = MakePlane(doc, bases[swAxis], swAxis, point[swAxis], planeNames[i]);
+                    made.Add(planes[i]);
+                }
+
+                // Axes where two planes cross: X' (X'Y' and X'Z'), Y' (X'Y' and Y'Z'), Z' (X'Z' and Y'Z').
+                IFeature xAxis = MakeAxis(doc, planes[2], planes[1], "X' Axis");
+                made.Add(xAxis);
+                IFeature yAxis = MakeAxis(doc, planes[2], planes[0], "Y' Axis");
+                made.Add(yAxis);
+                IFeature zAxis = MakeAxis(doc, planes[1], planes[0], "Z' Axis");
+                made.Add(zAxis);
+
+                IFeature refPoint = MakeRefPoint(doc, xAxis, planes[0], point, "Origin' Point");
+                made.Add(refPoint);
+
+                IFeature cs = MakeCoordinateSystem(doc, refPoint, xAxis, yAxis, point, axes);
+                made.Add(cs);
+
+                result.Planes = new[] { planes[0].Name, planes[1].Name, planes[2].Name };
+                result.Axes = new[] { xAxis.Name, yAxis.Name, zAxis.Name };
+                result.Point = refPoint.Name;
+                result.Origin = cs.Name;
+
+                // The coordinate system shows the axes and the origin; keep the tree's helpers out of the way.
+                doc.ClearSelection2(true);
+                xAxis.Select2(true, 0);
+                yAxis.Select2(true, 0);
+                zAxis.Select2(true, 0);
+                refPoint.Select2(true, 0);
+                doc.BlankRefGeom();
+                doc.ClearSelection2(true);
             }
             catch (Exception ex)
             {
@@ -92,30 +164,15 @@ namespace BDAT.Commands
                 return;
             }
 
-            // Hide the sketch: the coordinate system shows where the point is.
-            doc.ClearSelection2(true);
-            sketch.Select2(false, 0);
-            doc.BlankSketch();
-            doc.ClearSelection2(true);
-
             // No coordinates in the name: they'd be wrong as soon as the origin is moved.
-            string folder = PutInFolder(doc, made, "New Origin");
+            result.Folder = PutInFolder(doc, made, "New Origin");
             doc.ClearSelection2(true);
             doc.GraphicsRedraw2();
 
-            if (TestMode.Enabled)
-            {
-                var names = new List<string>();
-                foreach (IFeature f in made)
-                    if (f.GetTypeName2() == "RefPlane") names.Add(f.Name);
-                TestMode.LastCreateOrigin = new CreateOriginTestResult
-                {
-                    Planes = names.ToArray(), Origin = origin.Name, Point = sketch.Name, Folder = folder,
-                };
-            }
+            if (TestMode.Enabled) TestMode.LastCreateOrigin = result;
         }
 
-        /// <summary>The pop-up (or, in test mode, TestMode.OriginCoordinates). False if cancelled or invalid.</summary>
+        /// <summary>The pop-up (or, in test mode, TestMode.OriginCoordinates). Vehicle X, Y, Z in metres. False if cancelled or invalid.</summary>
         private static bool AskForPoint(ISldWorks swApp, LengthUnit unit, out double[] point)
         {
             point = null;
@@ -139,11 +196,11 @@ namespace BDAT.Commands
             }
         }
 
-        // ---------------------------------------------------------------- planes
+        // ---------------------------------------------------------------- reference geometry
 
         /// <summary>
-        /// Front, Top and Right: the document's first three planes, told apart by their normals (Z, Y, X) so a renamed
-        /// or reordered plane still lands in the right place. Null if they can't be found.
+        /// Front, Top and Right, indexed by the SolidWorks axis they're normal to (0 Right, 1 Top, 2 Front), told apart
+        /// by their normals so a renamed or reordered plane still lands in the right place. Null if they can't be found.
         /// </summary>
         private static IFeature[] StandardPlanes(IModelDoc2 doc)
         {
@@ -163,107 +220,152 @@ namespace BDAT.Commands
                 if (t == null) continue;
                 // Rows 0-2 of the rotation are the plane's x, y and z (normal) directions.
                 int normalAxis = DominantAxis(t[6], t[7], t[8]);
-                int slot = normalAxis == 2 ? 0 : normalAxis == 1 ? 1 : 2; // Front, Top, Right
-                if (byNormal[slot] == null) byNormal[slot] = plane;
+                if (byNormal[normalAxis] == null) byNormal[normalAxis] = plane;
             }
             if (byNormal[0] != null && byNormal[1] != null && byNormal[2] != null) return byNormal;
-            // Couldn't tell them apart: every SolidWorks part and assembly starts Front, Top, Right.
-            return planes.ToArray();
+            // Couldn't tell them apart: every SolidWorks part and assembly starts Front (Z), Top (Y), Right (X).
+            return new[] { planes[2], planes[1], planes[0] };
         }
 
         /// <summary>
-        /// The point everything hangs on: a lone point in a 3D sketch called "Origin' point", with no relations or
-        /// dimensions so it can be moved later (edit the sketch, then drag the point or type its X, Y and Z).
+        /// A plane parallel to basePlane, offset to coordinate on the SolidWorks axis it's normal to. The offset is a
+        /// normal distance you can edit later. Checked after it's made: if it went the wrong way it's remade flipped,
+        /// so negative coordinates work whatever SolidWorks defaults to.
         /// </summary>
-        private static IFeature MakePoint(IModelDoc2 doc, double[] point, out SketchPoint sketchPoint)
+        private static IFeature MakePlane(IModelDoc2 doc, IFeature basePlane, int axis, double coordinate, string name)
         {
-            IFeature last = doc.FeatureByPositionReverse(0) as IFeature;
-            doc.ClearSelection2(true);
-            doc.SketchManager.Insert3DSketch(true);
-            bool addToDb = doc.SketchManager.AddToDB;
-            doc.SketchManager.AddToDB = true; // no snapping (and no relations) to whatever is near
-            sketchPoint = doc.SketchManager.CreatePoint(point[0], point[1], point[2]);
-            doc.SketchManager.AddToDB = addToDb;
-            doc.SketchManager.Insert3DSketch(true);
-            IFeature sketch = doc.FeatureByPositionReverse(0) as IFeature;
-            if (sketch == null || ReferenceEquals(sketch, last))
-                throw new InvalidOperationException("SolidWorks didn't make the point.");
-            if (sketchPoint == null)
+            if (Math.Abs(coordinate) < Tolerance)
             {
-                Delete(doc, sketch);
-                throw new InvalidOperationException("SolidWorks didn't make the point.");
+                IFeature same = InsertPlane(doc, basePlane, (int)swRefPlaneReferenceConstraints_e.swRefPlaneReferenceConstraint_Coincident, 0);
+                if (same == null) throw new InvalidOperationException("SolidWorks didn't make the " + name + ".");
+                Rename(doc, same, name);
+                return same;
             }
-            return sketch;
-        }
 
-        /// <summary>
-        /// A plane through the Origin' point, parallel to basePlane, so it follows the point when it moves. Checked
-        /// after it's made: it must be at coordinate on the axis it's normal to.
-        /// </summary>
-        private static IFeature MakePlane(IModelDoc2 doc, SketchPoint origin, IFeature basePlane, int axis, double coordinate, string name)
-        {
-            IFeature last = doc.FeatureByPositionReverse(0) as IFeature;
-            doc.ClearSelection2(true);
-            if (!SelectPoint(doc, origin, 0) || !basePlane.Select2(true, 1))
-                throw new InvalidOperationException("couldn't select the point and plane for " + name + ".");
-            object made = doc.FeatureManager.InsertRefPlane(
-                (int)swRefPlaneReferenceConstraints_e.swRefPlaneReferenceConstraint_Coincident, 0,
-                (int)swRefPlaneReferenceConstraints_e.swRefPlaneReferenceConstraint_Parallel, 0, 0, 0);
-            doc.ClearSelection2(true);
-            // InsertRefPlane hands back the RefPlane; the feature is the newest one in the tree.
-            IFeature plane = made == null ? null : made as IFeature ?? doc.FeatureByPositionReverse(0) as IFeature;
-            if (plane == null || ReferenceEquals(plane, last) || plane.GetTypeName2() != "RefPlane")
-                throw new InvalidOperationException("SolidWorks didn't make the " + name + " plane.");
-            double[] t = PlaneTransform(plane);
-            if (t == null || Math.Abs(t[9 + axis] - coordinate) > Tolerance)
+            int distance = (int)swRefPlaneReferenceConstraints_e.swRefPlaneReferenceConstraint_Distance;
+            int flip = (int)swRefPlaneReferenceConstraints_e.swRefPlaneReferenceConstraint_OptionFlip;
+            foreach (int constraint in new[] { distance, distance | flip })
             {
+                IFeature plane = InsertPlane(doc, basePlane, constraint, Math.Abs(coordinate));
+                if (plane == null) continue;
+                double[] t = PlaneTransform(plane);
+                if (t != null && Math.Abs(t[9 + axis] - coordinate) < Tolerance)
+                {
+                    Rename(doc, plane, name);
+                    return plane;
+                }
                 Delete(doc, plane);
-                throw new InvalidOperationException("SolidWorks didn't put the " + name + " plane where it should be.");
             }
-            Rename(doc, plane, name);
-            return plane;
+            throw new InvalidOperationException("SolidWorks didn't put the " + name + " where it should be.");
         }
 
-        /// <summary>The Origin' coordinate system on the point, axes along the document's. Checked after it's made.</summary>
-        private static IFeature MakeCoordinateSystem(IModelDoc2 doc, SketchPoint origin, double[] point)
+        private static IFeature InsertPlane(IModelDoc2 doc, IFeature basePlane, int constraint, double value)
         {
             IFeature last = doc.FeatureByPositionReverse(0) as IFeature;
             doc.ClearSelection2(true);
-            if (!SelectPoint(doc, origin, 1)) // mark 1: the coordinate system's origin
-                throw new InvalidOperationException("couldn't select the point for the coordinate system.");
-            IFeature cs = doc.FeatureManager.InsertCoordinateSystem(false, false, false) as IFeature;
+            if (!basePlane.Select2(false, 0)) return null;
+            object made = doc.FeatureManager.InsertRefPlane(constraint, value, 0, 0, 0, 0);
             doc.ClearSelection2(true);
-            if (cs == null || ReferenceEquals(cs, last))
-                throw new InvalidOperationException("SolidWorks didn't make the coordinate system.");
-            if (!At(doc, cs, point))
-            {
-                Delete(doc, cs);
-                throw new InvalidOperationException("SolidWorks didn't put the coordinate system at the point.");
-            }
-            Rename(doc, cs, "Origin'");
-            return cs;
+            if (made == null) return null;
+            // InsertRefPlane hands back the RefPlane; the feature is the newest one in the tree.
+            IFeature feature = made as IFeature ?? doc.FeatureByPositionReverse(0) as IFeature;
+            if (feature == null || ReferenceEquals(feature, last) || feature.GetTypeName2() != "RefPlane") return null;
+            return feature;
         }
 
-        private static bool SelectPoint(IModelDoc2 doc, SketchPoint point, int mark)
+        /// <summary>A reference axis where two planes cross.</summary>
+        private static IFeature MakeAxis(IModelDoc2 doc, IFeature plane1, IFeature plane2, string name)
         {
-            SelectData data = ((ISelectionMgr)doc.SelectionManager).CreateSelectData() as SelectData;
-            if (data == null) return false;
-            data.Mark = mark;
-            return point.Select4(true, data);
+            IFeature last = doc.FeatureByPositionReverse(0) as IFeature;
+            doc.ClearSelection2(true);
+            if (!plane1.Select2(false, 0) || !plane2.Select2(true, 0))
+                throw new InvalidOperationException("couldn't select the planes for " + name + ".");
+            bool ok = doc.InsertAxis2(true);
+            doc.ClearSelection2(true);
+            IFeature axis = doc.FeatureByPositionReverse(0) as IFeature;
+            if (!ok || axis == null || ReferenceEquals(axis, last) || axis.GetTypeName2() != "RefAxis")
+                throw new InvalidOperationException("SolidWorks didn't make " + name + ".");
+            Rename(doc, axis, name);
+            return axis;
         }
 
-        /// <summary>The coordinate system's origin is at point and its axes are the document's.</summary>
-        private static bool At(IModelDoc2 doc, IFeature cs, double[] point)
+        /// <summary>A reference point where an axis meets a plane, checked to be at point.</summary>
+        private static IFeature MakeRefPoint(IModelDoc2 doc, IFeature axis, IFeature plane, double[] point, string name)
+        {
+            IFeature last = doc.FeatureByPositionReverse(0) as IFeature;
+            doc.ClearSelection2(true);
+            if (!axis.Select2(false, 0) || !plane.Select2(true, 0))
+                throw new InvalidOperationException("couldn't select the axis and plane for " + name + ".");
+            object made = doc.FeatureManager.InsertReferencePoint((int)swRefPointType_e.swRefPointIntersection, 0, 0, 1);
+            doc.ClearSelection2(true);
+            object[] features = made as object[];
+            IFeature refPoint = features != null && features.Length > 0 ? features[0] as IFeature : null;
+            if (refPoint == null) refPoint = doc.FeatureByPositionReverse(0) as IFeature;
+            if (refPoint == null || ReferenceEquals(refPoint, last) || refPoint.GetTypeName2() != "RefPoint")
+                throw new InvalidOperationException("SolidWorks didn't make " + name + ".");
+
+            IRefPoint data = refPoint.GetSpecificFeature2() as IRefPoint;
+            MathPoint where = data == null ? null : data.GetRefPoint() as MathPoint;
+            double[] xyz = where == null ? null : where.ArrayData as double[];
+            if (xyz == null || xyz.Length < 3 ||
+                Math.Abs(xyz[0] - point[0]) > Tolerance || Math.Abs(xyz[1] - point[1]) > Tolerance || Math.Abs(xyz[2] - point[2]) > Tolerance)
+            {
+                Delete(doc, refPoint);
+                throw new InvalidOperationException("SolidWorks didn't put " + name + " where the planes meet.");
+            }
+            Rename(doc, refPoint, name);
+            return refPoint;
+        }
+
+        /// <summary>
+        /// Origin': origin on the reference point, X along X' Axis, Y along Y' Axis. Which way SolidWorks points an
+        /// axis picked from a reference axis isn't certain, so each flip combination is tried until the coordinate
+        /// system's X, Y and Z are the vehicle's.
+        /// </summary>
+        private static IFeature MakeCoordinateSystem(IModelDoc2 doc, IFeature refPoint, IFeature xAxis, IFeature yAxis,
+            double[] point, double[][] axes)
+        {
+            bool[][] flips = { new[] { false, false }, new[] { true, false }, new[] { false, true }, new[] { true, true } };
+            foreach (bool[] flip in flips)
+            {
+                IFeature last = doc.FeatureByPositionReverse(0) as IFeature;
+                doc.ClearSelection2(true);
+                // Marks: 1 origin, 2 X axis, 4 Y axis.
+                if (!refPoint.Select2(true, 1) || !xAxis.Select2(true, 2) || !yAxis.Select2(true, 4))
+                    throw new InvalidOperationException("couldn't select the point and axes for the coordinate system.");
+                IFeature cs = doc.FeatureManager.InsertCoordinateSystem(flip[0], flip[1], false) as IFeature;
+                doc.ClearSelection2(true);
+                if (cs == null || ReferenceEquals(cs, last)) continue;
+                if (IsVehicleFrame(doc, cs, point, axes))
+                {
+                    Rename(doc, cs, "Origin'");
+                    return cs;
+                }
+                Delete(doc, cs);
+            }
+            throw new InvalidOperationException("SolidWorks didn't line the coordinate system up with X forward, Y left, Z up.");
+        }
+
+        /// <summary>The coordinate system's origin is at point and its X, Y, Z are the vehicle axes.</summary>
+        internal static bool IsVehicleFrame(IModelDoc2 doc, IFeature cs, double[] point, double[][] axes)
         {
             MathTransform t = doc.Extension.GetCoordinateSystemTransformByName(cs.Name) as MathTransform;
             double[] d = t == null ? null : t.ArrayData as double[];
-            if (d == null || d.Length < 12) return false;
-            double[] identity = { 1, 0, 0, 0, 1, 0, 0, 0, 1 };
-            for (int i = 0; i < 9; i++)
-                if (Math.Abs(d[i] - identity[i]) > 1e-6) return false;
-            // The transform takes the coordinate system into the model, so its translation is where its origin is.
+            return d != null && IsFrame(d, point, axes);
+        }
+
+        /// <summary>
+        /// A coordinate system transform (rotation rows 0-8 are its X, Y, Z directions in the model, translation 9-11
+        /// is its origin) matches point and axes.
+        /// </summary>
+        internal static bool IsFrame(double[] d, double[] point, double[][] axes)
+        {
+            if (d.Length < 12) return false;
             for (int i = 0; i < 3; i++)
-                if (Math.Abs(d[9 + i] - point[i]) > Tolerance) return false;
+                for (int k = 0; k < 3; k++)
+                    if (Math.Abs(d[3 * i + k] - axes[i][k]) > 1e-6) return false;
+            for (int k = 0; k < 3; k++)
+                if (Math.Abs(d[9 + k] - point[k]) > Tolerance) return false;
             return true;
         }
 

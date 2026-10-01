@@ -106,14 +106,17 @@ namespace BDAT.Testing
     /// <summary>What Create Origin made, in test mode.</summary>
     public sealed class CreateOriginTestResult
     {
-        /// <summary>The X', Y' and Z' planes' names, in that order.</summary>
+        /// <summary>The Y'Z', X'Z' and X'Y' planes' names, in that order (normal to vehicle X, Y and Z).</summary>
         public string[] Planes;
+
+        /// <summary>The X', Y' and Z' axes' names.</summary>
+        public string[] Axes;
+
+        /// <summary>The Origin' Point reference point's name.</summary>
+        public string Point;
 
         /// <summary>The Origin' coordinate system's name.</summary>
         public string Origin;
-
-        /// <summary>The 3D sketch holding the point it all hangs on.</summary>
-        public string Point;
 
         /// <summary>The folder they were put in, or null if there isn't one.</summary>
         public string Folder;

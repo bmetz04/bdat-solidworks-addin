@@ -40,14 +40,14 @@ namespace BDAT.Commands
 
             var intro = new Label
             {
-                Text = "Makes a new origin here: a coordinate system called Origin'\nand X', Y', Z' planes, for origin mates in the top level.\nTo move it later, edit the Origin' point sketch.",
+                Text = "Makes a new origin here, for origin mates in the top level:\nthe Origin' coordinate system with planes and axes.\nVehicle axes: X forward, Y left, Z up.\nTo move it later, edit the three planes' distances.",
                 AutoSize = true,
                 Margin = new Padding(3, 0, 3, 10),
             };
             layout.Controls.Add(intro, 0, 0);
             layout.SetColumnSpan(intro, 3);
 
-            string[] axes = { "X:", "Y:", "Z:" };
+            string[] axes = { "X (forward):", "Y (left):", "Z (up):" };
             for (int i = 0; i < 3; i++)
             {
                 layout.Controls.Add(new Label { Text = axes[i], AutoSize = true, Margin = new Padding(3, 6, 8, 6) }, 0, i + 1);

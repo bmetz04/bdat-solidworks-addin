@@ -27,6 +27,7 @@ The SolidWorks tests never close a SolidWorks they didn't start. They won't run 
 - Save MCM name validation.
 - The connector refuses to start in test mode.
 - The toolbar lists Murder Part, Save MCM, Create Origin, Update BDAT and BDAT vN, in that order, and every callback name exists.
+- Create Origin's vehicle axes (X forward, Y left, Z up) are right-handed with Z up for every forward direction, and FUBC's is nose toward +Z.
 - Create Origin reads coordinates in the part's units or with a typed unit (mm, cm, m, in, ", ft), refuses anything that isn't a number, and formats the point for messages (`(10, -20.5, 0 mm)`).
 - Neither the version button nor Update BDAT launches anything.
 
@@ -51,8 +52,8 @@ The SolidWorks tests never close a SolidWorks they didn't start. They won't run 
 
 - Create Origin, in new unsaved parts and an assembly that are closed without saving:
   - With nothing open the button is greyed out and only says to open a part or assembly.
-  - It makes an `Origin'` coordinate system at the point with the document's axes, X', Y' and Z' planes and the `Origin' point` sketch they hang on, all in a `New Origin` folder. Each plane's distance to a 3D sketch point is measured with SolidWorks' Measure tool, which proves it goes through the point and is on the right side of the origin. This covers negative numbers, a 0 coordinate, typed inches and an assembly.
-  - Moving the `Origin' point` (editing the sketch and changing the point, in a part and in an assembly) moves the coordinate system and all three planes with it, checked the same way.
+  - It makes Y'Z', X'Z' and X'Y' planes, X', Y' and Z' axes, Origin' Point and the Origin' coordinate system, all in a `New Origin` folder. Origin' and the point are checked to be at the typed point, and Origin' to have X forward (+Z), Y left (+X) and Z up (+Y). Each plane's distance to a 3D sketch point is measured with SolidWorks' Measure tool, which proves it goes through the point and is on the right side of the origin. This covers negative numbers, a 0 coordinate, typed inches and an assembly.
+  - Changing the three planes' distances (in a part and in an assembly) moves the point and Origin' with them, checked the same way.
   - Running it twice in the same part keeps every name unique.
   - Cancel, or a box that isn't a number, adds nothing to the part.
 
