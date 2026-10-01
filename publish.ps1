@@ -27,39 +27,48 @@ if (Test-Path $oldLink) {
 git pull --ff-only
 if ($LASTEXITCODE -ne 0) { Finish 'Could not pull from GitHub. Ask Claude to sort out the repo, then try again.' 1 }
 
+# Work out the next version number from the last published one ("v3 (...)" -> v4).
+$versionFile = Join-Path $repo 'release\version.txt'
+$number = 1
+if (Test-Path $versionFile) {
+    $last = (Get-Content $versionFile -Raw).Trim()
+    if ($last -match '^v(\d+)') { $number = [int]$Matches[1] + 1 } else { $number = 2 }
+}
+$version = "v$number (" + (Get-Date -Format 'yyyy-MM-dd HH:mm') + ')'
+$changes = git status --porcelain -- . ':!release'
+
+# Stamp the version into the DLL, so the BDAT version button shows it.
+$assemblyInfo = Join-Path $repo 'build\AssemblyInfo.cs'
+$text = [IO.File]::ReadAllText($assemblyInfo)
+$text = [Text.RegularExpressions.Regex]::Replace($text, 'AssemblyInformationalVersion\("[^"]*"\)', "AssemblyInformationalVersion(`"$version`")")
+[IO.File]::WriteAllText($assemblyInfo, $text)
+
+function Undo-Stamp { git checkout -q -- build/AssemblyInfo.cs }
+
 # Build.
 Write-Host ''
-Write-Host 'Building BDAT...'
+Write-Host "Building BDAT $version..."
 & cmd.exe /c "`"$(Join-Path $repo 'build.bat')`""
-if ($LASTEXITCODE -ne 0) { Finish 'The build failed (see the errors above). Nothing was published.' 1 }
+if ($LASTEXITCODE -ne 0) { Undo-Stamp; Finish 'The build failed (see the errors above). Nothing was published.' 1 }
 
 # Show what is about to be published.
-$changes = git status --porcelain -- . ':!release'
-$commit = (git rev-parse --short HEAD).Trim()
 if ($changes) {
     Write-Host ''
     Write-Host 'These changed files will be published too:'
     $changes | ForEach-Object { Write-Host "  $_" }
 }
 Write-Host ''
-$answer = Read-Host 'Publish this build to the whole team? (y/n)'
-if ($answer -notmatch '^[yY]') { Finish 'Cancelled. Nothing was published.' 1 }
+$answer = Read-Host "Publish BDAT $version to the whole team? (y/n)"
+if ($answer -notmatch '^[yY]') { Undo-Stamp; Finish 'Cancelled. Nothing was published.' 1 }
 
-if ($changes) {
-    git add -A
-    git commit -q -m 'Update BDAT source'
-    $commit = (git rev-parse --short HEAD).Trim()
-}
-
-$version = (Get-Date -Format 'yyyy-MM-dd HH:mm') + " ($commit)"
 $release = Join-Path $repo 'release'
 if (-not (Test-Path $release)) { New-Item -ItemType Directory -Path $release | Out-Null }
 Copy-Item (Join-Path $repo 'src\BDAT\bin\Release\net48\BDAT.dll') $release -Force
-Set-Content -Path (Join-Path $release 'version.txt') -Value $version
+Set-Content -Path $versionFile -Value $version
 
-git add release
+git add -A
 git commit -q -m "Publish BDAT $version"
 git push origin HEAD
-if ($LASTEXITCODE -ne 0) { Finish 'Could not push to GitHub. The build is committed on this PC; run Publish again to retry the push.' 1 }
+if ($LASTEXITCODE -ne 0) { Finish 'Could not push to GitHub. The build is committed on this PC; ask Claude to push it.' 1 }
 
-Finish "Published BDAT $version. Teammates get it next time they click 'Update BDAT' (allow a few minutes for GitHub to catch up)." 0
+Finish "Published BDAT $version. Teammates get it with the Update BDAT button in SolidWorks or the desktop shortcut (allow a few minutes for GitHub to catch up)." 0

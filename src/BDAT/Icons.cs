@@ -74,6 +74,12 @@ namespace BDAT
                 case 0: // Murder Part: red circle with a white X
                     DrawMurderIcon(g, cell);
                     break;
+                case 1: // Update: green circle with a white down arrow
+                    DrawUpdateIcon(g, cell);
+                    break;
+                case 2: // Version: blue circle with an "i"
+                    DrawBadge(g, cell, Color.FromArgb(30, 90, 170), "i");
+                    break;
                 default:
                     DrawBadge(g, cell, Color.DimGray, (index + 1).ToString());
                     break;
@@ -92,6 +98,24 @@ namespace BDAT
             {
                 g.DrawLine(pen, cell.X + inset, cell.Y + inset, cell.Right - inset, cell.Bottom - inset);
                 g.DrawLine(pen, cell.Right - inset, cell.Y + inset, cell.X + inset, cell.Bottom - inset);
+            }
+        }
+
+        private static void DrawUpdateIcon(Graphics g, Rectangle cell)
+        {
+            float pad = cell.Width * 0.08f;
+            var circle = new RectangleF(cell.X + pad, cell.Y + pad, cell.Width - 2 * pad, cell.Height - 2 * pad);
+            using (var fill = new SolidBrush(Color.FromArgb(30, 140, 60)))
+                g.FillEllipse(fill, circle);
+
+            float cx = cell.X + cell.Width / 2f;
+            float top = cell.Y + cell.Height * 0.25f;
+            float bottom = cell.Y + cell.Height * 0.72f;
+            float wing = cell.Width * 0.2f;
+            using (var pen = new Pen(Color.White, Math.Max(2f, cell.Width * 0.11f)) { StartCap = LineCap.Round, EndCap = LineCap.Round, LineJoin = LineJoin.Round })
+            {
+                g.DrawLine(pen, cx, top, cx, bottom);
+                g.DrawLines(pen, new[] { new PointF(cx - wing, bottom - wing), new PointF(cx, bottom), new PointF(cx + wing, bottom - wing) });
             }
         }
 

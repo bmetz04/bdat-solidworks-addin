@@ -2,7 +2,9 @@
 @echo off
 REM BDAT installer and updater for SolidWorks. Double-click to install or update BDAT.
 REM Downloads the latest published build, so no Git, compiler or GitHub account is needed.
+REM The BDAT "Update BDAT" button runs this with "staged": it then waits for SolidWorks to close instead of asking.
 set "BDAT_SELF=%~f0"
+set "BDAT_ARGS=%*"
 powershell.exe -NoProfile -ExecutionPolicy Bypass -Command "Invoke-Expression ([IO.File]::ReadAllText($env:BDAT_SELF))"
 exit /b
 #>
@@ -11,8 +13,16 @@ $ErrorActionPreference = 'Stop'
 $self = $env:BDAT_SELF
 $baseUrl = 'https://raw.githubusercontent.com/bmetz04/bdat-solidworks-addin/main/release'
 $installDir = Join-Path $env:ProgramData 'BDAT'
+$staged = "$env:BDAT_ARGS" -match 'staged'
 
 function Finish($message, $code) {
+    if ($staged) {
+        # The window is minimized, so show the result as a popup instead.
+        Add-Type -AssemblyName System.Windows.Forms
+        $icon = if ($code -eq 0) { 'Information' } else { 'Error' }
+        [System.Windows.Forms.MessageBox]::Show($message, 'BDAT update', 'OK', $icon) | Out-Null
+        exit $code
+    }
     Write-Host ''
     if ($code -eq 0) { Write-Host $message -ForegroundColor Green } else { Write-Host $message -ForegroundColor Red }
     Write-Host ''
@@ -24,18 +34,15 @@ function Finish($message, $code) {
 $principal = New-Object Security.Principal.WindowsPrincipal([Security.Principal.WindowsIdentity]::GetCurrent())
 if (-not $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) {
     Write-Host 'Asking Windows for admin rights. Click Yes.'
-    try { Start-Process -FilePath $self -Verb RunAs } catch { Finish 'BDAT needs admin rights to install. Run this again and click Yes.' 1 }
+    try {
+        if ($env:BDAT_ARGS) { Start-Process -FilePath $self -ArgumentList $env:BDAT_ARGS -Verb RunAs }
+        else { Start-Process -FilePath $self -Verb RunAs }
+    } catch { Finish 'BDAT needs admin rights to install. Run this again and click Yes.' 1 }
     exit 0
 }
 
 Write-Host 'BDAT setup' -ForegroundColor Cyan
 Write-Host ''
-
-# SolidWorks locks BDAT.dll while it runs.
-while (Get-Process -Name 'SLDWORKS' -ErrorAction SilentlyContinue) {
-    Write-Host 'SolidWorks is open. Save your work and close it, then press Enter.' -ForegroundColor Yellow
-    Read-Host | Out-Null
-}
 
 # Download the latest build.
 [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
@@ -57,9 +64,26 @@ if ($current -eq $latest) { Write-Host "You already have the latest version ($la
 elseif ($current) { Write-Host "Updating $current -> $latest" }
 else { Write-Host "Installing $latest" }
 
+# SolidWorks locks BDAT.dll while it runs.
+if ($staged) {
+    while (Get-Process -Name 'SLDWORKS' -ErrorAction SilentlyContinue) {
+        Write-Host ''
+        Write-Host "BDAT $latest is downloaded. It installs as soon as you close SolidWorks." -ForegroundColor Yellow
+        Write-Host 'Leave this window open.'
+        Get-Process -Name 'SLDWORKS' -ErrorAction SilentlyContinue | Wait-Process
+        Start-Sleep -Seconds 3
+    }
+} else {
+    while (Get-Process -Name 'SLDWORKS' -ErrorAction SilentlyContinue) {
+        Write-Host 'SolidWorks is open. Save your work and close it, then press Enter.' -ForegroundColor Yellow
+        Read-Host | Out-Null
+    }
+}
+
 # Install the files.
 if (-not (Test-Path $installDir)) { New-Item -ItemType Directory -Path $installDir | Out-Null }
-Copy-Item (Join-Path $tmp 'BDAT.dll') $installDir -Force
+try { Copy-Item (Join-Path $tmp 'BDAT.dll') $installDir -Force }
+catch { Finish "Could not replace BDAT.dll. Make sure SolidWorks is fully closed, then run Update BDAT again. ($($_.Exception.Message))" 1 }
 
 # BDAT needs the SolidWorks interop DLLs next to it. Copy them from this PC's own SolidWorks install.
 $redist = $null

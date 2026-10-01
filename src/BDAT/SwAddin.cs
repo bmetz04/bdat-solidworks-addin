@@ -29,7 +29,7 @@ namespace BDAT
 
         // Bump this whenever commands are added, removed or reordered so SolidWorks
         // rebuilds the toolbar instead of reusing its cached copy.
-        private const int CommandGroupVersion = 1;
+        private const int CommandGroupVersion = 2;
 
         private ISldWorks _swApp;
         private ICommandManager _cmdMgr;
@@ -39,6 +39,8 @@ namespace BDAT
         private readonly List<CommandEntry> _commands = new List<CommandEntry>
         {
             new CommandEntry(new MurderPartCommand(), "OnMurderPart", "CanMurderPart"),
+            new CommandEntry(new UpdateCommand(), "OnUpdate", "CanUpdate"),
+            new CommandEntry(new VersionCommand(), "OnVersion", "CanVersion"),
         };
 
         #region ISwAddin
@@ -148,12 +150,18 @@ namespace BDAT
             box.AddCommands(ids, textTypes);
         }
 
+        // The version button's text is the BDAT version, so a new build also needs a fresh toolbar.
+        private static string ToolbarVersion
+        {
+            get { return CommandGroupVersion + "|" + BuildInfo.Version; }
+        }
+
         private static bool VersionMatches()
         {
             using (RegistryKey key = Registry.CurrentUser.OpenSubKey(UserKeyPath))
             {
-                object value = key == null ? null : key.GetValue("CommandGroupVersion");
-                return value is int && (int)value == CommandGroupVersion;
+                object value = key == null ? null : key.GetValue("ToolbarVersion");
+                return value is string && (string)value == ToolbarVersion;
             }
         }
 
@@ -161,7 +169,7 @@ namespace BDAT
         {
             using (RegistryKey key = Registry.CurrentUser.CreateSubKey(UserKeyPath))
             {
-                if (key != null) key.SetValue("CommandGroupVersion", CommandGroupVersion, RegistryValueKind.DWord);
+                if (key != null) key.SetValue("ToolbarVersion", ToolbarVersion, RegistryValueKind.String);
             }
         }
 
@@ -219,6 +227,12 @@ namespace BDAT
 
         public void OnMurderPart() { Run(_commands[0].Command); }
         public int CanMurderPart() { return CanRun(_commands[0].Command); }
+
+        public void OnUpdate() { Run(_commands[1].Command); }
+        public int CanUpdate() { return CanRun(_commands[1].Command); }
+
+        public void OnVersion() { Run(_commands[2].Command); }
+        public int CanVersion() { return CanRun(_commands[2].Command); }
 
         #endregion
 

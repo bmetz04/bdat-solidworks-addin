@@ -14,11 +14,17 @@ Turns the open part into a single dumb solid with no threads.
 
 If the part has unsaved changes, it asks to save them first.
 
+### Update BDAT
+Checks GitHub for a newer published BDAT. If there is one, it downloads it now (Windows asks for admin once) and installs it as soon as you close SolidWorks, so the next time you open SolidWorks you're on the new version.
+
+### BDAT vN
+Shows which version is running; click it for the full version and where it was loaded from. The number goes up by one every time Publish BDAT runs. Local builds show "dev build".
+
 ## Getting it and keeping it updated
 
 Teammates: close SolidWorks and double-click **BDAT Setup.bat**. It downloads the latest build, registers it, and adds an **Update BDAT** desktop shortcut for later updates. See [SETUP-NEW-COMPUTER.md](SETUP-NEW-COMPUTER.md).
 
-To release a new version to the team, run **Publish BDAT.bat** on the developer PC.
+To release a new version to the team, run **Publish BDAT.bat** on the developer PC. It gives the build the next version number (v1, v2, ...) and teammates pick it up with the **Update BDAT** button.
 
 ## Build (once, on Windows)
 
