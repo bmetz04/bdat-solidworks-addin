@@ -74,10 +74,13 @@ namespace BDAT
                 case 0: // Murder Part: red circle with a white X
                     DrawMurderIcon(g, cell);
                     break;
-                case 1: // Update: green circle with a white down arrow
-                    DrawUpdateIcon(g, cell);
+                case 1: // Save MCM: orange circle with a white up arrow
+                    DrawArrowIcon(g, cell, Color.FromArgb(230, 120, 20), true);
                     break;
-                case 2: // Version: blue circle with an "i"
+                case 2: // Update: green circle with a white down arrow
+                    DrawArrowIcon(g, cell, Color.FromArgb(30, 140, 60), false);
+                    break;
+                case 3: // Version: blue circle with an "i"
                     DrawBadge(g, cell, Color.FromArgb(30, 90, 170), "i");
                     break;
                 default:
@@ -101,21 +104,23 @@ namespace BDAT
             }
         }
 
-        private static void DrawUpdateIcon(Graphics g, Rectangle cell)
+        private static void DrawArrowIcon(Graphics g, Rectangle cell, Color color, bool up)
         {
             float pad = cell.Width * 0.08f;
             var circle = new RectangleF(cell.X + pad, cell.Y + pad, cell.Width - 2 * pad, cell.Height - 2 * pad);
-            using (var fill = new SolidBrush(Color.FromArgb(30, 140, 60)))
+            using (var fill = new SolidBrush(color))
                 g.FillEllipse(fill, circle);
 
             float cx = cell.X + cell.Width / 2f;
             float top = cell.Y + cell.Height * 0.25f;
             float bottom = cell.Y + cell.Height * 0.72f;
             float wing = cell.Width * 0.2f;
+            float tip = up ? top : bottom;
+            float back = up ? wing : -wing;
             using (var pen = new Pen(Color.White, Math.Max(2f, cell.Width * 0.11f)) { StartCap = LineCap.Round, EndCap = LineCap.Round, LineJoin = LineJoin.Round })
             {
                 g.DrawLine(pen, cx, top, cx, bottom);
-                g.DrawLines(pen, new[] { new PointF(cx - wing, bottom - wing), new PointF(cx, bottom), new PointF(cx + wing, bottom - wing) });
+                g.DrawLines(pen, new[] { new PointF(cx - wing, tip + back), new PointF(cx, tip), new PointF(cx + wing, tip + back) });
             }
         }
 
