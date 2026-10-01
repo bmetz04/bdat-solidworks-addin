@@ -173,9 +173,7 @@ namespace BDAT.Commands
             else
                 msg.AppendLine("No threads were found, so it would just be converted to a single dumb solid.");
 
-            int answer = swApp.SendMsgToUser2(msg.ToString(),
-                (int)swMessageBoxIcon_e.swMbQuestion, (int)swMessageBoxBtn_e.swMbYesNo);
-            return answer == (int)swMessageBoxResult_e.swMbHitYes;
+            return Ui.AskYesNo(swApp, msg.ToString());
         }
 
         /// <summary>The part's file name without extension, or its window title if it has never been saved.</summary>
@@ -369,7 +367,7 @@ namespace BDAT.Commands
 
         private static void Tell(ISldWorks swApp, string message, swMessageBoxIcon_e icon)
         {
-            swApp.SendMsgToUser2(message, (int)icon, (int)swMessageBoxBtn_e.swMbOk);
+            Ui.Tell(swApp, message, icon);
         }
     }
 }

@@ -4,6 +4,7 @@ using System.Diagnostics;
 using System.IO;
 using System.Net;
 using System.Windows.Forms;
+using BDAT.Testing;
 using SolidWorks.Interop.sldworks;
 
 namespace BDAT.Commands
@@ -40,21 +41,22 @@ namespace BDAT.Commands
                     string nocache = "?t=" + DateTime.UtcNow.Ticks;
                     latest = web.DownloadString(BuildInfo.ReleaseUrl + "version.txt" + nocache).Trim();
                     Directory.CreateDirectory(Path.GetDirectoryName(installer));
-                    web.DownloadFile(BuildInfo.SetupUrl + nocache, installer);
+                    // Test mode only checks the version; it never fetches or runs the installer.
+                    if (!TestMode.Enabled) web.DownloadFile(BuildInfo.SetupUrl + nocache, installer);
                     try { notes = web.DownloadString(BuildInfo.ReleaseUrl + "notes.txt" + nocache).Trim(); }
                     catch (WebException) { notes = ""; } // Builds published before release notes existed.
                 }
             }
             catch (Exception ex)
             {
-                MessageBox.Show("Couldn't check for updates. Check your internet connection.\n\n" + ex.Message,
+                Ui.Show(null, "Couldn't check for updates. Check your internet connection.\n\n" + ex.Message,
                     Caption, MessageBoxButtons.OK, MessageBoxIcon.Warning);
                 return;
             }
 
             if (string.Equals(latest, running, StringComparison.Ordinal))
             {
-                MessageBox.Show("You already have the latest BDAT (" + running + ").",
+                Ui.Show(null, "You already have the latest BDAT (" + running + ").",
                     Caption, MessageBoxButtons.OK, MessageBoxIcon.Information);
                 return;
             }
@@ -62,12 +64,18 @@ namespace BDAT.Commands
             if (notes.Length > 1500) notes = notes.Substring(0, 1500) + "\n...";
             string whatsNew = notes.Length > 0 ? "What's new in " + latest + ":\n" + notes + "\n\n" : "";
 
-            DialogResult answer = MessageBox.Show(
+            DialogResult answer = Ui.Show(null,
                 "Update BDAT from " + running + " to " + latest + "?\n\n" + whatsNew +
                 "Windows will ask for admin rights. The update downloads now and installs as soon as you close " +
                 "SolidWorks, so the new version is there the next time you open it.",
                 Caption, MessageBoxButtons.YesNo, MessageBoxIcon.Question);
             if (answer != DialogResult.Yes) return;
+
+            if (TestMode.Enabled)
+            {
+                TestMode.InstallerLaunches++;
+                return;
+            }
 
             ProcessStartInfo start = new ProcessStartInfo(installer, "staged");
             start.UseShellExecute = true;
@@ -83,7 +91,7 @@ namespace BDAT.Commands
                 throw;
             }
 
-            MessageBox.Show(
+            Ui.Show(null,
                 "BDAT " + latest + " will install when you close SolidWorks. Keep working; there's nothing else to do.\n\n" +
                 "A minimized \"BDAT\" window waits on the taskbar until then. Don't close it.",
                 Caption, MessageBoxButtons.OK, MessageBoxIcon.Information);

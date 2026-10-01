@@ -15,7 +15,7 @@ namespace BDAT.Commands
 
         public void Run(ISldWorks swApp)
         {
-            DialogResult answer = MessageBox.Show(
+            DialogResult answer = Ui.Show(null,
                 "Running BDAT " + BuildInfo.Version + "\n\nLoaded from:\n" + BuildInfo.DllPath +
                 "\n\nOpen the release notes to see what changed in each version?",
                 "BDAT version", MessageBoxButtons.YesNo, MessageBoxIcon.Information);

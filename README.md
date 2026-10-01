@@ -14,6 +14,18 @@ Turns the open part into a single dumb solid with no threads.
 3. Exports the copy to Parasolid, then closes the copy without saving.
 4. Opens the Parasolid as a new part (not saved yet), combines it into one body if it imports as several, then deletes the temporary files. Nothing is written next to your part.
 
+### Save MCM
+Saves the open McMaster-Carr part to 3DEXPERIENCE in **Formula UBC Racing > Vendor CAD > McMaster Carr**. You need to be logged in to 3DEXPERIENCE.
+
+1. Opens a pop-up to confirm. For `91251A537_Socket Head Screw`, **Name** is filled in with the part number before the first underscore (`91251A537`) and **Description** with the rest (`Socket Head Screw`). A Murder Part copy's `_murdered` is dropped. Edit either before saving.
+2. Puts the description in the part's `Description` custom property, both file-level (the CAD Family in 3DEXPERIENCE) and on every configuration (the Physical Product).
+3. Sets the view to isometric (that's the 3DEXPERIENCE thumbnail) and freezes the whole feature tree. The freeze bar only exists when **Enable Freeze bar** is ticked in System Options > General, so if it's off Save MCM turns it on, and it stays on afterwards.
+4. Saves the part to 3DEXPERIENCE under that name, adds it to the McMaster Carr bookmark, and checks it in (unlocks it).
+
+The first time you use it, it asks you to pick the McMaster Carr bookmark once and remembers it (`HKCU\Software\BDAT\McMasterBookmarkId`). Once the id is known it can be built in (`KnownBookmarkId` in `SaveMcmCommand.cs`) so nobody has to pick it.
+
+It uses the API of the "3DEXPERIENCE PLM Services" connector add-in (see `Connector.cs`), because the official SolidWorks API can't choose a bookmark when saving.
+
 ### Update BDAT
 Checks GitHub for a newer published BDAT. If there is one, it downloads it now (Windows asks for admin once) and installs it as soon as you close SolidWorks, so the next time you open SolidWorks you're on the new version.
 

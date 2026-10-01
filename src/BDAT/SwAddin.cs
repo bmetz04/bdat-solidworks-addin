@@ -21,7 +21,7 @@ namespace BDAT
     [ComVisible(true)]
     [Guid("d8d33ac0-63b3-49bc-b09a-e46207ce999b")]
     [ProgId("BDAT.SwAddin")]
-    public class SwAddin : ISwAddin
+    public partial class SwAddin : ISwAddin
     {
         private const string AddinTitle = "BDAT";
         private const string AddinDescription = "BDAT: FUBC speed-up macros for SolidWorks";
@@ -29,7 +29,7 @@ namespace BDAT
 
         // Bump this whenever commands are added, removed or reordered so SolidWorks
         // rebuilds the toolbar instead of reusing its cached copy.
-        private const int CommandGroupVersion = 2;
+        private const int CommandGroupVersion = 4;
 
         private ISldWorks _swApp;
         private ICommandManager _cmdMgr;
@@ -39,6 +39,7 @@ namespace BDAT
         private readonly List<CommandEntry> _commands = new List<CommandEntry>
         {
             new CommandEntry(new MurderPartCommand(), "OnMurderPart", "CanMurderPart"),
+            new CommandEntry(new SaveMcmCommand(), "OnSaveMcm", "CanSaveMcm"),
             new CommandEntry(new UpdateCommand(), "OnUpdate", "CanUpdate"),
             new CommandEntry(new VersionCommand(), "OnVersion", "CanVersion"),
         };
@@ -97,6 +98,8 @@ namespace BDAT
                     ignorePrevious = true;
             }
 
+            if (ignorePrevious) ClearCachedTabs();
+
             ICommandGroup group = _cmdMgr.CreateCommandGroup2(
                 MainCommandGroupId, AddinTitle, AddinDescription, AddinDescription, -1, ignorePrevious, ref errors);
 
@@ -145,6 +148,56 @@ namespace BDAT
                 textTypes[i] = (int)swCommandTabButtonTextDisplay_e.swCommandTabButton_TextBelow;
             }
             box.AddCommands(ids, textTypes);
+        }
+
+        // SolidWorks saves each CommandManager tab as a fixed list of button slots, e.g.
+        // ...\SOLIDWORKS 2025\Simplified Interface\User Interface\CommandManager\PartContext\Tab26\GB0\Btn0..Btn2,
+        // and restores that list over the tab we build. When a button is added the old slots point at the wrong
+        // buttons and the last one disappears, so forget BDAT's saved tabs whenever the toolbar changes.
+        private static void ClearCachedTabs()
+        {
+            string module = "{" + typeof(SwAddin).GUID.ToString().ToUpperInvariant() + "}";
+            try
+            {
+                using (RegistryKey solidWorks = Registry.CurrentUser.OpenSubKey(@"Software\SolidWorks", true))
+                {
+                    if (solidWorks == null) return;
+                    foreach (string version in solidWorks.GetSubKeyNames())
+                    {
+                        if (!version.StartsWith("SOLIDWORKS ", StringComparison.OrdinalIgnoreCase)) continue;
+                        ClearCachedTabs(solidWorks, version + @"\User Interface\CommandManager", module);
+                        ClearCachedTabs(solidWorks, version + @"\Simplified Interface\User Interface\CommandManager", module);
+                    }
+                }
+            }
+            catch
+            {
+                // Worst case the tab shows stale buttons until SolidWorks is restarted.
+            }
+        }
+
+        private static void ClearCachedTabs(RegistryKey solidWorks, string commandManagerPath, string module)
+        {
+            using (RegistryKey commandManager = solidWorks.OpenSubKey(commandManagerPath, true))
+            {
+                if (commandManager == null) return;
+                foreach (string context in commandManager.GetSubKeyNames())
+                {
+                    using (RegistryKey contextKey = commandManager.OpenSubKey(context, true))
+                    {
+                        if (contextKey == null) continue;
+                        foreach (string tab in contextKey.GetSubKeyNames())
+                        {
+                            using (RegistryKey tabKey = contextKey.OpenSubKey(tab))
+                            {
+                                object owner = tabKey == null ? null : tabKey.GetValue("ModuleName");
+                                if (!(owner is string) || !string.Equals((string)owner, module, StringComparison.OrdinalIgnoreCase)) continue;
+                            }
+                            contextKey.DeleteSubKeyTree(tab, false);
+                        }
+                    }
+                }
+            }
         }
 
         // The version button's text is the BDAT version, so a new build also needs a fresh toolbar.
@@ -225,11 +278,14 @@ namespace BDAT
         public void OnMurderPart() { Run(_commands[0].Command); }
         public int CanMurderPart() { return CanRun(_commands[0].Command); }
 
-        public void OnUpdate() { Run(_commands[1].Command); }
-        public int CanUpdate() { return CanRun(_commands[1].Command); }
+        public void OnSaveMcm() { Run(_commands[1].Command); }
+        public int CanSaveMcm() { return CanRun(_commands[1].Command); }
 
-        public void OnVersion() { Run(_commands[2].Command); }
-        public int CanVersion() { return CanRun(_commands[2].Command); }
+        public void OnUpdate() { Run(_commands[2].Command); }
+        public int CanUpdate() { return CanRun(_commands[2].Command); }
+
+        public void OnVersion() { Run(_commands[3].Command); }
+        public int CanVersion() { return CanRun(_commands[3].Command); }
 
         #endregion
 
