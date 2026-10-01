@@ -87,13 +87,13 @@ namespace BDAT
         {
             int errors = 0;
 
-            bool ignorePrevious = false;
+            // Rebuild SolidWorks' cached toolbar whenever this build differs from the one that last ran.
+            bool ignorePrevious = !VersionMatches();
             object registryIdsObj;
-            bool hasRegistryInfo = _cmdMgr.GetGroupDataFromRegistry(MainCommandGroupId, out registryIdsObj);
-            if (hasRegistryInfo)
+            if (_cmdMgr.GetGroupDataFromRegistry(MainCommandGroupId, out registryIdsObj))
             {
                 int[] knownIds = registryIdsObj as int[];
-                if (knownIds == null || knownIds.Length != _commands.Count || !VersionMatches())
+                if (knownIds == null || knownIds.Length != _commands.Count)
                     ignorePrevious = true;
             }
 
@@ -122,20 +122,17 @@ namespace BDAT
                 entry.CommandId = group.get_CommandID(entry.ItemIndex);
 
             // Put the buttons on a "BDAT" tab in the CommandManager ribbon when a part is open.
-            AddCommandTab(swDocumentTypes_e.swDocPART, ignorePrevious);
+            AddCommandTab(swDocumentTypes_e.swDocPART);
 
             SaveVersion();
         }
 
-        private void AddCommandTab(swDocumentTypes_e docType, bool rebuild)
+        private void AddCommandTab(swDocumentTypes_e docType)
         {
+            // SolidWorks remembers the tab between sessions, so a saved copy can be missing new buttons.
+            // Always replace it with a fresh one.
             CommandTab tab = _cmdMgr.GetCommandTab((int)docType, AddinTitle);
-            if (tab != null && rebuild)
-            {
-                _cmdMgr.RemoveCommandTab(tab);
-                tab = null;
-            }
-            if (tab != null) return;
+            if (tab != null) _cmdMgr.RemoveCommandTab(tab);
 
             tab = _cmdMgr.AddCommandTab((int)docType, AddinTitle);
             CommandTabBox box = tab.AddCommandTabBox();
