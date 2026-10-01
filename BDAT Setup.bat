@@ -52,8 +52,10 @@ $tmp = Join-Path $env:TEMP ('BDAT-' + [Guid]::NewGuid().ToString('N'))
 New-Item -ItemType Directory -Path $tmp | Out-Null
 try {
     Write-Host 'Downloading the latest BDAT...'
-    $latest = $web.DownloadString("$baseUrl/version.txt").Trim()
-    $web.DownloadFile("$baseUrl/BDAT.dll", (Join-Path $tmp 'BDAT.dll'))
+    # The query string stops GitHub's download cache from handing back an older build.
+    $nocache = '?t=' + [DateTime]::UtcNow.Ticks
+    $latest = $web.DownloadString("$baseUrl/version.txt$nocache").Trim()
+    $web.DownloadFile("$baseUrl/BDAT.dll$nocache", (Join-Path $tmp 'BDAT.dll'))
 } catch {
     Finish "Could not download BDAT. Check your internet connection. ($($_.Exception.Message))" 1
 }

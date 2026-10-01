@@ -34,9 +34,11 @@ namespace BDAT.Commands
                 using (WebClient web = new WebClient())
                 {
                     web.Headers.Add("Cache-Control", "no-cache");
-                    latest = web.DownloadString(BuildInfo.ReleaseUrl + "version.txt").Trim();
+                    // The query string stops GitHub's download cache from handing back an older build.
+                    string nocache = "?t=" + DateTime.UtcNow.Ticks;
+                    latest = web.DownloadString(BuildInfo.ReleaseUrl + "version.txt" + nocache).Trim();
                     Directory.CreateDirectory(Path.GetDirectoryName(installer));
-                    web.DownloadFile(BuildInfo.SetupUrl, installer);
+                    web.DownloadFile(BuildInfo.SetupUrl + nocache, installer);
                 }
             }
             catch (Exception ex)
