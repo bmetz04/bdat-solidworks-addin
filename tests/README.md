@@ -26,7 +26,8 @@ The SolidWorks tests never close a SolidWorks they didn't start. They won't run 
 - Save MCM parsing: the name is the part number before the first underscore, and the description is everything after it. Covers no underscore, several underscores, `_murdered` and extra spaces.
 - Save MCM name validation.
 - The connector refuses to start in test mode.
-- The toolbar lists Murder Part, Save MCM, Update BDAT and BDAT vN, in that order, and every callback name exists.
+- The toolbar lists Murder Part, Save MCM, XYZ Planes, Update BDAT and BDAT vN, in that order, and every callback name exists.
+- XYZ Planes reads coordinates in the part's units or with a typed unit (mm, cm, m, in, ", ft), refuses anything that isn't a number, and names the planes with the point (`XY (10, -20.5, 0 mm)`).
 - Neither the version button nor Update BDAT launches anything.
 
 **SolidWorks tests:**
@@ -47,6 +48,12 @@ The SolidWorks tests never close a SolidWorks they didn't start. They won't run 
   - The view ends up isometric and the freeze bar is at the end of the tree. Save MCM turns on the "Enable Freeze bar" option, and the tests put your setting back afterwards.
   - Save, add to bookmark and check-in are listed as skipped, and nothing reaches the connector. Unit tests check that every way into the connector (Find, Manager, Call, Get, Set) throws in test mode, and that Save MCM's check-in step (Unlock) is refused at the connector and reports "not checked in".
   - The part file is never saved.
+
+- XYZ Planes, in new unsaved parts that are closed without saving:
+  - With no part open the button is greyed out and only says to open a part.
+  - It makes XY, XZ and YZ planes named with the point, in an `Origin (...)` folder. Each plane's distance to a 3D sketch point is measured with SolidWorks' Measure tool, which proves it goes through the point and is on the right side of the origin. This covers negative numbers, a 0 coordinate and typed inches.
+  - Running it twice in the same part keeps every name unique.
+  - Cancel, or a box that isn't a number, adds nothing to the part.
 
 **Real parts:** every `.SLDPRT` in `C:\Users\bacon\BDAT\test-parts` is used too. You can change the folder with `-PartsDir`.
 - The folder sits outside the repo on purpose, because McMaster's CAD files shouldn't go on GitHub.

@@ -26,6 +26,15 @@ The first time you use it, it asks you to pick the McMaster Carr bookmark once a
 
 It uses the API of the "3DEXPERIENCE PLM Services" connector add-in (see `Connector.cs`), because the official SolidWorks API can't choose a bookmark when saving.
 
+### XYZ Planes
+Makes three planes through a point you type in, so the part can be origin-mated in the top-level assembly.
+
+1. A pop-up asks for **X**, **Y** and **Z** in the part's units. You can also type a unit after a number (`2 in`, `50 mm`). An empty box is 0.
+2. It adds three planes through that point, parallel to the part's own planes: **XY** (Front, moved to Z), **XZ** (Top, moved to Y) and **YZ** (Right, moved to X). Negative coordinates go to the other side of the origin.
+3. Each plane is named with the point, like `XY (10, 20, 30 mm)`, and the three go in a folder named `Origin (10, 20, 30 mm)`. Running it again adds ` 2` to the names so they stay unique.
+
+Mate those three planes to the top level's planes (or origin planes) to place the part.
+
 ### Update BDAT
 Checks GitHub for a newer published BDAT. If there is one, it downloads it now (Windows asks for admin once) and installs it as soon as you close SolidWorks, so the next time you open SolidWorks you're on the new version.
 

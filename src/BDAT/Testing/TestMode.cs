@@ -16,7 +16,8 @@ namespace BDAT.Testing
     ///     (Yes/OK when the queue is empty),
     ///   - Save MCM runs its pop-up, naming and description logic, records the outcome in LastSaveMcm and stops,
     ///   - any attempt to reach the 3DEXPERIENCE connector throws and is counted in ConnectorAttempts,
-    ///   - Update BDAT never downloads or starts the installer.
+    ///   - Update BDAT never downloads or starts the installer,
+    ///   - XYZ Planes takes its X, Y and Z from PlaneCoordinates instead of the pop-up.
     /// </summary>
     public static class TestMode
     {
@@ -52,6 +53,8 @@ namespace BDAT.Testing
             LastSaveMcm = null;
             ConnectorAttempts = 0;
             InstallerLaunches = 0;
+            PlaneCoordinates = null;
+            LastXyzPlanes = null;
         }
 
         /// <summary>Text of every dialog that would have been shown, oldest first.</summary>
@@ -68,6 +71,12 @@ namespace BDAT.Testing
 
         /// <summary>What Save MCM would have sent to 3DEXPERIENCE on its last run, or null if it stopped early.</summary>
         public static SaveMcmTestResult LastSaveMcm;
+
+        /// <summary>What to type in the XYZ Planes pop-up's X, Y and Z boxes. Null means Cancel.</summary>
+        public static string[] PlaneCoordinates;
+
+        /// <summary>The planes XYZ Planes made on its last run, or null if it made none.</summary>
+        public static XyzPlanesTestResult LastXyzPlanes;
 
         /// <summary>How many times something tried to use the 3DEXPERIENCE connector. Must stay 0.</summary>
         public static int ConnectorAttempts;
@@ -92,6 +101,16 @@ namespace BDAT.Testing
             ConnectorAttempts++;
             throw new InvalidOperationException("BDAT test mode: " + what + " tried to reach 3DEXPERIENCE. Tests must never do that.");
         }
+    }
+
+    /// <summary>What XYZ Planes made, in test mode.</summary>
+    public sealed class XyzPlanesTestResult
+    {
+        /// <summary>The XY, XZ and YZ planes' names, in that order.</summary>
+        public string[] Planes;
+
+        /// <summary>The folder they were put in, or null if there isn't one.</summary>
+        public string Folder;
     }
 
     /// <summary>What Save MCM would have saved, in test mode.</summary>

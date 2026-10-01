@@ -77,10 +77,13 @@ namespace BDAT
                 case 1: // Save MCM: orange circle with a white up arrow
                     DrawArrowIcon(g, cell, Color.FromArgb(230, 120, 20), true);
                     break;
-                case 2: // Update: green circle with a white down arrow
+                case 2: // XYZ Planes: purple circle with white X/Y/Z axes
+                    DrawAxesIcon(g, cell, Color.FromArgb(110, 60, 170));
+                    break;
+                case 3: // Update: green circle with a white down arrow
                     DrawArrowIcon(g, cell, Color.FromArgb(30, 140, 60), false);
                     break;
-                case 3: // Version: blue circle with an "i"
+                case 4: // Version: blue circle with an "i"
                     DrawBadge(g, cell, Color.FromArgb(30, 90, 170), "i");
                     break;
                 default:
@@ -121,6 +124,25 @@ namespace BDAT
             {
                 g.DrawLine(pen, cx, top, cx, bottom);
                 g.DrawLines(pen, new[] { new PointF(cx - wing, tip + back), new PointF(cx, tip), new PointF(cx + wing, tip + back) });
+            }
+        }
+
+        private static void DrawAxesIcon(Graphics g, Rectangle cell, Color color)
+        {
+            float pad = cell.Width * 0.08f;
+            var circle = new RectangleF(cell.X + pad, cell.Y + pad, cell.Width - 2 * pad, cell.Height - 2 * pad);
+            using (var fill = new SolidBrush(color))
+                g.FillEllipse(fill, circle);
+
+            // An origin with three axes: up (Y), right (X) and down-left (Z), like the SolidWorks triad.
+            float cx = cell.X + cell.Width * 0.45f;
+            float cy = cell.Y + cell.Height * 0.55f;
+            float len = cell.Width * 0.3f;
+            using (var pen = new Pen(Color.White, Math.Max(1.5f, cell.Width * 0.09f)) { StartCap = LineCap.Round, EndCap = LineCap.Round })
+            {
+                g.DrawLine(pen, cx, cy, cx, cy - len);
+                g.DrawLine(pen, cx, cy, cx + len, cy);
+                g.DrawLine(pen, cx, cy, cx - len * 0.6f, cy + len * 0.6f);
             }
         }
 

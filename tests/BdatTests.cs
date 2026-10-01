@@ -2,10 +2,10 @@
 //
 // Two layers:
 //   unit        No SolidWorks needed: Save MCM name/description parsing, name validation, the connector guard,
-//               the toolbar command list, Update BDAT and the version button in test mode.
+//               the toolbar command list, XYZ Planes coordinate parsing, Update BDAT and the version button in test mode.
 //   solidworks  Drives a SolidWorks over COM: makes sample parts in a temp folder, checks the BDAT tab on the
 //               BDAT that SolidWorks has loaded, and runs Murder Part and Save MCM (from the BDAT.dll under test,
-//               in test mode) against the samples.
+//               in test mode) against the samples, and XYZ Planes in new parts.
 //
 // Nothing here ever reaches 3DEXPERIENCE: BDAT's test mode makes any connector call throw and counts it, and
 // every test checks the count is still 0. The sample parts are only ever saved to the temp folder.
@@ -261,11 +261,59 @@ namespace BdatTests
             Test("Toolbar has the expected BDAT buttons, in order", delegate
             {
                 List<string> titles = CommandTitles(new SwAddin());
-                Check(titles.Count == 4, "expected 4 buttons, got " + titles.Count + ": " + string.Join(", ", titles.ToArray()));
+                Check(titles.Count == 5, "expected 5 buttons, got " + titles.Count + ": " + string.Join(", ", titles.ToArray()));
                 Equal("Murder Part", titles[0], "button 1");
                 Equal("Save MCM", titles[1], "button 2");
-                Equal("Update BDAT", titles[2], "button 3");
-                Check(Regex.IsMatch(titles[3], @"^BDAT (v\d+|dev build)$"), "button 4 should be the version (BDAT vN), got \"" + titles[3] + "\"");
+                Equal("XYZ Planes", titles[2], "button 3");
+                Equal("Update BDAT", titles[3], "button 4");
+                Check(Regex.IsMatch(titles[4], @"^BDAT (v\d+|dev build)$"), "button 5 should be the version (BDAT vN), got \"" + titles[4] + "\"");
+            });
+
+            Test("XYZ Planes reads coordinates", delegate
+            {
+                XyzPlanesCommand.LengthUnit mm = XyzPlanesCommand.Millimetres;
+                XyzPlanesCommand.LengthUnit inch = XyzPlanesCommand.Inches;
+                var cases = new[]
+                {
+                    // typed, part's unit, metres
+                    Tuple.Create("10", mm, 0.010),
+                    Tuple.Create("-2.5", mm, -0.0025),
+                    Tuple.Create("", mm, 0.0),
+                    Tuple.Create("  0  ", mm, 0.0),
+                    Tuple.Create("1", inch, 0.0254),
+                    Tuple.Create("2 in", mm, 0.0508),
+                    Tuple.Create("2\"", mm, 0.0508),
+                    Tuple.Create("50mm", inch, 0.050),
+                    Tuple.Create("5 MM", inch, 0.005),
+                    Tuple.Create("1.5 cm", mm, 0.015),
+                    Tuple.Create("0.1m", mm, 0.1),
+                    Tuple.Create("1 ft", mm, 0.3048),
+                    Tuple.Create("1e2", mm, 0.1),
+                };
+                foreach (var c in cases)
+                {
+                    double metres;
+                    string error = XyzPlanesCommand.ParseCoordinate(c.Item1, c.Item2, out metres);
+                    Check(error == null, "\"" + c.Item1 + "\" should be read, got: " + error);
+                    Check(Math.Abs(metres - c.Item3) < 1e-12, "\"" + c.Item1 + "\" in " + c.Item2.Name + ": expected " + c.Item3 + " m, got " + metres);
+                }
+                foreach (string bad in new[] { "abc", "10 furlongs", "mm", "1..2", "5000 m" })
+                {
+                    double metres;
+                    Check(XyzPlanesCommand.ParseCoordinate(bad, mm, out metres) != null, "\"" + bad + "\" should be refused");
+                }
+                double[] point;
+                string pointError = XyzPlanesCommand.ParsePoint("1", "two", "3", mm, out point);
+                Check(pointError != null && pointError.StartsWith("Y:"), "a bad Y should be reported as Y, got: " + pointError);
+            });
+
+            Test("XYZ Planes names the planes with the point", delegate
+            {
+                Equal("(10, -20.5, 0 mm)", XyzPlanesCommand.PointLabel(new[] { 0.010, -0.0205, -0.0 }, XyzPlanesCommand.Millimetres), "mm label");
+                Equal("(1, 0.5, -2 in)", XyzPlanesCommand.PointLabel(new[] { 0.0254, 0.0127, -0.0508 }, XyzPlanesCommand.Inches), "inch label");
+                Equal("0.3333", XyzPlanesCommand.Number(0.001 / 3, XyzPlanesCommand.Millimetres), "rounding");
+                Equal("mm", XyzPlanesCommand.UnitFor((int)swLengthUnit_e.swMM).Name, "mm part");
+                Equal("in", XyzPlanesCommand.UnitFor((int)swLengthUnit_e.swINCHES).Name, "inch part");
             });
 
             Test("Every toolbar callback exists on SwAddin", delegate
@@ -393,6 +441,7 @@ namespace BdatTests
                 freezeBarWasOn = swApp.GetUserPreferenceToggle((int)swUserPreferenceToggle_e.swUserEnableFreezeBar);
 
                 Test("BDAT tab has every button", delegate { CheckToolbar(swApp, options); });
+                Test("XYZ Planes: needs a part open", delegate { XyzPlanesNoPartTest(swApp); });
 
                 Directory.CreateDirectory(work);
                 Samples samples = null;
@@ -428,6 +477,21 @@ namespace BdatTests
                         SaveMcmTest(swApp, samples.Threaded, null, "", "91251A540", "");
                     });
                 }
+
+                Test("XYZ Planes: makes the planes through the point", delegate
+                {
+                    XyzPlanesTest(swApp, new[] { "10mm", "-20mm", "30mm" }, new[] { 0.010, -0.020, 0.030 }, 1);
+                });
+                Test("XYZ Planes: a 0 coordinate and inches", delegate
+                {
+                    XyzPlanesTest(swApp, new[] { "0", "", "-1 in" }, new[] { 0.0, 0.0, -0.0254 }, 1);
+                });
+                Test("XYZ Planes: running twice keeps every name unique", delegate
+                {
+                    XyzPlanesTest(swApp, new[] { "5mm", "5mm", "5mm" }, new[] { 0.005, 0.005, 0.005 }, 2);
+                });
+                Test("XYZ Planes: Cancel makes nothing", delegate { XyzPlanesNothingTest(swApp, null); });
+                Test("XYZ Planes: a bad number makes nothing", delegate { XyzPlanesNothingTest(swApp, new[] { "1", "abc", "3" }); });
 
                 RealPartTests(swApp, options, work);
             }
@@ -693,6 +757,113 @@ namespace BdatTests
         }
 
         // ---- Save MCM
+
+        // ---- XYZ Planes
+
+        private static void XyzPlanesNoPartTest(ISldWorks swApp)
+        {
+            Check(swApp.GetDocumentCount() == 0, "this test needs SolidWorks with nothing open");
+            var command = new XyzPlanesCommand();
+            Check(!command.IsEnabled(swApp), "XYZ Planes should be greyed out with no part open");
+            TestMode.PlaneCoordinates = new[] { "1", "2", "3" };
+            command.Run(swApp);
+            Check(TestMode.LastXyzPlanes == null, "XYZ Planes made planes with no part open");
+            Check(TestMode.Messages.Count == 1 && TestMode.Messages[0].Contains("Open a part"), "it should say to open a part, got: " + string.Join(" | ", TestMode.Messages.ToArray()));
+        }
+
+        /// <summary>
+        /// Runs XYZ Planes runs times in a new part with the typed coordinates, then checks the planes it made the
+        /// last time: named with the point, in a folder, and (measured from a 3D sketch point, independently of how
+        /// BDAT places them) each one through the point on the right side of the origin.
+        /// </summary>
+        private static void XyzPlanesTest(ISldWorks swApp, string[] typed, double[] expected, int runs)
+        {
+            IModelDoc2 doc = Samples.NewPart(swApp);
+            try
+            {
+                var command = new XyzPlanesCommand();
+                Check(command.IsEnabled(swApp), "XYZ Planes should be enabled with a part open");
+                for (int run = 1; run <= runs; run++)
+                {
+                    TestMode.LastXyzPlanes = null;
+                    TestMode.PlaneCoordinates = typed;
+                    command.Run(swApp);
+                    Check(TestMode.LastXyzPlanes != null, "no planes were made (run " + run + "): " + string.Join(" | ", TestMode.Messages.ToArray()));
+                }
+                XyzPlanesTestResult r = TestMode.LastXyzPlanes;
+                Check(TestMode.Messages.Count == 0, "it shouldn't need to say anything, but said: " + string.Join(" | ", TestMode.Messages.ToArray()));
+                Check(r.Planes != null && r.Planes.Length == 3, "expected 3 planes");
+
+                XyzPlanesCommand.LengthUnit unit = XyzPlanesCommand.UnitFor(doc.Extension.GetUserPreferenceInteger(
+                    (int)swUserPreferenceIntegerValue_e.swUnitsLinear, (int)swUserPreferenceOption_e.swDetailingNoOptionSpecified));
+                string label = XyzPlanesCommand.PointLabel(expected, unit);
+                string suffix = runs > 1 ? " " + runs : "";
+                string[] prefixes = { "XY ", "XZ ", "YZ " };
+                for (int i = 0; i < 3; i++) Equal(prefixes[i] + label + suffix, r.Planes[i], "plane " + (i + 1) + " name");
+                Equal("Origin " + label + suffix, r.Folder, "folder name");
+
+                IFeature folder = ((IPartDoc)doc).FeatureByName(r.Folder) as IFeature;
+                Check(folder != null && folder.GetTypeName2() == "FtrFolder", "no \"" + r.Folder + "\" folder in the tree");
+
+                // A point at (50, 50, 50) mm. A plane through the expected point is |50 mm - coordinate| from it;
+                // one on the wrong side of the origin would be |50 mm + coordinate|.
+                const double p = 0.050;
+                doc.ClearSelection2(true);
+                doc.SketchManager.Insert3DSketch(true);
+                SketchPoint probe = doc.SketchManager.CreatePoint(p, p, p);
+                doc.SketchManager.Insert3DSketch(true);
+                Check(probe != null, "couldn't make the 3D sketch point to measure from");
+
+                int[] axisOf = { 2, 1, 0 }; // XY is at Z, XZ at Y, YZ at X
+                for (int i = 0; i < 3; i++)
+                {
+                    IFeature plane = ((IPartDoc)doc).FeatureByName(r.Planes[i]) as IFeature;
+                    Check(plane != null && plane.GetTypeName2() == "RefPlane", "no plane called \"" + r.Planes[i] + "\"");
+                    double want = Math.Abs(p - expected[axisOf[i]]);
+                    double got = Distance(doc, plane, probe);
+                    Check(Math.Abs(want - got) < 1e-7, r.Planes[i] + " is " + (got * 1000).ToString("0.###") + " mm from (50, 50, 50) mm, expected " +
+                        (want * 1000).ToString("0.###") + " mm" + (Math.Abs(p + expected[axisOf[i]] - got) < 1e-7 ? " (it's on the wrong side of the origin)" : ""));
+                }
+            }
+            finally
+            {
+                swApp.CloseDoc(doc.GetTitle()); // never saved
+            }
+        }
+
+        private static void XyzPlanesNothingTest(ISldWorks swApp, string[] typed)
+        {
+            IModelDoc2 doc = Samples.NewPart(swApp);
+            try
+            {
+                int before = FeatureNames(doc).Count;
+                TestMode.PlaneCoordinates = typed;
+                new XyzPlanesCommand().Run(swApp);
+                Check(TestMode.LastXyzPlanes == null, "planes were made");
+                Check(FeatureNames(doc).Count == before, "the feature tree changed");
+                if (typed != null) Check(TestMode.Messages.Count == 1 && TestMode.Messages[0].Contains("Y:"), "it should say Y isn't a number, got: " + string.Join(" | ", TestMode.Messages.ToArray()));
+                else Check(TestMode.Messages.Count == 0, "Cancel shouldn't show anything");
+            }
+            finally
+            {
+                swApp.CloseDoc(doc.GetTitle());
+            }
+        }
+
+        /// <summary>SolidWorks' Measure tool: the distance between a plane and a point.</summary>
+        private static double Distance(IModelDoc2 doc, IFeature plane, SketchPoint point)
+        {
+            doc.ClearSelection2(true);
+            Check(plane.Select2(false, 0), "couldn't select " + plane.Name);
+            Check(point.Select4(true, null), "couldn't select the 3D sketch point");
+            Measure measure = doc.Extension.CreateMeasure();
+            bool ok = measure.Calculate(null);
+            double d = measure.Distance;
+            if (d < 0) d = measure.NormalDistance;
+            doc.ClearSelection2(true);
+            Check(ok && d >= 0, "couldn't measure from " + plane.Name + " to the point");
+            return d;
+        }
 
         // ---- Real parts from the user's test-parts library
 
@@ -1008,7 +1179,7 @@ namespace BdatTests
             return s;
         }
 
-        private static IModelDoc2 NewPart(ISldWorks swApp)
+        internal static IModelDoc2 NewPart(ISldWorks swApp)
         {
             string template = swApp.GetUserPreferenceStringValue((int)swUserPreferenceStringValue_e.swDefaultTemplatePart);
             if (string.IsNullOrEmpty(template) || !File.Exists(template)) throw new Exception("no default part template (" + template + ")");

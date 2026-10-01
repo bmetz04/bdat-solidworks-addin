@@ -29,7 +29,7 @@ namespace BDAT
 
         // Bump this whenever commands are added, removed or reordered so SolidWorks
         // rebuilds the toolbar instead of reusing its cached copy.
-        private const int CommandGroupVersion = 4;
+        private const int CommandGroupVersion = 5;
 
         private ISldWorks _swApp;
         private ICommandManager _cmdMgr;
@@ -40,6 +40,7 @@ namespace BDAT
         {
             new CommandEntry(new MurderPartCommand(), "OnMurderPart", "CanMurderPart"),
             new CommandEntry(new SaveMcmCommand(), "OnSaveMcm", "CanSaveMcm"),
+            new CommandEntry(new XyzPlanesCommand(), "OnXyzPlanes", "CanXyzPlanes"),
             new CommandEntry(new UpdateCommand(), "OnUpdate", "CanUpdate"),
             new CommandEntry(new VersionCommand(), "OnVersion", "CanVersion"),
         };
@@ -281,11 +282,14 @@ namespace BDAT
         public void OnSaveMcm() { Run(_commands[1].Command); }
         public int CanSaveMcm() { return CanRun(_commands[1].Command); }
 
-        public void OnUpdate() { Run(_commands[2].Command); }
-        public int CanUpdate() { return CanRun(_commands[2].Command); }
+        public void OnXyzPlanes() { Run(_commands[2].Command); }
+        public int CanXyzPlanes() { return CanRun(_commands[2].Command); }
 
-        public void OnVersion() { Run(_commands[3].Command); }
-        public int CanVersion() { return CanRun(_commands[3].Command); }
+        public void OnUpdate() { Run(_commands[3].Command); }
+        public int CanUpdate() { return CanRun(_commands[3].Command); }
+
+        public void OnVersion() { Run(_commands[4].Command); }
+        public int CanVersion() { return CanRun(_commands[4].Command); }
 
         #endregion
 
