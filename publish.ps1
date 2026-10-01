@@ -69,8 +69,18 @@ function Undo-Stamp { git checkout -q -- build/AssemblyInfo.cs }
 # Build.
 Write-Host ''
 Write-Host "Building BDAT $version..."
+$env:BDAT_NO_PAUSE = '1'  # build.bat pauses when double-clicked; not when Publish runs it.
 & cmd.exe /c "`"$(Join-Path $repo 'build.bat')`""
 if ($LASTEXITCODE -ne 0) { Undo-Stamp; Finish 'The build failed (see the errors above). Nothing was published.' 1 }
+
+# Run the automated tests on the new build. Skipped until the tests are in the repo.
+$gate = Join-Path $repo 'tests\gate.ps1'
+if (Test-Path $gate) {
+    Write-Host ''
+    Write-Host 'Running the BDAT tests...'
+    & powershell -NoProfile -ExecutionPolicy Bypass -File $gate
+    if ($LASTEXITCODE -ne 0) { Undo-Stamp; Finish 'The tests failed (see above). Nothing was published.' 1 }
+}
 
 # Show what is about to be published.
 if ($changes) {

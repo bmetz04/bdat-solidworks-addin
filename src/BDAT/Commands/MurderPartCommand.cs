@@ -8,7 +8,7 @@ using SolidWorks.Interop.swconst;
 namespace BDAT.Commands
 {
     /// <summary>
-    /// Murder Part: make a thread-free, single-body Parasolid version of the active part and open it as a new part.
+    /// Murder Part: make a thread-free Parasolid version of the active part and open it as a new part.
     ///
     /// The part the user has open is never modified: all the deleting happens on a hidden temporary copy.
     ///
@@ -19,14 +19,13 @@ namespace BDAT.Commands
     ///   3. On the copy, delete every feature folder with "thread" in its name (e.g. McMaster's "Threads" folder)
     ///      with everything inside it, plus any cosmetic threads and Thread features elsewhere.
     ///   4. Export the copy to a temporary .x_t, then close the copy without saving.
-    ///   5. Open the .x_t as a new unsaved part, combine its bodies into one if needed,
-    ///      then delete the temporary files.
+    ///   5. Open the .x_t as a new unsaved part (multi-body parts stay multi-body), then delete the temporary files.
     /// </summary>
     public sealed class MurderPartCommand : IBdatCommand
     {
         public string Title { get { return "Murder Part"; } }
 
-        public string Hint { get { return "Make a thread-free single-body copy of this part (the original isn't changed)"; } }
+        public string Hint { get { return "Make a thread-free copy of this part (the original isn't changed)"; } }
 
         private const string ExportSuffix = "_murdered";
         private const string WorkCopySuffix = "_bdat_workcopy";
@@ -140,8 +139,6 @@ namespace BDAT.Commands
                 return;
             }
 
-            string bodyNote = MergeBodies(newDoc);
-
             var summary = new StringBuilder();
             if (scan.FolderNames.Count > 0)
                 summary.AppendLine("Deleted the " + string.Join(", ", scan.FolderNames.ToArray()) + " folder(s) and everything in them.");
@@ -151,7 +148,7 @@ namespace BDAT.Commands
             if (scan.FeatureNames.Count == 0)
                 summary.AppendLine("No threads were found, so the part was exported as it is.");
             summary.AppendLine();
-            summary.AppendLine("Opened the result as a new part. " + bodyNote);
+            summary.AppendLine("Opened the result as a new part.");
             summary.AppendLine("It isn't saved anywhere yet; use Save As to keep it.");
             summary.AppendLine();
             summary.Append("Your original part \"" + baseName + "\" was not changed.");
@@ -163,7 +160,7 @@ namespace BDAT.Commands
             var msg = new StringBuilder();
             msg.AppendLine("Murder \"" + BaseName(doc) + "\"?");
             msg.AppendLine();
-            msg.AppendLine("This opens a NEW part: a thread-free, single-body Parasolid version of this one.");
+            msg.AppendLine("This opens a NEW part: a thread-free Parasolid version of this one.");
             msg.AppendLine("Your original part and its file are not changed.");
             msg.AppendLine();
             if (preview.FolderNames.Count > 0)
@@ -171,7 +168,7 @@ namespace BDAT.Commands
             if (preview.FeatureNames.Count > 0)
                 msg.AppendLine("Thread features found: " + preview.FeatureNames.Count + ".");
             else
-                msg.AppendLine("No threads were found, so it would just be converted to a single dumb solid.");
+                msg.AppendLine("No threads were found, so it would just be converted to a dumb solid.");
 
             return Ui.AskYesNo(swApp, msg.ToString());
         }
@@ -317,32 +314,6 @@ namespace BDAT.Commands
         {
             doc.ClearSelection2(true);
             return feat.Select2(false, -1) && doc.Extension.DeleteSelection2(options);
-        }
-
-        /// <summary>Combines multiple imported solid bodies into one when they touch.</summary>
-        private static string MergeBodies(IModelDoc2 newDoc)
-        {
-            IPartDoc part = newDoc as IPartDoc;
-            object[] bodies = part == null ? null : part.GetBodies2((int)swBodyType_e.swSolidBody, true) as object[];
-            int count = bodies == null ? 0 : bodies.Length;
-
-            if (count <= 1) return "It is a single solid body.";
-
-            try
-            {
-                IFeature combine = newDoc.FeatureManager.InsertCombineFeature(
-                    (int)swBodyOperationType_e.SWBODYADD, null, bodies) as IFeature;
-                newDoc.ForceRebuild3(false);
-                object[] after = part.GetBodies2((int)swBodyType_e.swSolidBody, true) as object[];
-                int afterCount = after == null ? 0 : after.Length;
-                if (combine != null && afterCount == 1)
-                    return "It came in as " + count + " bodies, which were combined into one.";
-                return "It came in as " + count + " bodies. They don't all touch, so " + afterCount + " separate bodies remain.";
-            }
-            catch
-            {
-                return "It came in as " + count + " bodies and combining them failed, so they were left separate.";
-            }
         }
 
         /// <summary>Clears leftovers from earlier runs (e.g. a file SolidWorks still had locked last time).</summary>
