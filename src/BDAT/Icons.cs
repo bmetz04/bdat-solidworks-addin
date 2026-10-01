@@ -77,7 +77,7 @@ namespace BDAT
                 case 1: // Save MCM: orange circle with a white up arrow
                     DrawArrowIcon(g, cell, Color.FromArgb(230, 120, 20), true);
                     break;
-                case 2: // XYZ Planes: purple circle with white X/Y/Z axes
+                case 2: // Create Origin: purple circle with white X/Y/Z axes
                     DrawAxesIcon(g, cell, Color.FromArgb(110, 60, 170));
                     break;
                 case 3: // Update: green circle with a white down arrow

@@ -4,17 +4,17 @@ using System.Windows.Forms;
 
 namespace BDAT.Commands
 {
-    /// <summary>The XYZ Planes pop-up: X, Y and Z of the point the planes go through.</summary>
-    internal sealed class XyzPlanesForm : Form
+    /// <summary>The Create Origin pop-up: X, Y and Z of the new origin.</summary>
+    internal sealed class CreateOriginForm : Form
     {
-        private readonly XyzPlanesCommand.LengthUnit _unit;
+        private readonly CreateOriginCommand.LengthUnit _unit;
         private readonly TextBox[] _boxes = new TextBox[3];
         private readonly Label _error;
 
-        public XyzPlanesForm(XyzPlanesCommand.LengthUnit unit)
+        public CreateOriginForm(CreateOriginCommand.LengthUnit unit)
         {
             _unit = unit;
-            Text = "XYZ Planes";
+            Text = "Create Origin";
             FormBorderStyle = FormBorderStyle.FixedDialog;
             MaximizeBox = false;
             MinimizeBox = false;
@@ -40,7 +40,7 @@ namespace BDAT.Commands
 
             var intro = new Label
             {
-                Text = "Makes XY, XZ and YZ planes through this point,\nfor origin mates in the top level.",
+                Text = "Makes a new origin here: a coordinate system called Origin'\nand X', Y', Z' planes, for origin mates in the top level.",
                 AutoSize = true,
                 Margin = new Padding(3, 0, 3, 10),
             };
@@ -62,7 +62,7 @@ namespace BDAT.Commands
 
             var buttons = new FlowLayoutPanel { FlowDirection = FlowDirection.RightToLeft, Dock = DockStyle.Fill, AutoSize = true, Margin = new Padding(0, 8, 0, 0) };
             var cancel = new Button { Text = "Cancel", DialogResult = DialogResult.Cancel, AutoSize = true };
-            var ok = new Button { Text = "Make planes", AutoSize = true };
+            var ok = new Button { Text = "Create origin", AutoSize = true };
             ok.Click += OnOk;
             buttons.Controls.Add(cancel);
             buttons.Controls.Add(ok);
@@ -86,7 +86,7 @@ namespace BDAT.Commands
         private void OnOk(object sender, EventArgs e)
         {
             double[] point;
-            string error = XyzPlanesCommand.ParsePoint(_boxes[0].Text, _boxes[1].Text, _boxes[2].Text, _unit, out point);
+            string error = CreateOriginCommand.ParsePoint(_boxes[0].Text, _boxes[1].Text, _boxes[2].Text, _unit, out point);
             if (error != null)
             {
                 _error.Text = error;

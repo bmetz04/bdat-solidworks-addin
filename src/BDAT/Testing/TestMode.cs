@@ -17,7 +17,7 @@ namespace BDAT.Testing
     ///   - Save MCM runs its pop-up, naming and description logic, records the outcome in LastSaveMcm and stops,
     ///   - any attempt to reach the 3DEXPERIENCE connector throws and is counted in ConnectorAttempts,
     ///   - Update BDAT never downloads or starts the installer,
-    ///   - XYZ Planes takes its X, Y and Z from PlaneCoordinates instead of the pop-up.
+    ///   - Create Origin takes its X, Y and Z from OriginCoordinates instead of the pop-up.
     /// </summary>
     public static class TestMode
     {
@@ -53,8 +53,8 @@ namespace BDAT.Testing
             LastSaveMcm = null;
             ConnectorAttempts = 0;
             InstallerLaunches = 0;
-            PlaneCoordinates = null;
-            LastXyzPlanes = null;
+            OriginCoordinates = null;
+            LastCreateOrigin = null;
         }
 
         /// <summary>Text of every dialog that would have been shown, oldest first.</summary>
@@ -72,11 +72,11 @@ namespace BDAT.Testing
         /// <summary>What Save MCM would have sent to 3DEXPERIENCE on its last run, or null if it stopped early.</summary>
         public static SaveMcmTestResult LastSaveMcm;
 
-        /// <summary>What to type in the XYZ Planes pop-up's X, Y and Z boxes. Null means Cancel.</summary>
-        public static string[] PlaneCoordinates;
+        /// <summary>What to type in the Create Origin pop-up's X, Y and Z boxes. Null means Cancel.</summary>
+        public static string[] OriginCoordinates;
 
-        /// <summary>The planes XYZ Planes made on its last run, or null if it made none.</summary>
-        public static XyzPlanesTestResult LastXyzPlanes;
+        /// <summary>What Create Origin made on its last run, or null if it made nothing.</summary>
+        public static CreateOriginTestResult LastCreateOrigin;
 
         /// <summary>How many times something tried to use the 3DEXPERIENCE connector. Must stay 0.</summary>
         public static int ConnectorAttempts;
@@ -103,11 +103,14 @@ namespace BDAT.Testing
         }
     }
 
-    /// <summary>What XYZ Planes made, in test mode.</summary>
-    public sealed class XyzPlanesTestResult
+    /// <summary>What Create Origin made, in test mode.</summary>
+    public sealed class CreateOriginTestResult
     {
-        /// <summary>The XY, XZ and YZ planes' names, in that order.</summary>
+        /// <summary>The X', Y' and Z' planes' names, in that order.</summary>
         public string[] Planes;
+
+        /// <summary>The Origin' coordinate system's name.</summary>
+        public string Origin;
 
         /// <summary>The folder they were put in, or null if there isn't one.</summary>
         public string Folder;

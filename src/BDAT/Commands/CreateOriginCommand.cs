@@ -9,22 +9,23 @@ using BDAT.Testing;
 namespace BDAT.Commands
 {
     /// <summary>
-    /// XYZ Planes: type a point, get three planes through it, so a part or sub-assembly can be origin-mated in the
-    /// top level. Works in parts and assemblies.
+    /// Create Origin: type a point, get a new origin there, so a part or sub-assembly can be origin-mated in the top
+    /// level. Works in parts and assemblies. (SolidWorks can't move the real origin, so this is the next best thing.)
     ///
     ///   1. A pop-up asks for X, Y and Z, in the document's units (or with a unit typed after the number, e.g. "2 in").
     ///   2. Three planes are made through that point, parallel to the document's own planes:
-    ///        XY, offset from the Front plane by Z
-    ///        XZ, offset from the Top plane by Y
-    ///        YZ, offset from the Right plane by X
-    ///      Each is named with the point, e.g. "XY (10, 20, 30 mm)", so it's easy to pick when mating.
-    ///   3. The three planes go in a folder named "Origin (10, 20, 30 mm)".
+    ///        X', the Right plane moved to X
+    ///        Y', the Top plane moved to Y
+    ///        Z', the Front plane moved to Z
+    ///   3. A coordinate system called Origin' is made at the point, with its axes along the document's X, Y and Z.
+    ///   4. All four go in a folder named with the point, e.g. "Origin' (10, 20, 30 mm)".
+    /// Running it again in the same document adds " 2", " 3"... to the names.
     /// </summary>
-    public sealed class XyzPlanesCommand : IBdatCommand
+    public sealed class CreateOriginCommand : IBdatCommand
     {
-        public string Title { get { return "XYZ Planes"; } }
+        public string Title { get { return "Create Origin"; } }
 
-        public string Hint { get { return "Make XY, XZ and YZ planes through a point you type in, for origin mates"; } }
+        public string Hint { get { return "Make a new origin (coordinate system and X', Y', Z' planes) at a point you type in, for origin mates"; } }
 
         // Plane positions are checked to this many metres after they're made.
         private const double Tolerance = 1e-8;
@@ -47,7 +48,7 @@ namespace BDAT.Commands
             IModelDoc2 doc = swApp.ActiveDoc as IModelDoc2;
             if (!IsPartOrAssembly(doc))
             {
-                Ui.Tell(swApp, "Open a part or assembly first. XYZ Planes adds the planes to the one you have open.", swMessageBoxIcon_e.swMbWarning);
+                Ui.Tell(swApp, "Open a part or assembly first. Create Origin adds the new origin to the one you have open.", swMessageBoxIcon_e.swMbWarning);
                 return;
             }
 
@@ -59,47 +60,50 @@ namespace BDAT.Commands
             IFeature[] bases = StandardPlanes(doc);
             if (bases == null)
             {
-                Ui.Tell(swApp, "Couldn't find the Front, Top and Right planes, so no planes were made.", swMessageBoxIcon_e.swMbStop);
+                Ui.Tell(swApp, "Couldn't find the Front, Top and Right planes, so nothing was made.", swMessageBoxIcon_e.swMbStop);
                 return;
             }
 
             string label = PointLabel(point, unit);
             var made = new List<IFeature>();
+            IFeature origin;
             try
             {
-                // Axis 2 (Z) from Front, axis 1 (Y) from Top, axis 0 (X) from Right.
-                made.Add(MakePlane(doc, bases[0], 2, point[2], "XY " + label));
-                made.Add(MakePlane(doc, bases[1], 1, point[1], "XZ " + label));
-                made.Add(MakePlane(doc, bases[2], 0, point[0], "YZ " + label));
+                // X' from Right (axis 0), Y' from Top (axis 1), Z' from Front (axis 2).
+                made.Add(MakePlane(doc, bases[2], 0, point[0], "X'"));
+                made.Add(MakePlane(doc, bases[1], 1, point[1], "Y'"));
+                made.Add(MakePlane(doc, bases[0], 2, point[2], "Z'"));
+                origin = MakeCoordinateSystem(doc, point, made);
             }
             catch (Exception ex)
             {
-                // Don't leave one or two planes behind; it's all three or nothing.
-                foreach (IFeature f in made) Delete(doc, f);
+                // Don't leave half of it behind; it's everything or nothing.
+                for (int i = made.Count - 1; i >= 0; i--) Delete(doc, made[i]);
                 doc.ClearSelection2(true);
-                Ui.Tell(swApp, "Couldn't make the planes at " + label + ": " + ex.Message, swMessageBoxIcon_e.swMbStop);
+                Ui.Tell(swApp, "Couldn't make the origin at " + label + ": " + ex.Message, swMessageBoxIcon_e.swMbStop);
                 return;
             }
 
-            string folder = PutInFolder(doc, made, "Origin " + label);
+            string folder = PutInFolder(doc, made, "Origin' " + label);
             doc.ClearSelection2(true);
             doc.GraphicsRedraw2();
 
             if (TestMode.Enabled)
             {
                 var names = new List<string>();
-                foreach (IFeature f in made) names.Add(f.Name);
-                TestMode.LastXyzPlanes = new XyzPlanesTestResult { Planes = names.ToArray(), Folder = folder };
+                foreach (IFeature f in made)
+                    if (f.GetTypeName2() == "RefPlane") names.Add(f.Name);
+                TestMode.LastCreateOrigin = new CreateOriginTestResult { Planes = names.ToArray(), Origin = origin.Name, Folder = folder };
             }
         }
 
-        /// <summary>The pop-up (or, in test mode, TestMode.PlaneCoordinates). False if cancelled or invalid.</summary>
+        /// <summary>The pop-up (or, in test mode, TestMode.OriginCoordinates). False if cancelled or invalid.</summary>
         private static bool AskForPoint(ISldWorks swApp, LengthUnit unit, out double[] point)
         {
             point = null;
             if (TestMode.Enabled)
             {
-                string[] typed = TestMode.PlaneCoordinates;
+                string[] typed = TestMode.OriginCoordinates;
                 if (typed == null) return false; // Cancel
                 string error = ParsePoint(typed[0], typed[1], typed[2], unit, out point);
                 if (error == null) return true;
@@ -109,7 +113,7 @@ namespace BDAT.Commands
 
             IFrame frame = swApp.Frame() as IFrame;
             var owner = new WindowHandle(frame == null ? IntPtr.Zero : new IntPtr(frame.GetHWndx64()));
-            using (var form = new XyzPlanesForm(unit))
+            using (var form = new CreateOriginForm(unit))
             {
                 if (form.ShowDialog(owner) != DialogResult.OK) return false;
                 point = form.Point;
@@ -180,6 +184,96 @@ namespace BDAT.Commands
             throw new InvalidOperationException("SolidWorks didn't put the " + name + " plane where it should be.");
         }
 
+        /// <summary>
+        /// The Origin' coordinate system at point, axes along the document's. Added to made (with the sketch point it
+        /// hangs on, if it needs one). Checked after it's made; throws if it can't be put in the right place.
+        /// </summary>
+        private static IFeature MakeCoordinateSystem(IModelDoc2 doc, double[] point, List<IFeature> made)
+        {
+            // SolidWorks 2019 and later can place one by numbers, with nothing for it to depend on.
+            IFeature cs = ByNumbers(doc, point);
+            if (cs != null && !At(doc, cs, point)) { Delete(doc, cs); cs = null; }
+            if (cs != null)
+            {
+                Rename(doc, cs, "Origin'");
+                made.Add(cs);
+                return cs;
+            }
+
+            // Otherwise on a point in a 3D sketch, which stays hidden next to it.
+            IFeature last = doc.FeatureByPositionReverse(0) as IFeature;
+            doc.ClearSelection2(true);
+            doc.SketchManager.Insert3DSketch(true);
+            bool addToDb = doc.SketchManager.AddToDB;
+            doc.SketchManager.AddToDB = true; // no snapping to whatever is near
+            SketchPoint sketchPoint = doc.SketchManager.CreatePoint(point[0], point[1], point[2]);
+            doc.SketchManager.AddToDB = addToDb;
+            doc.SketchManager.Insert3DSketch(true);
+            IFeature sketch = doc.FeatureByPositionReverse(0) as IFeature;
+            if (sketchPoint == null || sketch == null || ReferenceEquals(sketch, last))
+                throw new InvalidOperationException("SolidWorks didn't make the point for the coordinate system.");
+            made.Add(sketch);
+            Rename(doc, sketch, "Origin' point");
+
+            doc.ClearSelection2(true);
+            SelectData origin = ((ISelectionMgr)doc.SelectionManager).CreateSelectData() as SelectData;
+            origin.Mark = 1; // the coordinate system's origin
+            if (!sketchPoint.Select4(false, origin))
+                throw new InvalidOperationException("couldn't select the point for the coordinate system.");
+            cs = doc.FeatureManager.InsertCoordinateSystem(false, false, false) as IFeature;
+            doc.ClearSelection2(true);
+            if (cs == null) throw new InvalidOperationException("SolidWorks didn't make the coordinate system.");
+            made.Add(cs);
+            if (!At(doc, cs, point)) throw new InvalidOperationException("SolidWorks didn't put the coordinate system at the point.");
+            Rename(doc, cs, "Origin'");
+
+            sketch.Select2(false, 0);
+            doc.BlankSketch(); // hide the point; the coordinate system shows where it is
+            doc.ClearSelection2(true);
+            return cs;
+        }
+
+        /// <summary>
+        /// FeatureManager.CreateCoordinateSystemUsingNumericalValues (SolidWorks 2019+), found by name so BDAT still
+        /// builds against older SolidWorks. Null if it isn't there or doesn't work.
+        /// </summary>
+        private static IFeature ByNumbers(IModelDoc2 doc, double[] point)
+        {
+            try
+            {
+                System.Reflection.MethodInfo m = typeof(IFeatureManager).GetMethod("CreateCoordinateSystemUsingNumericalValues");
+                if (m == null) return null;
+                System.Reflection.ParameterInfo[] p = m.GetParameters();
+                // (origin defined, x, y, z, rotation defined, angle x, angle y, angle z)
+                if (p.Length != 8 || p[0].ParameterType != typeof(bool) || p[4].ParameterType != typeof(bool)) return null;
+                IFeature last = doc.FeatureByPositionReverse(0) as IFeature;
+                doc.ClearSelection2(true);
+                object made = m.Invoke(doc.FeatureManager, new object[] { true, point[0], point[1], point[2], false, 0.0, 0.0, 0.0 });
+                IFeature cs = made as IFeature ?? doc.FeatureByPositionReverse(0) as IFeature;
+                if (cs == null || ReferenceEquals(cs, last) || cs.GetTypeName2() != "CoordSys") return null;
+                return cs;
+            }
+            catch
+            {
+                return null;
+            }
+        }
+
+        /// <summary>The coordinate system's origin is at point and its axes are the document's.</summary>
+        private static bool At(IModelDoc2 doc, IFeature cs, double[] point)
+        {
+            MathTransform t = doc.Extension.GetCoordinateSystemTransformByName(cs.Name) as MathTransform;
+            double[] d = t == null ? null : t.ArrayData as double[];
+            if (d == null || d.Length < 12) return false;
+            double[] identity = { 1, 0, 0, 0, 1, 0, 0, 0, 1 };
+            for (int i = 0; i < 9; i++)
+                if (Math.Abs(d[i] - identity[i]) > 1e-6) return false;
+            // The transform takes the coordinate system into the model, so its translation is where its origin is.
+            for (int i = 0; i < 3; i++)
+                if (Math.Abs(d[9 + i] - point[i]) > Tolerance) return false;
+            return true;
+        }
+
         private static IFeature InsertPlane(IModelDoc2 doc, IFeature basePlane, int constraint, double value)
         {
             IFeature last = doc.FeatureByPositionReverse(0) as IFeature;
@@ -242,7 +336,7 @@ namespace BDAT.Commands
             doc.ClearSelection2(true);
         }
 
-        /// <summary>Puts the planes in a folder of their own. Returns the folder's name, or null if there isn't one.</summary>
+        /// <summary>Puts the new features in a folder of their own. Returns the folder's name, or null if there isn't one.</summary>
         private static string PutInFolder(IModelDoc2 doc, List<IFeature> planes, string name)
         {
             try
@@ -257,7 +351,7 @@ namespace BDAT.Commands
             }
             catch
             {
-                return null; // The planes are what matters; a folder is just tidy.
+                return null; // The origin is what matters; a folder is just tidy.
             }
             finally
             {

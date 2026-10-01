@@ -26,8 +26,8 @@ The SolidWorks tests never close a SolidWorks they didn't start. They won't run 
 - Save MCM parsing: the name is the part number before the first underscore, and the description is everything after it. Covers no underscore, several underscores, `_murdered` and extra spaces.
 - Save MCM name validation.
 - The connector refuses to start in test mode.
-- The toolbar lists Murder Part, Save MCM, XYZ Planes, Update BDAT and BDAT vN, in that order, and every callback name exists.
-- XYZ Planes reads coordinates in the part's units or with a typed unit (mm, cm, m, in, ", ft), refuses anything that isn't a number, and names the planes with the point (`XY (10, -20.5, 0 mm)`).
+- The toolbar lists Murder Part, Save MCM, Create Origin, Update BDAT and BDAT vN, in that order, and every callback name exists.
+- Create Origin reads coordinates in the part's units or with a typed unit (mm, cm, m, in, ", ft), refuses anything that isn't a number, and labels the folder with the point (`Origin' (10, -20.5, 0 mm)`).
 - Neither the version button nor Update BDAT launches anything.
 
 **SolidWorks tests:**
@@ -49,9 +49,9 @@ The SolidWorks tests never close a SolidWorks they didn't start. They won't run 
   - Save, add to bookmark and check-in are listed as skipped, and nothing reaches the connector. Unit tests check that every way into the connector (Find, Manager, Call, Get, Set) throws in test mode, and that Save MCM's check-in step (Unlock) is refused at the connector and reports "not checked in".
   - The part file is never saved.
 
-- XYZ Planes, in new unsaved parts and an assembly that are closed without saving:
+- Create Origin, in new unsaved parts and an assembly that are closed without saving:
   - With nothing open the button is greyed out and only says to open a part or assembly.
-  - It makes XY, XZ and YZ planes named with the point, in an `Origin (...)` folder. Each plane's distance to a 3D sketch point is measured with SolidWorks' Measure tool, which proves it goes through the point and is on the right side of the origin. This covers negative numbers, a 0 coordinate, typed inches and an assembly.
+  - It makes an `Origin'` coordinate system at the point with the document's axes, and X', Y' and Z' planes, all in an `Origin' (...)` folder. Each plane's distance to a 3D sketch point is measured with SolidWorks' Measure tool, which proves it goes through the point and is on the right side of the origin. This covers negative numbers, a 0 coordinate, typed inches and an assembly.
   - Running it twice in the same part keeps every name unique.
   - Cancel, or a box that isn't a number, adds nothing to the part.
 

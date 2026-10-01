@@ -40,7 +40,7 @@ namespace BDAT
         {
             new CommandEntry(new MurderPartCommand(), "OnMurderPart", "CanMurderPart"),
             new CommandEntry(new SaveMcmCommand(), "OnSaveMcm", "CanSaveMcm"),
-            new CommandEntry(new XyzPlanesCommand(), "OnXyzPlanes", "CanXyzPlanes", true),
+            new CommandEntry(new CreateOriginCommand(), "OnCreateOrigin", "CanCreateOrigin", true),
             new CommandEntry(new UpdateCommand(), "OnUpdate", "CanUpdate", true),
             new CommandEntry(new VersionCommand(), "OnVersion", "CanVersion", true),
         };
@@ -293,8 +293,8 @@ namespace BDAT
         public void OnSaveMcm() { Run(_commands[1].Command); }
         public int CanSaveMcm() { return CanRun(_commands[1].Command); }
 
-        public void OnXyzPlanes() { Run(_commands[2].Command); }
-        public int CanXyzPlanes() { return CanRun(_commands[2].Command); }
+        public void OnCreateOrigin() { Run(_commands[2].Command); }
+        public int CanCreateOrigin() { return CanRun(_commands[2].Command); }
 
         public void OnUpdate() { Run(_commands[3].Command); }
         public int CanUpdate() { return CanRun(_commands[3].Command); }
