@@ -109,11 +109,8 @@ namespace BDAT.Testing
         /// <summary>The X', Y' and Z' planes' names, in that order (each perpendicular to that vehicle axis).</summary>
         public string[] Planes;
 
-        /// <summary>The X', Y' and Z' axes' names.</summary>
-        public string[] Axes;
-
-        /// <summary>The Origin' Point reference point's name.</summary>
-        public string Point;
+        /// <summary>How each plane was tied to Origin': "on Origin' plane", "through Origin'" or "offset".</summary>
+        public string[] PlaneMethods;
 
         /// <summary>The Origin' coordinate system's name.</summary>
         public string Origin;

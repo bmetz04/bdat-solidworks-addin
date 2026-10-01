@@ -275,7 +275,7 @@ namespace BdatTests
                 CreateOriginCommand.LengthUnit inch = CreateOriginCommand.Inches;
                 var cases = new[]
                 {
-                    // typed, part's unit, metres
+                    // typed, unit picked in the pop-up, metres
                     Tuple.Create("10", mm, 0.010),
                     Tuple.Create("-2.5", mm, -0.0025),
                     Tuple.Create("", mm, 0.0),
@@ -329,6 +329,22 @@ namespace BdatTests
                 Equal("0.3333", CreateOriginCommand.Number(0.001 / 3, CreateOriginCommand.Millimetres), "rounding");
                 Equal("mm", CreateOriginCommand.UnitFor((int)swLengthUnit_e.swMM).Name, "mm part");
                 Equal("in", CreateOriginCommand.UnitFor((int)swLengthUnit_e.swINCHES).Name, "inch part");
+            });
+
+            Test("Create Origin defaults to mm and names the document's units", delegate
+            {
+                Check(ReferenceEquals(CreateOriginCommand.Choices[0], CreateOriginCommand.Millimetres), "mm should be the first (default) unit in the pop-up");
+                Equal("mm, cm, m, in, ft", string.Join(", ", CreateOriginCommand.Choices.Select(u => u.Name).ToArray()), "units offered");
+                Equal("millimetres", CreateOriginCommand.LongName(CreateOriginCommand.UnitFor((int)swLengthUnit_e.swMM)), "mm document");
+                Equal("inches", CreateOriginCommand.LongName(CreateOriginCommand.UnitFor((int)swLengthUnit_e.swINCHES)), "inch document");
+            });
+
+            Test("Create Origin tries the right rotation first", delegate
+            {
+                List<double[]> candidates = CreateOriginCommand.RotationCandidates(CreateOriginCommand.VehicleAxes(CreateOriginCommand.Forward));
+                Check(candidates.Count == 64, "every quarter-turn combination should be tried, got " + candidates.Count);
+                Check(candidates.Select(a => string.Join(",", a.Select(v => Math.Round(v, 6).ToString()).ToArray())).Distinct().Count() == 64, "no combination should be tried twice");
+                Check(candidates[0].Any(v => v != 0), "no rotation can't be first: the vehicle axes aren't SolidWorks' axes");
             });
 
             Test("Every toolbar callback exists on SwAddin", delegate
@@ -497,13 +513,9 @@ namespace BdatTests
                 {
                     CreateOriginTest(swApp, new[] { "10mm", "-20mm", "30mm" }, new[] { 0.010, -0.020, 0.030 }, 1);
                 });
-                Test("Create Origin: changing the plane distances moves everything", delegate
+                Test("Create Origin: numbers without a unit are mm", delegate
                 {
-                    CreateOriginTest(swApp, new[] { "10mm", "-20mm", "30mm" }, new[] { 0.010, -0.020, 0.030 }, 1, false, new[] { 0.040, -0.005, 0.015 });
-                });
-                Test("Create Origin: moving it in an assembly", delegate
-                {
-                    CreateOriginTest(swApp, new[] { "10mm", "20mm", "30mm" }, new[] { 0.010, 0.020, 0.030 }, 1, true, new[] { 0.120, 0.060, 0.005 });
+                    CreateOriginTest(swApp, new[] { "40", "-5", "15" }, new[] { 0.040, -0.005, 0.015 }, 1);
                 });
                 Test("Create Origin: a 0 coordinate and inches", delegate
                 {
@@ -800,10 +812,9 @@ namespace BdatTests
 
         /// <summary>
         /// Runs Create Origin runs times in a new part (or assembly) with the typed vehicle coordinates, then checks what
-        /// it made the last time (see CheckOrigin). With moveTo (vehicle coordinates, same signs), it then moves the
-        /// origin the way a user would, by changing the three planes' distances, and checks everything followed.
+        /// it made the last time (see CheckOrigin), and that every plane is built on Origin' so moving Origin' moves them.
         /// </summary>
-        private static void CreateOriginTest(ISldWorks swApp, string[] typed, double[] expected, int runs, bool assembly = false, double[] moveTo = null)
+        private static void CreateOriginTest(ISldWorks swApp, string[] typed, double[] expected, int runs, bool assembly = false)
         {
             IModelDoc2 doc = assembly ? Samples.NewAssembly(swApp) : Samples.NewPart(swApp);
             try
@@ -822,15 +833,11 @@ namespace BdatTests
 
                 string suffix = runs > 1 ? " " + runs : "";
                 string[] planeNames = { "X' Plane", "Y' Plane", "Z' Plane" };
-                string[] axisNames = { "X' Axis", "Y' Axis", "Z' Axis" };
                 for (int i = 0; i < 3; i++)
                 {
                     Equal(planeNames[i] + suffix, r.Planes[i], "plane " + (i + 1) + " name");
-                    Equal(axisNames[i] + suffix, r.Axes[i], "axis " + (i + 1) + " name");
-                    IFeature axis = CreateOriginCommand.FeatureByName(doc, r.Axes[i]);
-                    Check(axis != null && axis.GetTypeName2() == "RefAxis", "no \"" + r.Axes[i] + "\" axis");
+                    Check(r.PlaneMethods[i] != "offset", r.Planes[i] + " isn't built on Origin' (it's an offset from a standard plane), so it won't follow Origin' when it moves");
                 }
-                Equal("Origin' Point" + suffix, r.Point, "point name");
                 Equal("Origin'" + suffix, r.Origin, "coordinate system name");
                 Equal("New Origin" + suffix, r.Folder, "folder name");
                 IFeature folder = CreateOriginCommand.FeatureByName(doc, r.Folder);
@@ -845,21 +852,6 @@ namespace BdatTests
                 Check(probe != null, "couldn't make the 3D sketch point to measure from");
 
                 CheckOrigin(doc, r, expected, probe, p, "");
-                if (moveTo == null) return;
-
-                // Move it: each plane's distance becomes the new coordinate (same sign, so no flip).
-                double[] target = VehicleToModel(moveTo);
-                int[] modelAxisOf = { 2, 0, 1 }; // X' Plane is at model Z, Y' at model X, Z' at model Y
-                for (int i = 0; i < 3; i++)
-                {
-                    IFeature plane = CreateOriginCommand.FeatureByName(doc, r.Planes[i]);
-                    DisplayDimension shown = plane.GetFirstDisplayDimension() as DisplayDimension;
-                    Check(shown != null, r.Planes[i] + " has no distance to edit");
-                    Dimension distance = shown.GetDimension2(0) as Dimension;
-                    distance.SetSystemValue3(Math.Abs(target[modelAxisOf[i]]), (int)swSetValueInConfiguration_e.swSetValue_InThisConfiguration, null);
-                }
-                doc.ForceRebuild3(false);
-                CheckOrigin(doc, r, moveTo, probe, p, " after changing the planes' distances");
             }
             finally
             {
@@ -874,7 +866,7 @@ namespace BdatTests
         }
 
         /// <summary>
-        /// Origin' and Origin' Point are at expected (vehicle coordinates), Origin' has X forward (+Z), Y left (+X)
+        /// Origin' is at expected (vehicle coordinates), Origin' has X forward (+Z), Y left (+X)
         /// and Z up (+Y), and each plane goes through the point on the right side of the origin: measured from the
         /// probe at (p, p, p) with SolidWorks' Measure tool, independently of how BDAT places them.
         /// </summary>
@@ -895,13 +887,6 @@ namespace BdatTests
             for (int i = 0; i < 9; i++)
                 Check(Math.Abs(d[i] - frame[i]) < 1e-6, r.Origin + when + " isn't X forward (+Z), Y left (+X), Z up (+Y): its axes are " +
                     string.Join(", ", d.Take(9).Select(v => Math.Round(v, 3).ToString()).ToArray()));
-
-            IFeature pointFeature = CreateOriginCommand.FeatureByName(doc, r.Point);
-            Check(pointFeature != null && pointFeature.GetTypeName2() == "RefPoint", "no \"" + r.Point + "\" reference point");
-            MathPoint where = ((IRefPoint)pointFeature.GetSpecificFeature2()).GetRefPoint() as MathPoint;
-            double[] xyz = where.ArrayData as double[];
-            for (int i = 0; i < 3; i++)
-                Check(Math.Abs(xyz[i] - at[i]) < 1e-7, r.Point + when + " isn't at " + atText);
 
             int[] modelAxisOf = { 2, 0, 1 }; // X' Plane is at model Z, Y' at model X, Z' at model Y
             for (int i = 0; i < 3; i++)

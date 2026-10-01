@@ -31,13 +31,12 @@ Makes a new origin at a point you type in, so a part or sub-assembly can be orig
 
 It uses vehicle axes (ISO 8855): **X forward, Y to the driver's left, Z up**. In FUBC top levels the nose points toward SolidWorks +Z (the Front view looks at the front of the car), so vehicle X = +Z, Y = +X and Z = +Y. That's set once, in `Forward` in `CreateOriginCommand.cs`.
 
-1. A pop-up asks for **X (forward)**, **Y (left)** and **Z (up)** in the document's units. You can also type a unit after a number (`2 in`, `50 mm`). An empty box is 0.
-2. It makes three planes through that point, each perpendicular to the axis it's named after and a set distance from a SolidWorks plane: **X' Plane** (at X, parallel to Front), **Y' Plane** (at Y, parallel to Right) and **Z' Plane** (at Z, parallel to Top).
-3. Where they cross: **X' Axis**, **Y' Axis**, **Z' Axis** and the reference point **Origin' Point** (hidden; the coordinate system shows them).
-4. On those, the coordinate system **Origin'**: origin on Origin' Point, X along X' Axis, Y along Y' Axis.
-5. It all goes in a folder called **New Origin**. Running it again adds ` 2` to the names so they stay unique.
+1. A pop-up asks for **X (forward)**, **Y (left)** and **Z (up)**. They're in **mm** unless you pick another unit in the pop-up, which also says what units the document is in. You can also type a unit after a number (`2 in`, `50 mm`). An empty box is 0.
+2. It makes the coordinate system **Origin'** at that point, placed by numbers (its X, Y, Z and rotation), with X forward, Y left and Z up.
+3. Built on Origin': **X' Plane**, **Y' Plane** and **Z' Plane**, each through Origin' and perpendicular to the axis it's named after.
+4. It all goes in a folder called **New Origin**. Running it again adds ` 2` to the names so they stay unique.
 
-Everything is fully defined from the three plane distances. **To move it**, edit the planes' distances (double-click a plane in the tree); the axes, point and Origin' follow.
+**To move it**, edit Origin' (right-click it, Edit Feature) and change its numbers; the planes follow.
 
 In the top level, mate Origin' to the assembly's origin or coordinate system (one coordinate system mate), or mate the planes to the assembly's planes.
 

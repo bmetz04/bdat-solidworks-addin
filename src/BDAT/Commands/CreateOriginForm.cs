@@ -4,16 +4,16 @@ using System.Windows.Forms;
 
 namespace BDAT.Commands
 {
-    /// <summary>The Create Origin pop-up: X, Y and Z of the new origin.</summary>
+    /// <summary>The Create Origin pop-up: X, Y and Z of the new origin, and the units they're in.</summary>
     internal sealed class CreateOriginForm : Form
     {
-        private readonly CreateOriginCommand.LengthUnit _unit;
         private readonly TextBox[] _boxes = new TextBox[3];
+        private readonly Label[] _unitLabels = new Label[3];
+        private readonly ComboBox _units;
         private readonly Label _error;
 
-        public CreateOriginForm(CreateOriginCommand.LengthUnit unit)
+        public CreateOriginForm(CreateOriginCommand.LengthUnit documentUnit)
         {
-            _unit = unit;
             Text = "Create Origin";
             FormBorderStyle = FormBorderStyle.FixedDialog;
             MaximizeBox = false;
@@ -31,7 +31,7 @@ namespace BDAT.Commands
                 AutoSize = true,
                 Padding = new Padding(12),
                 ColumnCount = 3,
-                RowCount = 6,
+                RowCount = 7,
             };
             layout.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
             layout.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
@@ -40,24 +40,40 @@ namespace BDAT.Commands
 
             var intro = new Label
             {
-                Text = "Makes a new origin here, for origin mates in the top level:\nthe Origin' coordinate system with planes and axes.\nVehicle axes: X forward, Y left, Z up.\nTo move it later, edit the three planes' distances.",
+                Text = "Makes a new origin here, for origin mates in the top level:\nthe Origin' coordinate system, with X', Y' and Z' planes built on it.\nVehicle axes: X forward, Y left, Z up.\nTo move it later, edit Origin'.",
                 AutoSize = true,
                 Margin = new Padding(3, 0, 3, 10),
             };
             layout.Controls.Add(intro, 0, 0);
             layout.SetColumnSpan(intro, 3);
 
+            layout.Controls.Add(new Label { Text = "Units:", AutoSize = true, Margin = new Padding(3, 6, 8, 6) }, 0, 1);
+            _units = new ComboBox { DropDownStyle = ComboBoxStyle.DropDownList, Width = 140 };
+            foreach (CreateOriginCommand.LengthUnit unit in CreateOriginCommand.Choices) _units.Items.Add(unit.Name);
+            _units.SelectedIndex = 0; // mm
+            _units.SelectedIndexChanged += delegate { ShowUnit(); };
+            layout.Controls.Add(_units, 1, 1);
+            layout.Controls.Add(new Label
+            {
+                Text = "This document is in " + CreateOriginCommand.LongName(documentUnit) + ".",
+                AutoSize = true,
+                ForeColor = SystemColors.GrayText,
+                Margin = new Padding(3, 6, 3, 6),
+            }, 2, 1);
+
             string[] axes = { "X (forward):", "Y (left):", "Z (up):" };
             for (int i = 0; i < 3; i++)
             {
-                layout.Controls.Add(new Label { Text = axes[i], AutoSize = true, Margin = new Padding(3, 6, 8, 6) }, 0, i + 1);
+                layout.Controls.Add(new Label { Text = axes[i], AutoSize = true, Margin = new Padding(3, 6, 8, 6) }, 0, i + 2);
                 _boxes[i] = new TextBox { Text = "0", Width = 140 };
-                layout.Controls.Add(_boxes[i], 1, i + 1);
-                layout.Controls.Add(new Label { Text = unit.Name, AutoSize = true, Margin = new Padding(3, 6, 3, 6) }, 2, i + 1);
+                layout.Controls.Add(_boxes[i], 1, i + 2);
+                _unitLabels[i] = new Label { AutoSize = true, Margin = new Padding(3, 6, 3, 6) };
+                layout.Controls.Add(_unitLabels[i], 2, i + 2);
             }
+            ShowUnit();
 
             _error = new Label { AutoSize = true, ForeColor = Color.Firebrick, Margin = new Padding(3, 6, 3, 0), MaximumSize = new Size(300, 0) };
-            layout.Controls.Add(_error, 0, 4);
+            layout.Controls.Add(_error, 0, 5);
             layout.SetColumnSpan(_error, 3);
 
             var buttons = new FlowLayoutPanel { FlowDirection = FlowDirection.RightToLeft, Dock = DockStyle.Fill, AutoSize = true, Margin = new Padding(0, 8, 0, 0) };
@@ -66,7 +82,7 @@ namespace BDAT.Commands
             ok.Click += OnOk;
             buttons.Controls.Add(cancel);
             buttons.Controls.Add(ok);
-            layout.Controls.Add(buttons, 0, 5);
+            layout.Controls.Add(buttons, 0, 6);
             layout.SetColumnSpan(buttons, 3);
 
             AcceptButton = ok;
@@ -76,6 +92,12 @@ namespace BDAT.Commands
         /// <summary>The point, in metres, once OK was pressed.</summary>
         public double[] Point { get; private set; }
 
+        /// <summary>The units picked in the pop-up.</summary>
+        public CreateOriginCommand.LengthUnit Unit
+        {
+            get { return CreateOriginCommand.Choices[Math.Max(0, _units.SelectedIndex)]; }
+        }
+
         protected override void OnShown(EventArgs e)
         {
             base.OnShown(e);
@@ -83,10 +105,15 @@ namespace BDAT.Commands
             _boxes[0].Focus();
         }
 
+        private void ShowUnit()
+        {
+            foreach (Label label in _unitLabels) if (label != null) label.Text = Unit.Name;
+        }
+
         private void OnOk(object sender, EventArgs e)
         {
             double[] point;
-            string error = CreateOriginCommand.ParsePoint(_boxes[0].Text, _boxes[1].Text, _boxes[2].Text, _unit, out point);
+            string error = CreateOriginCommand.ParsePoint(_boxes[0].Text, _boxes[1].Text, _boxes[2].Text, Unit, out point);
             if (error != null)
             {
                 _error.Text = error;
