@@ -5,14 +5,14 @@ A SolidWorks add-in that puts FUBC speed-up macros on a **BDAT** toolbar, menu, 
 ## Commands
 
 ### Murder Part
-Turns the open part into a single dumb solid with no threads.
+Turns the open part into a dumb solid with no threads. Multi-body parts stay multi-body.
 
 **The part you have open is never changed.** Murder Part first asks you to confirm, naming the part and what it will remove. All the deleting happens on a hidden temporary copy.
 
 1. Saves a copy of the part as it is right now (including unsaved changes) to `%TEMP%\BDAT\murder` and opens it invisibly. Your open part, its file and its saved/unsaved state are left exactly as they were.
 2. On the copy, deletes every feature folder with "thread" in its name (like the **Threads** folder on McMaster-Carr parts) with everything inside it, plus every cosmetic thread and modeled **Thread** feature elsewhere in the tree.
 3. Exports the copy to Parasolid, then closes the copy without saving.
-4. Opens the Parasolid as a new part (not saved yet), combines it into one body if it imports as several, then deletes the temporary files. Nothing is written next to your part.
+4. Opens the Parasolid as a new part (not saved yet), then deletes the temporary files. Nothing is written next to your part.
 
 ### Save MCM
 Saves the open McMaster-Carr part to 3DEXPERIENCE in **Formula UBC Racing > Vendor CAD > McMaster Carr**. You need to be logged in to 3DEXPERIENCE.
