@@ -36,7 +36,7 @@ The SolidWorks tests never close a SolidWorks they didn't start. They won't run 
   - a two-body part
 - The BDAT tab that SolidWorks has loaded has every button. This check is skipped if the loaded BDAT is an older installed build without test hooks.
 - Murder Part:
-  - The result is a new unsaved part with a single body, the right volume and no cosmetic thread.
+  - The result is a new unsaved part with the right volume and no cosmetic thread. A single-body part stays one body. A multi-body part may stay multi-body, so for it only the total volume is checked.
   - The original file, its feature tree and its saved state are unchanged.
   - Nothing is left beside the part or in `%TEMP%\BDAT\murder`.
   - Answering No changes nothing.
