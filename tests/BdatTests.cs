@@ -190,6 +190,38 @@ namespace BdatTests
                 TestMode.ConnectorAttempts = 0; // expected here; every other test requires 0
             });
 
+            // Save, bookmark and check-in all go through the connector, so if every way into it throws,
+            // none of them can reach the platform from a test.
+            Test("Every way into the 3DEXPERIENCE connector throws in test mode", delegate
+            {
+                Type connector = BdatType("BDAT.Connector");
+                ConstructorInfo ctor = connector.GetConstructors(BindingFlags.Instance | BindingFlags.NonPublic).FirstOrDefault();
+                Check(ctor != null, "Connector has no constructor to test with");
+                object c = ctor.Invoke(new object[ctor.GetParameters().Length]); // no real connector behind it
+
+                var calls = new Dictionary<string, object[]>
+                {
+                    { "Manager", new object[] { "Save" } },
+                    { "Call", new object[] { null, "IEnoSwSave", "SaveNoOption", new object[0] } },
+                    { "Get", new object[] { null, "IEnoSwBookmarkChooser", "SelectedBookmarkId" } },
+                    { "Set", new object[] { null, "IEnoSwBookmarkChooser", "DialogTitle", "x" } },
+                };
+                int expected = 0;
+                foreach (var call in calls)
+                {
+                    MethodInfo m = connector.GetMethod(call.Key, BindingFlags.Instance | BindingFlags.Public);
+                    if (m == null) continue; // the Save MCM code may not have this one
+                    expected++;
+                    bool threw = false;
+                    try { m.Invoke(c, call.Value); }
+                    catch (TargetInvocationException ex) { threw = ex.InnerException is InvalidOperationException; }
+                    Check(threw, "Connector." + call.Key + " should throw in test mode");
+                }
+                Check(expected > 0, "Connector has none of Manager/Call/Get/Set");
+                Check(TestMode.ConnectorAttempts == expected, "expected " + expected + " counted attempts, got " + TestMode.ConnectorAttempts);
+                TestMode.ConnectorAttempts = 0;
+            });
+
             Test("Dialogs are recorded and answered in test mode", delegate
             {
                 TestMode.Answers.Enqueue(false);
@@ -607,6 +639,12 @@ namespace BdatTests
                 Check(command.IsEnabled(swApp), "Save MCM should be enabled with a part open");
                 TestMode.SaveMcmName = typedName;
                 TestMode.SaveMcmDescription = typedDescription;
+
+                // Note what isometric looks like, then turn the part to the front so the command has to change it.
+                double[] isometric = ViewRotation(doc, "*Isometric", swStandardViews_e.swIsometricView);
+                double[] front = ViewRotation(doc, "*Front", swStandardViews_e.swFrontView);
+                Check(!SameRotation(isometric, front), "couldn't set up the view check");
+
                 command.Run(swApp);
 
                 SaveMcmTestResult r = TestMode.LastSaveMcm;
@@ -614,6 +652,18 @@ namespace BdatTests
                 Equal(expectedName, r.Name, "name");
                 Equal(expectedDescription, r.Description, "description");
                 Check(r.Destination.EndsWith("McMaster Carr"), "destination should be the McMaster Carr bookmark, got " + r.Destination);
+
+                // Steps: the local ones ran, the platform ones (including check-in) were skipped.
+                List<string> steps = StepsOf(r);
+                string stepList = string.Join(", ", steps.ToArray());
+                Check(steps.Contains("isometric"), "the view wasn't set to isometric (steps: " + stepList + ")");
+                Check(steps.Contains("freeze"), "the feature tree wasn't frozen (steps: " + stepList + ")");
+                Check(steps.Contains("skipped: check in"), "check-in should be listed as skipped in test mode (steps: " + stepList + ")");
+                Check(!steps.Any(s => s.IndexOf("check", StringComparison.OrdinalIgnoreCase) >= 0 && !s.StartsWith("skipped:")),
+                    "a check-in step ran in test mode (steps: " + stepList + ")");
+
+                Check(SameRotation(isometric, CurrentRotation(doc)), "the part isn't shown in the isometric view");
+                CheckFrozenToEnd(doc);
 
                 // The file-level property (CAD Family) and each configuration's (Physical Product).
                 var scopes = new List<string> { "" };
@@ -633,6 +683,47 @@ namespace BdatTests
             {
                 swApp.CloseDoc(doc.GetTitle()); // closes without saving
             }
+        }
+
+        /// <summary>SaveMcmTestResult.Steps, or nothing if this BDAT.dll predates it.</summary>
+        private static List<string> StepsOf(SaveMcmTestResult r)
+        {
+            FieldInfo f = typeof(SaveMcmTestResult).GetField("Steps");
+            object steps = f == null ? null : f.GetValue(r);
+            return steps == null ? new List<string>() : ((IEnumerable<string>)steps).ToList();
+        }
+
+        private static double[] ViewRotation(IModelDoc2 doc, string viewName, swStandardViews_e view)
+        {
+            doc.ShowNamedView2(viewName, (int)view);
+            return CurrentRotation(doc);
+        }
+
+        private static double[] CurrentRotation(IModelDoc2 doc)
+        {
+            IModelView view = doc.ActiveView as IModelView;
+            if (view == null) throw new TestFailure("the part has no view");
+            double[] data = ((MathTransform)view.Orientation3).ArrayData as double[];
+            return data.Take(9).ToArray();
+        }
+
+        private static bool SameRotation(double[] a, double[] b)
+        {
+            for (int i = 0; i < 9; i++)
+                if (Math.Abs(a[i] - b[i]) > 1e-4) return false;
+            return true;
+        }
+
+        /// <summary>The freeze bar is at the end: every feature that makes geometry is frozen.</summary>
+        private static void CheckFrozenToEnd(IModelDoc2 doc)
+        {
+            Check(doc.FeatureManager.GetFreezeLocation() != null,
+                "there's no freeze bar position (is Tools > Options > General > Enable Freeze bar on?)");
+            var geometry = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "Extrusion", "Boss", "BaseBody", "Cut", "ICE", "CosmeticThread" };
+            var modelling = Features(doc).Where(f => geometry.Contains(f.GetTypeName2())).ToList();
+            Check(modelling.Count > 0, "the sample part has no features to freeze");
+            var unfrozen = modelling.Where(f => !f.IsFrozen()).Select(f => f.Name).ToList();
+            Check(unfrozen.Count == 0, "the freeze bar isn't at the end of the tree; not frozen: " + string.Join(", ", unfrozen.ToArray()));
         }
 
         private static void SaveMcmRefusedTest(ISldWorks swApp, string partPath, string typedName, string typedDescription, bool? answer)

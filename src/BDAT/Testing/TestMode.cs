@@ -101,5 +101,11 @@ namespace BDAT.Testing
         public string Name;
         public string Description;
         public string Destination;
+
+        /// <summary>
+        /// The steps it ran, in order, e.g. "description", "isometric", "freeze". Steps that need 3DEXPERIENCE
+        /// (save, bookmark, check-in) are listed as "skipped: ..." because test mode never runs them.
+        /// </summary>
+        public readonly List<string> Steps = new List<string>();
     }
 }
