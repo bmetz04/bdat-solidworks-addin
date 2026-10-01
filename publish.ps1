@@ -69,6 +69,7 @@ function Undo-Stamp { git checkout -q -- build/AssemblyInfo.cs }
 # Build.
 Write-Host ''
 Write-Host "Building BDAT $version..."
+$env:BDAT_NO_PAUSE = '1'  # build.bat pauses when double-clicked; not when Publish runs it.
 & cmd.exe /c "`"$(Join-Path $repo 'build.bat')`""
 if ($LASTEXITCODE -ne 0) { Undo-Stamp; Finish 'The build failed (see the errors above). Nothing was published.' 1 }
 
