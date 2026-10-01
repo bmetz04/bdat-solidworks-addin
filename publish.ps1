@@ -38,14 +38,18 @@ $version = "v$number (" + (Get-Date -Format 'yyyy-MM-dd HH:mm') + ')'
 $changes = git status --porcelain -- . ':!release'
 
 # Release notes: draft them from the commits since the last publish, then let Ben edit them in Notepad.
+# Notes are for the people using BDAT, so only commits that change the add-in itself (src\) are drafted.
+# Tests, build scripts and publish tooling stay out.
+$addinPaths = @('src', ':(exclude)src/BDAT/Testing', ':(exclude,glob)src/**/*.Testing.cs')
 $lastPublish = (git log -1 --format=%H --grep='^Publish BDAT')
 $range = if ($lastPublish) { "$lastPublish..HEAD" } else { 'HEAD' }
-$draft = @(git log --no-merges --format='- %s' $range | Where-Object { $_ -notmatch '^- Publish BDAT' })
-if ($changes) { $draft += '- (describe your uncommitted changes here)' }
+$draft = @(git log --no-merges --format='- %s' $range -- $addinPaths | Where-Object { $_ -notmatch '^- Publish BDAT' })
+if (git status --porcelain -- $addinPaths) { $draft += '- (describe your uncommitted changes to the add-in here)' }
 $notesFile = Join-Path $env:TEMP 'BDAT release notes.txt'
 $header = @(
     "# Release notes for BDAT $version",
-    '# Write what changed, one "- " line per change, in words the team will understand.',
+    '# Only list changes a BDAT user will notice in SolidWorks (new buttons, fixes, behaviour changes),',
+    '# one "- " line each, in plain words. Leave out tests, build scripts and publishing.',
     '# Lines starting with # are ignored. Save and close Notepad to continue. Leave it empty to cancel.',
     '')
 Set-Content -Path $notesFile -Value ($header + $draft) -Encoding UTF8
