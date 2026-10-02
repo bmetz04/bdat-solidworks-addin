@@ -29,7 +29,7 @@ namespace BDAT
 
         // Bump this whenever commands are added, removed or reordered so SolidWorks
         // rebuilds the toolbar instead of reusing its cached copy.
-        private const int CommandGroupVersion = 5;
+        private const int CommandGroupVersion = 6;
 
         private ISldWorks _swApp;
         private ICommandManager _cmdMgr;
@@ -141,18 +141,30 @@ namespace BDAT
             if (tab != null) _cmdMgr.RemoveCommandTab(tab);
 
             tab = _cmdMgr.AddCommandTab((int)docType, AddinTitle);
-            CommandTabBox box = tab.AddCommandTabBox();
 
             var ids = new List<int>();
-            var textTypes = new List<int>();
             foreach (CommandEntry entry in _commands)
             {
                 if (docType == swDocumentTypes_e.swDocASSEMBLY && !entry.InAssemblies) continue;
                 ids.Add(entry.CommandId);
-                textTypes.Add((int)swCommandTabButtonTextDisplay_e.swCommandTabButton_TextBelow);
             }
-            box.AddCommands(ids.ToArray(), textTypes.ToArray());
+
+            // Two layers: small buttons with the text beside the icon, stacked two to a column.
+            // SolidWorks stacks up to three of these per box, so each pair gets its own box.
+            for (int i = 0; i < ids.Count; i += ButtonsPerColumn)
+            {
+                int count = Math.Min(ButtonsPerColumn, ids.Count - i);
+                int[] columnIds = ids.GetRange(i, count).ToArray();
+                int[] textTypes = new int[count];
+                for (int j = 0; j < count; j++)
+                    textTypes[j] = (int)swCommandTabButtonTextDisplay_e.swCommandTabButton_TextHorizontal;
+
+                CommandTabBox box = tab.AddCommandTabBox();
+                box.AddCommands(columnIds, textTypes);
+            }
         }
+
+        private const int ButtonsPerColumn = 2;
 
         // SolidWorks saves each CommandManager tab as a fixed list of button slots, e.g.
         // ...\SOLIDWORKS 2025\Simplified Interface\User Interface\CommandManager\PartContext\Tab26\GB0\Btn0..Btn2,
