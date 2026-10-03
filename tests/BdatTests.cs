@@ -294,7 +294,7 @@ namespace BdatTests
                 Check(rows[2].IsObsolete, "OBSOLETE status");
                 Equal("", rows[4].Parent, "a part isn't put under the (obsolete) assembly row above it");
                 Equal("Engine Mount Spacer: 7.28 mm (Front Right)", rows[6].Name, "a part's Assembly column is a qualifier");
-                Equal("Engine Mounts", rows[6].Parent, "parent by control number, current assembly over obsolete");
+                Equal("Engine Mounts", rows[6].Parent, "parent by control number, obsolete assemblies ignored");
 
                 Check(Ebom.Search(rows, "", false).Count == 5, "obsolete hidden by default");
                 Check(Ebom.Search(rows, "", true).Count == 7, "obsolete shown when asked");

@@ -112,11 +112,9 @@ namespace BDAT
             var assemblies = new Dictionary<string, EbomRow>();
             foreach (EbomRow row in rows)
             {
-                if (!row.IsAssembly) continue;
+                if (!row.IsAssembly || row.IsObsolete) continue; // obsolete rows are ignored (Ben, 2026-10-03)
                 string group = Group(row.ControlNumber);
-                EbomRow known;
-                if (group == null) continue;
-                if (!assemblies.TryGetValue(group, out known) || (known.IsObsolete && !row.IsObsolete)) assemblies[group] = row;
+                if (group != null && !assemblies.ContainsKey(group)) assemblies[group] = row;
             }
             foreach (EbomRow row in rows)
             {
