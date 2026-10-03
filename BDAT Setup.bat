@@ -87,6 +87,15 @@ if (-not (Test-Path $installDir)) { New-Item -ItemType Directory -Path $installD
 try { Copy-Item (Join-Path $tmp 'BDAT.dll') $installDir -Force }
 catch { Finish "Could not replace BDAT.dll. Make sure SolidWorks is fully closed, then run Update BDAT again. ($($_.Exception.Message))" 1 }
 
+# FUBC drawing sheet formats. The FUBC Drawing template points "Use different sheet format" at this folder, so sheets
+# added after the first get the short title block. The path must stay the same on every PC.
+$templateDir = Join-Path $installDir 'templates'
+if (-not (Test-Path $templateDir)) { New-Item -ItemType Directory -Path $templateDir | Out-Null }
+foreach ($name in @('FUBC B Continuation.slddrt')) {
+    try { $web.DownloadFile("$baseUrl/templates/$([Uri]::EscapeDataString($name))$nocache", (Join-Path $templateDir $name)) }
+    catch { Write-Host "Could not download $name. Extra drawing sheets will not get the FUBC title block until the next update. ($($_.Exception.Message))" -ForegroundColor Yellow }
+}
+
 # BDAT needs the SolidWorks interop DLLs next to it. Copy them from this PC's own SolidWorks install.
 $redist = $null
 $candidates = @('C:\Program Files\SOLIDWORKS Corp\SOLIDWORKS\api\redist')

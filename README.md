@@ -48,7 +48,7 @@ Shows which version is running; click it for the full version and where it was l
 
 ## Getting it and keeping it updated
 
-Teammates: close SolidWorks and double-click **BDAT Setup.bat**. It downloads the latest build, registers it, and adds an **Update BDAT** desktop shortcut for later updates. See [SETUP-NEW-COMPUTER.md](SETUP-NEW-COMPUTER.md).
+Teammates: close SolidWorks and double-click **BDAT Setup.bat**. It downloads the latest build, registers it, and adds an **Update BDAT** desktop shortcut for later updates. It also installs the FUBC drawing sheet formats to `C:\ProgramData\BDAT\templates` (from `release/templates`), which the FUBC Drawing template uses for sheets after the first. See [SETUP-NEW-COMPUTER.md](SETUP-NEW-COMPUTER.md).
 
 To release a new version to the team, run **Publish BDAT.bat** on the developer PC. It gives the build the next version number (v1, v2, ...), opens Notepad with draft release notes for you to edit, and teammates pick it up with the **Update BDAT** button. All past notes are in [RELEASE-NOTES.md](RELEASE-NOTES.md).
 
