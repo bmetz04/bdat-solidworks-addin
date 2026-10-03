@@ -286,9 +286,11 @@ namespace BdatTests
                     ",Assembly,21200,DT,A0212,AA,OBSOLETE,DT-A0212-AA,Carburetor,Drivetrain,\r\n" +
                     ",Part,40202,FR,40202,AA,Current,FR-40202-AA,,Frame & Body,Main Element\r\n" +
                     ",Assembly,21200,DT,A0212,AA,Current,DT-A0212-AA,Engine Mounts,Drivetrain,\r\n" +
-                    ",Part,21201,DT,21201,AA,Current,DT-21201-AA,Front Right,Drivetrain,Engine Mount Spacer: 7.28 mm";
+                    ",Part,21201,DT,21201,AA,Current,DT-21201-AA,Front Right,Drivetrain,Engine Mount Spacer: 7.28 mm\r\n" +
+                    ",Assembly,70400,SU,A0704,AA,Current,SU-A0704-AA,Bellcranks,Suspension,\r\n" +
+                    ",Part,70501,SU,70501,AA,Current,SU-70501-AA,,Suspension,Bellcrank Bearing";
                 List<EbomRow> rows = Ebom.Parse(csv);
-                Check(rows.Count == 7, "expected 7 rows (blank one skipped), got " + rows.Count);
+                Check(rows.Count == 9, "expected 9 rows (blank one skipped), got " + rows.Count);
                 Equal("BR-A0101-AA", rows[0].Number, "assembly number");
                 Check(rows[0].IsAssembly, "first row is an assembly");
                 Equal("Balance Bar", rows[0].Name, "assembly name comes from the Assembly column");
@@ -307,6 +309,8 @@ namespace BdatTests
                 Equal("A0402", rows[4].AssemblyNumber, "assembly number with no assembly row in the EBOM");
                 Equal("A0402", rows[4].AssemblyText, "just the number when the EBOM has no name for it");
                 Equal("A0212", rows[6].AssemblyNumber, "a part's assembly number");
+                Equal("A0704", rows[8].AssemblyNumber, "a part whose own assembly (A0705) has no row goes under the one above it in the sheet");
+                Equal("Bellcranks", rows[8].Parent, "...named after that assembly");
                 List<string> missing = Ebom.MissingAssemblies(rows);
                 Check(missing.Count == 1 && missing[0] == "A0402 (Frame & Body, 1 part)",
                     "assemblies to add to the EBOM: " + string.Join("; ", missing.ToArray()));
@@ -316,7 +320,8 @@ namespace BdatTests
 
                 // The pop-up's tree: each assembly number with its current parts under it, obsolete rows left out.
                 List<NewFromEbomForm.EbomGroup> groups = NewFromEbomForm.BuildGroups(rows);
-                Equal("A0101,A0212,A0402", string.Join(",", groups.Select(g => g.Number).ToArray()), "groups in assembly-number order");
+                Equal("A0101,A0212,A0402,A0704", string.Join(",", groups.Select(g => g.Number).ToArray()), "groups in assembly-number order");
+                Check(groups[3].Assembly == rows[7] && groups[3].Parts.Count == 1 && groups[3].Parts[0] == rows[8], "Bellcranks holds the stray A0705 part");
                 Check(groups[0].Assembly == rows[0] && groups[0].Parts.Count == 1 && groups[0].Parts[0] == rows[1], "Balance Bar has its current part only");
                 Check(groups[1].Assembly == rows[5], "the current assembly row heads its group, not the obsolete one");
                 Check(groups[1].Parts.Count == 1 && groups[1].Parts[0] == rows[6], "Engine Mounts has its part");

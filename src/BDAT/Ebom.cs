@@ -26,8 +26,8 @@ namespace BDAT
         /// <summary>The sheet's "Sub-Assembly / Component Name" column.</summary>
         public string ComponentColumn;
         /// <summary>
-        /// The name of the assembly this part goes in: the current assembly row with the same control-number group
-        /// (empty for an assembly row itself, or when the EBOM has no current row for that assembly).
+        /// The name of the assembly this part goes in: the current assembly row with the same control-number group, or if
+        /// there's none, the current assembly it sits under in the sheet (same system). Empty for an assembly row itself.
         /// </summary>
         public string Parent;
         /// <summary>
@@ -141,12 +141,37 @@ namespace BDAT
                 string group = Group(row.ControlNumber);
                 if (group != null && !assemblies.ContainsKey(group)) assemblies[group] = row;
             }
+            // Where a part's own assembly has no current row (e.g. 70501 with no A0705), it goes under the current assembly it
+            // sits beneath in the sheet, if that's in the same system (Ben, 2026-10-03: "group those under the assembly it
+            // looks like they are from"). Obsolete rows are skipped, so only current assemblies count.
+            EbomRow above = null;
             foreach (EbomRow row in rows)
             {
+                if (row.IsObsolete) continue;
+                if (row.IsAssembly)
+                {
+                    row.Parent = "";
+                    above = row;
+                    continue;
+                }
                 EbomRow parent;
                 string group = Group(row.ControlNumber);
-                row.Parent = !row.IsAssembly && group != null && assemblies.TryGetValue(group, out parent) ? parent.Name : "";
+                if (group != null && assemblies.TryGetValue(group, out parent))
+                {
+                    row.Parent = parent.Name;
+                }
+                else if (above != null && string.Equals(above.CommodityCode, row.CommodityCode, StringComparison.OrdinalIgnoreCase))
+                {
+                    row.Parent = above.Name;
+                    row.AssemblyNumber = above.AssemblyNumber;
+                }
+                else
+                {
+                    row.Parent = "";
+                }
             }
+            foreach (EbomRow row in rows)
+                if (row.Parent == null) row.Parent = "";
             if (rows.Count == 0) throw new InvalidDataException("The EBOM file has no part numbers in it.");
             return rows;
         }
