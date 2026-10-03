@@ -328,8 +328,8 @@ namespace BdatTests
                 Check(groups[2].Assembly == null && groups[2].Parts.Count == 1 && groups[2].Parts[0] == rows[4], "A0402 has a header with no assembly row");
                 Equal("Frame & Body", groups[2].Area, "a header with no assembly row takes its parts' area");
 
-                Check(Ebom.Search(rows, "", false).Count == 5, "obsolete hidden by default");
-                Check(Ebom.Search(rows, "", true).Count == 7, "obsolete shown when asked");
+                Check(Ebom.Search(rows, "", false).Count == 7, "obsolete hidden by default");
+                Check(Ebom.Search(rows, "", true).Count == 9, "obsolete shown when asked");
                 Check(Ebom.Search(rows, "balance BR-10", true).Count == 2, "every word must match, any case");
                 Equal("DT-21201-AA", Ebom.Search(rows, "drivetrain spacer", false)[0].Number, "searches area and name");
 
