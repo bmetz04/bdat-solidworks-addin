@@ -314,6 +314,15 @@ namespace BdatTests
                 Equal("BR-10101-AA.SLDPRT", NewFromEbomCommand.FileName(rows[1]), "saved under the combined part number");
                 Equal("BR-A0101-AA.SLDASM", NewFromEbomCommand.FileName(rows[0]), "assemblies save as .SLDASM");
 
+                // The pop-up's tree: each assembly number with its current parts under it, obsolete rows left out.
+                List<NewFromEbomForm.EbomGroup> groups = NewFromEbomForm.BuildGroups(rows);
+                Equal("A0101,A0212,A0402", string.Join(",", groups.Select(g => g.Number).ToArray()), "groups in assembly-number order");
+                Check(groups[0].Assembly == rows[0] && groups[0].Parts.Count == 1 && groups[0].Parts[0] == rows[1], "Balance Bar has its current part only");
+                Check(groups[1].Assembly == rows[5], "the current assembly row heads its group, not the obsolete one");
+                Check(groups[1].Parts.Count == 1 && groups[1].Parts[0] == rows[6], "Engine Mounts has its part");
+                Check(groups[2].Assembly == null && groups[2].Parts.Count == 1 && groups[2].Parts[0] == rows[4], "A0402 has a header with no assembly row");
+                Equal("Frame & Body", groups[2].Area, "a header with no assembly row takes its parts' area");
+
                 Check(Ebom.Search(rows, "", false).Count == 5, "obsolete hidden by default");
                 Check(Ebom.Search(rows, "", true).Count == 7, "obsolete shown when asked");
                 Check(Ebom.Search(rows, "balance BR-10", true).Count == 2, "every word must match, any case");
