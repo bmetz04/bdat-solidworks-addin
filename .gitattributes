@@ -5,3 +5,4 @@
 *.csproj text eol=crlf
 *.dll binary
 "BDAT Setup.bat" -text
+*.slddrt binary
