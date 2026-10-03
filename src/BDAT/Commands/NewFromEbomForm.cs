@@ -19,7 +19,7 @@ namespace BDAT.Commands
         private List<EbomRow> _rows;
         private string _csvPath;
 
-        public NewFromEbomForm(string csvPath, List<EbomRow> rows)
+        public NewFromEbomForm(string csvPath, string source, List<EbomRow> rows)
         {
             Text = "New from EBOM";
             FormBorderStyle = FormBorderStyle.Sizable;
@@ -80,7 +80,7 @@ namespace BDAT.Commands
             bottom.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100f));
             bottom.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
             var left = new FlowLayoutPanel { AutoSize = true, Dock = DockStyle.Fill, WrapContents = false };
-            var change = new Button { Text = "Change EBOM file...", AutoSize = true };
+            var change = new Button { Text = "Open another EBOM file...", AutoSize = true };
             change.Click += OnChangeFile;
             _source = new Label { AutoSize = true, ForeColor = SystemColors.GrayText, Margin = new Padding(6, 8, 3, 0) };
             left.Controls.Add(change);
@@ -100,7 +100,7 @@ namespace BDAT.Commands
             AcceptButton = _create;
             CancelButton = cancel;
 
-            SetSource(csvPath, rows);
+            SetSource(csvPath, source, rows);
         }
 
         /// <summary>The row picked, or null.</summary>
@@ -108,9 +108,6 @@ namespace BDAT.Commands
         {
             get { return _list.SelectedItems.Count == 0 ? null : _list.SelectedItems[0].Tag as EbomRow; }
         }
-
-        /// <summary>The EBOM file in use (changes if "Change EBOM file..." was used).</summary>
-        public string CsvPath { get { return _csvPath; } }
 
         protected override void Dispose(bool disposing)
         {
@@ -124,12 +121,17 @@ namespace BDAT.Commands
             _search.Focus();
         }
 
-        private void SetSource(string csvPath, List<EbomRow> rows)
+        /// <summary>source: how to describe it, e.g. "Team EBOM"; null names the file.</summary>
+        private void SetSource(string csvPath, string source, List<EbomRow> rows)
         {
             _csvPath = csvPath;
             _rows = rows;
-            string when = File.Exists(csvPath) ? File.GetLastWriteTime(csvPath).ToString("yyyy-MM-dd HH:mm") : "?";
-            _source.Text = Path.GetFileName(csvPath) + " (saved " + when + ")";
+            if (source == null)
+            {
+                string when = File.Exists(csvPath) ? File.GetLastWriteTime(csvPath).ToString("yyyy-MM-dd HH:mm") : "?";
+                source = Path.GetFileName(csvPath) + " (saved " + when + ")";
+            }
+            _source.Text = source;
             Fill();
         }
 
@@ -166,8 +168,7 @@ namespace BDAT.Commands
             if (path == null) return;
             List<EbomRow> rows = NewFromEbomCommand.TryLoad(this, path);
             if (rows == null) return;
-            Ebom.SavedPath = path;
-            SetSource(path, rows);
+            SetSource(path, null, rows);
         }
     }
 }

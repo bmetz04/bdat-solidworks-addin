@@ -12,15 +12,15 @@ namespace BDAT.Commands
     /// New from EBOM: pick a row of the team's EBOM and get a new, unsaved part (or assembly, for an Assembly row)
     /// already named and described from it.
     ///
-    ///   1. Reads the EBOM from a CSV file (the Google Sheet downloaded with File > Download > CSV). The first
-    ///      time it asks where that file is and remembers it for this Windows user.
+    ///   1. Downloads the team's EBOM (release/ebom.csv in the repo, the Google Sheet downloaded as CSV), keeping
+    ///      a copy for when it's offline. With neither, it asks for a CSV and remembers it for this Windows user.
     ///   2. A pop-up lists the EBOM, searchable by part number, name, assembly or area. Obsolete rows are hidden
     ///      unless "Show obsolete" is ticked.
     ///   3. Creates a new document from SolidWorks' default part or assembly template, titled with the combined
     ///      part number (e.g. BR-10101-AA, the EBOM's "Use in 3Dx File Naming" column), so that's the name it's
     ///      saved under, and sets the Description and Part Number properties (Description in every configuration too).
     ///
-    /// It only reads the CSV and never saves anything: saving to 3DEXPERIENCE is still done by hand.
+    /// It only reads the EBOM and never saves anything: saving to 3DEXPERIENCE is still done by hand.
     /// </summary>
     public sealed class NewFromEbomCommand : IBdatCommand
     {
@@ -40,7 +40,21 @@ namespace BDAT.Commands
         {
             IWin32Window owner = SolidWorksWindow(swApp);
 
-            string csv = TestMode.Enabled ? TestMode.EbomCsvPath : Ebom.SavedPath;
+            string csv, source;
+            if (TestMode.Enabled)
+            {
+                csv = TestMode.EbomCsvPath;
+                source = "test EBOM";
+            }
+            else
+            {
+                bool fresh;
+                csv = Ebom.TeamCopy(out fresh);
+                source = csv == null ? null
+                    : "Team EBOM" + (fresh ? "" : " (offline copy from " + File.GetLastWriteTime(csv).ToString("yyyy-MM-dd HH:mm") + ")");
+                if (csv == null && Ebom.SavedPath != null && File.Exists(Ebom.SavedPath)) csv = Ebom.SavedPath;
+            }
+
             if (csv == null || !File.Exists(csv))
             {
                 if (TestMode.Enabled)
@@ -49,19 +63,19 @@ namespace BDAT.Commands
                     return;
                 }
                 Ui.Show(owner,
-                    (csv == null ? "BDAT doesn't know where the EBOM is yet." : "The EBOM file isn't there any more:\n" + csv) +
-                    "\n\nIn Google Sheets, open the Master eBOM and use File > Download > Comma-separated values (.csv), " +
-                    "then pick that file in the next window. BDAT remembers it for next time.",
+                    "Couldn't download the team EBOM (are you online?), and there's no copy on this PC yet.\n\n" +
+                    "To use a copy of your own: in Google Sheets, open the Master eBOM and use File > Download > " +
+                    "Comma-separated values (.csv), then pick that file in the next window.",
                     Title, MessageBoxButtons.OK, MessageBoxIcon.Information);
-                csv = PickCsv(owner, csv);
+                csv = PickCsv(owner, Ebom.SavedPath);
                 if (csv == null) return;
+                Ebom.SavedPath = csv;
             }
 
             List<EbomRow> rows = TryLoad(owner, csv);
             if (rows == null) return;
-            if (!TestMode.Enabled) Ebom.SavedPath = csv;
 
-            EbomRow row = Pick(owner, ref csv, rows);
+            EbomRow row = Pick(owner, csv, source, rows);
             if (row == null) return;
 
             if (row.IsObsolete &&
@@ -103,7 +117,7 @@ namespace BDAT.Commands
             }
         }
 
-        private static EbomRow Pick(IWin32Window owner, ref string csv, List<EbomRow> rows)
+        private static EbomRow Pick(IWin32Window owner, string csv, string source, List<EbomRow> rows)
         {
             if (TestMode.Enabled)
             {
@@ -112,11 +126,9 @@ namespace BDAT.Commands
                 return null; // Cancel
             }
 
-            using (var form = new NewFromEbomForm(csv, rows))
+            using (var form = new NewFromEbomForm(csv, source, rows))
             {
-                DialogResult result = form.ShowDialog(owner);
-                csv = form.CsvPath;
-                return result == DialogResult.OK ? form.Selected : null;
+                return form.ShowDialog(owner) == DialogResult.OK ? form.Selected : null;
             }
         }
 

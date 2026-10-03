@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Net;
 using System.Text;
 using Microsoft.Win32;
 
@@ -141,12 +142,68 @@ namespace BDAT
             return found;
         }
 
-        // ---------------------------------------------------------------- where the CSV lives
+        // ---------------------------------------------------------------- the team copy
+
+        /// <summary>The team's EBOM in the repo (release/ebom.csv on main). Replace that file to update it for everyone.</summary>
+        public const string TeamUrl = BuildInfo.ReleaseUrl + "ebom.csv";
+
+        /// <summary>Where the last downloaded team copy is kept, so it still works offline.</summary>
+        public static string TeamCachePath
+        {
+            get
+            {
+                return Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "BDAT", "ebom.csv");
+            }
+        }
+
+        /// <summary>
+        /// Downloads the team EBOM to TeamCachePath and returns that path. Offline (or if GitHub is slow), returns the copy
+        /// downloaded last time, with fresh false. Null if there's neither.
+        /// </summary>
+        public static string TeamCopy(out bool fresh)
+        {
+            fresh = false;
+            string cache = TeamCachePath;
+            try
+            {
+                ServicePointManager.SecurityProtocol |= SecurityProtocolType.Tls12;
+                using (var web = new QuickWebClient())
+                {
+                    web.Headers.Add("Cache-Control", "no-cache");
+                    // The query string stops GitHub's download cache from handing back an older copy.
+                    byte[] data = web.DownloadData(TeamUrl + "?t=" + DateTime.UtcNow.Ticks);
+                    Parse(Encoding.UTF8.GetString(data)); // only keep it if it really is the EBOM
+                    Directory.CreateDirectory(Path.GetDirectoryName(cache));
+                    string temp = cache + ".download";
+                    File.WriteAllBytes(temp, data);
+                    if (File.Exists(cache)) File.Delete(cache);
+                    File.Move(temp, cache);
+                    fresh = true;
+                }
+            }
+            catch (Exception)
+            {
+                // Offline, GitHub down, or no team copy published yet: fall back to last time's.
+            }
+            return File.Exists(cache) ? cache : null;
+        }
+
+        private sealed class QuickWebClient : WebClient
+        {
+            protected override WebRequest GetWebRequest(Uri address)
+            {
+                WebRequest request = base.GetWebRequest(address);
+                if (request != null) request.Timeout = 8000;
+                return request;
+            }
+        }
+
+        // ---------------------------------------------------------------- a CSV picked by hand
 
         private const string SettingsKey = @"Software\BDAT";
         private const string CsvValue = "EbomCsv";
 
-        /// <summary>The EBOM CSV picked last time on this PC (per Windows user), or null.</summary>
+        /// <summary>The EBOM CSV picked by hand last time on this PC (per Windows user), or null. Only used when there's no team copy.</summary>
         public static string SavedPath
         {
             get

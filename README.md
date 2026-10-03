@@ -43,12 +43,12 @@ In the top level, mate Origin' to the assembly's origin or coordinate system (on
 ### New from EBOM
 Starts a new part or assembly from a row of the team's EBOM (the Master eBOM Google Sheet), already named and described. Works whatever is open, or with nothing open.
 
-1. The first time, it asks for the EBOM as a CSV file: in Google Sheets use **File > Download > Comma-separated values (.csv)** and pick the file. BDAT remembers it for your Windows user (`HKCU\Software\BDAT\EbomCsv`). Download it again whenever the EBOM changes; **Change EBOM file...** in the pop-up picks a different one.
+1. It downloads the team EBOM, `release/ebom.csv` in this repo, every time you click it, and keeps a copy in `%LOCALAPPDATA%\BDAT\ebom.csv` for when you're offline. **To update the EBOM for everyone:** in Google Sheets use **File > Download > Comma-separated values (.csv)**, save it over `release/ebom.csv`, and commit and push it to main. No new BDAT release is needed. (This repo is public, so the EBOM is too; Ben chose that on 2026-10-03.) With no team copy and no internet, it asks you to pick a CSV and remembers it (`HKCU\Software\BDAT\EbomCsv`). **Open another EBOM file...** in the pop-up opens a different CSV just that once.
 2. A pop-up lists the EBOM. Type to search part number, name, assembly or area (every word must match). Obsolete rows are hidden unless **Show obsolete** is ticked. Assemblies are in bold.
 3. Pick a row and click **Create** (or double-click it). An **Assembly** row makes an assembly; a **Part** or **Fastener** row makes a part. It uses SolidWorks' default part or assembly template (Tools > Options > System Options > Default Templates).
 4. The new document is titled with the combined part number (e.g. `BR-10101-AA`), so that's the name it saves under. Its `Description` property (file and every configuration) is the EBOM name, and `Part Number` is the combined part number.
 
-It only reads the CSV. It never changes the EBOM and never saves anything: save to 3DEXPERIENCE as usual. The EBOM file isn't part of BDAT or this repository.
+It only reads the EBOM. It never changes the Google Sheet and never saves anything: save to 3DEXPERIENCE as usual.
 
 ### Update BDAT
 Checks GitHub for a newer published BDAT. If there is one, it downloads it now (Windows asks for admin once) and installs it as soon as you close SolidWorks, so the next time you open SolidWorks you're on the new version.
