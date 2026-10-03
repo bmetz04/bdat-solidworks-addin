@@ -279,9 +279,12 @@ namespace BdatTests
                     ",Part,10101,BR,10101,AA,Current,BR-10101-AA,,Brake System,\"Balance Bar, Wilwood \"\"BB\"\"\"\r\n" +
                     ",Part,10102,BR,10102,AA,OBSOLETE,BR-10102-AA,,Brake System,Balance Bar Sleeve\r\n" +
                     ",,,,,,,,,,\r\n" +
+                    ",Assembly,21200,DT,A0212,AA,OBSOLETE,DT-A0212-AA,Carburetor,Drivetrain,\r\n" +
+                    ",Part,40202,FR,40202,AA,Current,FR-40202-AA,,Frame & Body,Main Element\r\n" +
+                    ",Assembly,21200,DT,A0212,AA,Current,DT-A0212-AA,Engine Mounts,Drivetrain,\r\n" +
                     ",Part,21201,DT,21201,AA,Current,DT-21201-AA,Front Right,Drivetrain,Engine Mount Spacer: 7.28 mm";
                 List<EbomRow> rows = Ebom.Parse(csv);
-                Check(rows.Count == 4, "expected 4 rows (blank one skipped), got " + rows.Count);
+                Check(rows.Count == 7, "expected 7 rows (blank one skipped), got " + rows.Count);
                 Equal("BR-A0101-AA", rows[0].Number, "assembly number");
                 Check(rows[0].IsAssembly, "first row is an assembly");
                 Equal("Balance Bar", rows[0].Name, "assembly name comes from the Assembly column");
@@ -289,10 +292,12 @@ namespace BdatTests
                 Equal("Balance Bar", rows[1].Parent, "parent is the assembly above");
                 Equal("Brake System", rows[1].Area, "area");
                 Check(rows[2].IsObsolete, "OBSOLETE status");
-                Equal("Engine Mount Spacer: 7.28 mm (Front Right)", rows[3].Name, "a part's Assembly column is a qualifier");
+                Equal("", rows[4].Parent, "a part isn't put under the (obsolete) assembly row above it");
+                Equal("Engine Mount Spacer: 7.28 mm (Front Right)", rows[6].Name, "a part's Assembly column is a qualifier");
+                Equal("Engine Mounts", rows[6].Parent, "parent by control number, current assembly over obsolete");
 
-                Check(Ebom.Search(rows, "", false).Count == 3, "obsolete hidden by default");
-                Check(Ebom.Search(rows, "", true).Count == 4, "obsolete shown when asked");
+                Check(Ebom.Search(rows, "", false).Count == 5, "obsolete hidden by default");
+                Check(Ebom.Search(rows, "", true).Count == 7, "obsolete shown when asked");
                 Check(Ebom.Search(rows, "balance BR-10", true).Count == 2, "every word must match, any case");
                 Equal("DT-21201-AA", Ebom.Search(rows, "drivetrain spacer", false)[0].Number, "searches area and name");
 

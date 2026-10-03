@@ -27,7 +27,7 @@ The SolidWorks tests never close a SolidWorks they didn't start. They won't run 
 - Save MCM name validation.
 - The connector refuses to start in test mode.
 - The toolbar lists Murder Part, Save MCM, Create Origin, New from EBOM, Update BDAT and BDAT vN, in that order, and every callback name exists.
-- New from EBOM reads the EBOM CSV by column heading (quoted commas and line breaks, blank rows skipped), names assemblies from the Assembly column and parts from the component name, tracks the parent assembly, hides obsolete rows unless asked, and refuses a CSV with no Combined Part # column.
+- New from EBOM reads the EBOM CSV by column heading (quoted commas and line breaks, blank rows skipped), names assemblies from the Assembly column and parts from the component name, finds each part's assembly by control number (not row order), hides obsolete rows, and refuses a CSV with no Combined Part # column.
 - Create Origin uses SolidWorks' own X, Y and Z, like a 3D sketch point.
 - Create Origin offers mm first (the default), cm, m, in and ft, names the document's units, and tries every quarter-turn rotation for Origin' once each, likely ones first.
 - Create Origin reads coordinates in the picked unit or with a typed unit (mm, cm, m, in, ", ft), refuses anything that isn't a number, and formats the point for messages (`(10, -20.5, 0 mm)`).

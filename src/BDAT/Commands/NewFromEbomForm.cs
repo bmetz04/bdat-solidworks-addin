@@ -10,7 +10,6 @@ namespace BDAT.Commands
     internal sealed class NewFromEbomForm : Form
     {
         private readonly TextBox _search;
-        private readonly CheckBox _obsolete;
         private readonly ListView _list;
         private readonly Label _source;
         private readonly Label _count;
@@ -33,10 +32,9 @@ namespace BDAT.Commands
             MinimumSize = new Size(600, 360);
             _bold = new Font(Font, FontStyle.Bold);
 
-            var layout = new TableLayoutPanel { Dock = DockStyle.Fill, Padding = new Padding(12), ColumnCount = 3, RowCount = 4 };
+            var layout = new TableLayoutPanel { Dock = DockStyle.Fill, Padding = new Padding(12), ColumnCount = 2, RowCount = 4 };
             layout.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
             layout.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100f));
-            layout.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
             layout.RowStyles.Add(new RowStyle(SizeType.AutoSize));
             layout.RowStyles.Add(new RowStyle(SizeType.Percent, 100f));
             layout.RowStyles.Add(new RowStyle(SizeType.AutoSize));
@@ -48,9 +46,6 @@ namespace BDAT.Commands
             _search.TextChanged += delegate { Fill(); };
             _search.KeyDown += OnSearchKeyDown;
             layout.Controls.Add(_search, 1, 0);
-            _obsolete = new CheckBox { Text = "Show obsolete", AutoSize = true, Margin = new Padding(8, 4, 3, 3) };
-            _obsolete.CheckedChanged += delegate { Fill(); };
-            layout.Controls.Add(_obsolete, 2, 0);
 
             _list = new ListView
             {
@@ -66,15 +61,14 @@ namespace BDAT.Commands
             _list.Columns.Add("In assembly", 190);
             _list.Columns.Add("Area", 140);
             _list.Columns.Add("Class", 70);
-            _list.Columns.Add("Status", 80);
             _list.SelectedIndexChanged += delegate { _create.Enabled = Selected != null; };
             _list.DoubleClick += delegate { if (Selected != null) DialogResult = DialogResult.OK; };
             layout.Controls.Add(_list, 0, 1);
-            layout.SetColumnSpan(_list, 3);
+            layout.SetColumnSpan(_list, 2);
 
             _count = new Label { AutoSize = true, ForeColor = SystemColors.GrayText, Margin = new Padding(3, 6, 3, 0) };
             layout.Controls.Add(_count, 0, 2);
-            layout.SetColumnSpan(_count, 3);
+            layout.SetColumnSpan(_count, 2);
 
             var bottom = new TableLayoutPanel { Dock = DockStyle.Fill, AutoSize = true, ColumnCount = 2, RowCount = 1, Margin = new Padding(0, 6, 0, 0) };
             bottom.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100f));
@@ -95,7 +89,7 @@ namespace BDAT.Commands
             buttons.Controls.Add(_create);
             bottom.Controls.Add(buttons, 1, 0);
             layout.Controls.Add(bottom, 0, 3);
-            layout.SetColumnSpan(bottom, 3);
+            layout.SetColumnSpan(bottom, 2);
 
             AcceptButton = _create;
             CancelButton = cancel;
@@ -137,20 +131,22 @@ namespace BDAT.Commands
 
         private void Fill()
         {
-            List<EbomRow> found = Ebom.Search(_rows, _search.Text, _obsolete.Checked);
+            List<EbomRow> found = Ebom.Search(_rows, _search.Text, false);
             _list.BeginUpdate();
             _list.Items.Clear();
             foreach (EbomRow row in found)
             {
-                var item = new ListViewItem(new[] { row.Number, row.Name, row.Parent, row.Area, row.Class, row.Status }) { Tag = row };
-                if (row.IsObsolete) item.ForeColor = SystemColors.GrayText;
+                var item = new ListViewItem(new[] { row.Number, row.Name, row.Parent, row.Area, row.Class }) { Tag = row };
                 if (row.IsAssembly) item.Font = _bold;
                 _list.Items.Add(item);
             }
             _list.EndUpdate();
             if (_list.Items.Count == 1) _list.Items[0].Selected = true;
             _create.Enabled = Selected != null;
-            _count.Text = found.Count + " of " + _rows.Count + " EBOM rows" + (_obsolete.Checked ? "" : " (obsolete hidden)");
+            int current = 0;
+            foreach (EbomRow row in _rows)
+                if (!row.IsObsolete) current++;
+            _count.Text = found.Count + " of " + current + " current EBOM rows";
         }
 
         // Down arrow from the search box goes into the list, so it all works from the keyboard.

@@ -88,7 +88,6 @@ namespace BDAT
             int component = Find(headings, "sub-assembly", false);
 
             var rows = new List<EbomRow>();
-            string parent = "";
             for (int i = 1; i < table.Count; i++)
             {
                 string[] cells = table[i];
@@ -105,16 +104,25 @@ namespace BDAT
                     ComponentColumn = Cell(cells, component),
                 };
                 if (row.Number.Length == 0) continue;
-                if (row.IsAssembly)
-                {
-                    parent = row.Name;
-                    row.Parent = "";
-                }
-                else
-                {
-                    row.Parent = parent;
-                }
                 rows.Add(row);
+            }
+
+            // A part belongs to the assembly whose control number shares all but its last two digits (10101 is in
+            // 10100). Row order can't be trusted: obsolete rows sit between current ones and reuse their numbers.
+            var assemblies = new Dictionary<string, EbomRow>();
+            foreach (EbomRow row in rows)
+            {
+                if (!row.IsAssembly) continue;
+                string group = Group(row.ControlNumber);
+                EbomRow known;
+                if (group == null) continue;
+                if (!assemblies.TryGetValue(group, out known) || (known.IsObsolete && !row.IsObsolete)) assemblies[group] = row;
+            }
+            foreach (EbomRow row in rows)
+            {
+                EbomRow parent;
+                string group = Group(row.ControlNumber);
+                row.Parent = !row.IsAssembly && group != null && assemblies.TryGetValue(group, out parent) ? parent.Name : "";
             }
             if (rows.Count == 0) throw new InvalidDataException("The EBOM file has no part numbers in it.");
             return rows;
@@ -140,6 +148,16 @@ namespace BDAT
                 if (all) found.Add(row);
             }
             return found;
+        }
+
+        /// <summary>"101" for control number 10101: the assembly group. Null if it isn't a number.</summary>
+        private static string Group(string controlNumber)
+        {
+            string n = (controlNumber ?? "").Trim();
+            if (n.Length < 3) return null;
+            foreach (char c in n)
+                if (c < '0' || c > '9') return null;
+            return n.Substring(0, n.Length - 2);
         }
 
         // ---------------------------------------------------------------- the team copy

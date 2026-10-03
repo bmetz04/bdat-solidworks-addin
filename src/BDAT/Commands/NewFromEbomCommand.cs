@@ -14,8 +14,8 @@ namespace BDAT.Commands
     ///
     ///   1. Downloads the team's EBOM (release/ebom.csv in the repo, the Google Sheet downloaded as CSV), keeping
     ///      a copy for when it's offline. With neither, it asks for a CSV and remembers it for this Windows user.
-    ///   2. A pop-up lists the EBOM, searchable by part number, name, assembly or area. Obsolete rows are hidden
-    ///      unless "Show obsolete" is ticked.
+    ///   2. A pop-up lists the EBOM's current rows, searchable by part number, name, assembly or area. Obsolete rows
+    ///      never show: their numbers have been reused by current parts.
     ///   3. Creates a new document from SolidWorks' default part or assembly template, titled with the combined
     ///      part number (e.g. BR-10101-AA, the EBOM's "Use in 3Dx File Naming" column), so that's the name it's
     ///      saved under, and sets the Description and Part Number properties (Description in every configuration too).
@@ -77,10 +77,6 @@ namespace BDAT.Commands
 
             EbomRow row = Pick(owner, csv, source, rows);
             if (row == null) return;
-
-            if (row.IsObsolete &&
-                !Ui.AskYesNo(swApp, row.Number + " is marked OBSOLETE in the EBOM. Make it anyway?"))
-                return;
 
             swDocumentTypes_e type = row.IsAssembly ? swDocumentTypes_e.swDocASSEMBLY : swDocumentTypes_e.swDocPART;
             string template = swApp.GetUserPreferenceStringValue((int)(row.IsAssembly
