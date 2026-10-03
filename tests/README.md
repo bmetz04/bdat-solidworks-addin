@@ -27,7 +27,7 @@ The SolidWorks tests never close a SolidWorks they didn't start. They won't run 
 - Save MCM name validation.
 - The connector refuses to start in test mode.
 - The toolbar lists Murder Part, Save MCM, Create Origin, Update BDAT and BDAT vN, in that order, and every callback name exists.
-- Create Origin's vehicle axes (X forward, Y left, Z up) are right-handed with Z up for every forward direction, and FUBC's is nose toward +Z.
+- Create Origin uses SolidWorks' own X, Y and Z, like a 3D sketch point.
 - Create Origin offers mm first (the default), cm, m, in and ft, names the document's units, and tries every quarter-turn rotation for Origin' once each, likely ones first.
 - Create Origin reads coordinates in the picked unit or with a typed unit (mm, cm, m, in, ", ft), refuses anything that isn't a number, and formats the point for messages (`(10, -20.5, 0 mm)`).
 - Neither the version button nor Update BDAT launches anything.
@@ -53,7 +53,7 @@ The SolidWorks tests never close a SolidWorks they didn't start. They won't run 
 
 - Create Origin, in new unsaved parts and an assembly that are closed without saving:
   - With nothing open the button is greyed out and only says to open a part or assembly.
-  - It makes the Origin' coordinate system and X', Y' and Z' planes (each perpendicular to its axis), all in a `New Origin` folder. Origin' is checked to be at the typed point with X forward (+Z), Y left (+X) and Z up (+Y), and every plane to be built on Origin' (not an offset from a standard plane), so it follows when Origin' moves. Each plane's distance to a 3D sketch point is measured with SolidWorks' Measure tool, which proves it goes through the point and is on the right side of the origin. This covers negative numbers, plain numbers read as mm, a 0 coordinate, typed inches and an assembly.
+  - It makes the Origin' coordinate system and X', Y' and Z' planes (each perpendicular to its axis), all in a `New Origin` folder. Origin' is checked to be at the typed point with the part's own X, Y and Z, and every plane to be built on Origin' (not an offset from a standard plane), so it follows when Origin' moves. Each plane's distance to a 3D sketch point is measured with SolidWorks' Measure tool, which proves it goes through the point and is on the right side of the origin. This covers negative numbers, plain numbers read as mm, a 0 coordinate, typed inches and an assembly.
   - Running it twice in the same part keeps every name unique.
   - Cancel, or a box that isn't a number, adds nothing to the part.
 

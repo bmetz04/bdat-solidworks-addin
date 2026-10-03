@@ -13,13 +13,12 @@ namespace BDAT.Commands
     /// Create Origin: type a point, get a new origin there, so a part or sub-assembly can be origin-mated in the top
     /// level. Works in parts and assemblies. (SolidWorks can't move the real origin, so this is the next best thing.)
     ///
-    /// It uses vehicle axes (ISO 8855): X forward, Y to the driver's left, Z up. Which SolidWorks direction is
-    /// "forward" is set once, in Forward below.
+    /// It uses SolidWorks' own X, Y and Z, the same ones a 3D sketch point's coordinates are measured along.
     ///
-    ///   1. A pop-up asks for X (forward), Y (left) and Z (up), in mm unless another unit is picked (it also shows
+    ///   1. A pop-up asks for X, Y and Z, in mm unless another unit is picked (it also shows
     ///      the document's units), or with a unit typed after the number, e.g. "2 in".
-    ///   2. Origin', a coordinate system placed at that point by numbers, turned so its axes are the vehicle's.
-    ///   3. Three planes built from Origin', each perpendicular to one vehicle axis and named after it: X' Plane,
+    ///   2. Origin', a coordinate system placed at that point by numbers, with its axes along the part's X, Y and Z.
+    ///   3. Three planes built from Origin', each perpendicular to one axis and named after it: X' Plane,
     ///      Y' Plane and Z' Plane.
     ///   4. All of it in a folder called "New Origin".
     /// To move the origin, edit Origin' (its X, Y, Z) and the planes follow. Running it again in the same document adds
@@ -29,50 +28,16 @@ namespace BDAT.Commands
     {
         public string Title { get { return "Create Origin"; } }
 
-        public string Hint { get { return "Make a new origin (Origin' coordinate system with vehicle X forward, Y left, Z up, plus X', Y', Z' planes) at a point you type in"; } }
+        public string Hint { get { return "Make a new origin (Origin' coordinate system lined up with the part's X, Y, Z, plus X', Y', Z' planes) at a point you type in"; } }
 
-        /// <summary>Which SolidWorks direction the car's nose points in.</summary>
-        internal enum ForwardDirection { PlusZ, PlusX, MinusX, MinusZ }
-
-        /// <summary>FUBC's convention (Ben, 2026-10-01): the nose points at +Z, so the Front view looks at the front of the car.</summary>
-        internal const ForwardDirection Forward = ForwardDirection.PlusZ;
+        /// <summary>
+        /// Origin''s X, Y and Z as SolidWorks directions: the part's own X, Y and Z, the same ones a 3D sketch point's
+        /// coordinates are measured along (Ben, 2026-10-03), so numbers copied from a 3D sketch land where expected.
+        /// </summary>
+        internal static readonly double[][] Axes = { new double[] { 1, 0, 0 }, new double[] { 0, 1, 0 }, new double[] { 0, 0, 1 } };
 
         // Positions are checked to this many metres after they're made.
         private const double Tolerance = 1e-8;
-
-        /// <summary>
-        /// Vehicle X (forward), Y (left) and Z (up) as SolidWorks directions. Z is always SolidWorks +Y (up), and
-        /// Y = Z x X so the frame is right-handed.
-        /// </summary>
-        internal static double[][] VehicleAxes(ForwardDirection forward)
-        {
-            double[] x;
-            switch (forward)
-            {
-                case ForwardDirection.PlusX: x = new double[] { 1, 0, 0 }; break;
-                case ForwardDirection.MinusX: x = new double[] { -1, 0, 0 }; break;
-                case ForwardDirection.MinusZ: x = new double[] { 0, 0, -1 }; break;
-                default: x = new double[] { 0, 0, 1 }; break;
-            }
-            double[] z = { 0, 1, 0 };
-            double[] y = Cross(z, x);
-            return new[] { x, y, z };
-        }
-
-        internal static double[] Cross(double[] a, double[] b)
-        {
-            return new[] { a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0] };
-        }
-
-        /// <summary>A point typed in vehicle coordinates, as SolidWorks model coordinates (metres).</summary>
-        internal static double[] ToModel(double[] vehicle, double[][] axes)
-        {
-            var p = new double[3];
-            for (int i = 0; i < 3; i++)
-                for (int k = 0; k < 3; k++)
-                    p[k] += vehicle[i] * axes[i][k];
-            return p;
-        }
 
         public bool IsEnabled(ISldWorks swApp)
         {
@@ -97,8 +62,8 @@ namespace BDAT.Commands
             }
 
             LengthUnit unit;
-            double[] vehicle;
-            if (!AskForPoint(swApp, DocumentUnit(doc), out vehicle, out unit)) return;
+            double[] point;
+            if (!AskForPoint(swApp, DocumentUnit(doc), out point, out unit)) return;
 
             // Front, Top and Right, whatever they're called here, indexed by the SolidWorks axis they're normal to.
             IFeature[] bases = StandardPlanes(doc);
@@ -108,9 +73,8 @@ namespace BDAT.Commands
                 return;
             }
 
-            double[][] axes = VehicleAxes(Forward);
-            double[] point = ToModel(vehicle, axes);
-            string label = PointLabel(vehicle, unit);
+            double[][] axes = Axes;
+            string label = PointLabel(point, unit);
             var made = new List<IFeature>();
             var result = new CreateOriginTestResult();
             try
@@ -120,7 +84,7 @@ namespace BDAT.Commands
                 made.Add(cs);
                 result.Origin = cs.Name;
 
-                // 2. Planes built from Origin', each perpendicular to the vehicle axis it's named after.
+                // 2. Planes built from Origin', each perpendicular to the axis it's named after.
                 string[] planeNames = { "X' Plane", "Y' Plane", "Z' Plane" };
                 result.Planes = new string[3];
                 result.PlaneMethods = new string[3];
@@ -149,7 +113,7 @@ namespace BDAT.Commands
             if (TestMode.Enabled) TestMode.LastCreateOrigin = result;
         }
 
-        /// <summary>The pop-up (or, in test mode, TestMode.OriginCoordinates). Vehicle X, Y, Z in metres. False if cancelled or invalid.</summary>
+        /// <summary>The pop-up (or, in test mode, TestMode.OriginCoordinates). X, Y, Z in metres (SolidWorks coordinates). False if cancelled or invalid.</summary>
         private static bool AskForPoint(ISldWorks swApp, LengthUnit documentUnit, out double[] point, out LengthUnit unit)
         {
             point = null;
@@ -254,7 +218,7 @@ namespace BDAT.Commands
 
         /// <summary>
         /// Origin': a coordinate system placed by numbers (Edit Feature shows its X, Y, Z and rotation), so moving it is
-        /// one edit. The rotation that turns SolidWorks' axes into the vehicle's is a combination of quarter turns, but
+        /// one edit. The rotation that gives Origin' its axes is a combination of quarter turns, but
         /// how SolidWorks orders its three angles isn't documented, so likely combinations are tried first and every
         /// one is checked against the coordinate system SolidWorks actually made.
         /// </summary>
@@ -280,18 +244,18 @@ namespace BDAT.Commands
                 }
                 IFeature cs = made as IFeature ?? doc.FeatureByPositionReverse(0) as IFeature;
                 if (cs == null || ReferenceEquals(cs, last) || cs.GetTypeName2() != "CoordSys") continue;
-                if (IsVehicleFrame(doc, cs, point, axes))
+                if (IsOriginFrame(doc, cs, point, axes))
                 {
                     Rename(doc, cs, "Origin'");
                     return cs;
                 }
                 Delete(doc, cs);
             }
-            throw new InvalidOperationException("SolidWorks didn't line the coordinate system up with X forward, Y left, Z up.");
+            throw new InvalidOperationException("SolidWorks didn't line the coordinate system up with the part's X, Y and Z.");
         }
 
         /// <summary>
-        /// Every combination of quarter turns about X, Y and Z (radians), the ones that give the vehicle axes under
+        /// Every combination of quarter turns about X, Y and Z (radians), the ones that give the wanted axes under
         /// the usual angle orders first.
         /// </summary>
         internal static List<double[]> RotationCandidates(double[][] axes)
@@ -333,7 +297,7 @@ namespace BDAT.Commands
             return m;
         }
 
-        /// <summary>The matrix's columns (or rows) are the vehicle X, Y and Z.</summary>
+        /// <summary>The matrix's columns (or rows) are the wanted X, Y and Z.</summary>
         private static bool MatchesAxes(double[,] m, double[][] axes, bool rows)
         {
             for (int i = 0; i < 3; i++)
@@ -343,7 +307,7 @@ namespace BDAT.Commands
         }
 
         /// <summary>
-        /// A plane through Origin', perpendicular to one vehicle axis, built from Origin' so it follows when Origin' is
+        /// A plane through Origin', perpendicular to one axis, built from Origin' so it follows when Origin' is
         /// edited. Tries, in order: coincident with Origin's own plane (SolidWorks 2022 and later list them under the
         /// coordinate system), then through Origin' parallel to the matching Front/Top/Right plane. Only if SolidWorks
         /// takes neither does it fall back to a plain offset from that plane. Every plane is checked after it's made.
@@ -416,8 +380,8 @@ namespace BDAT.Commands
             return null;
         }
 
-        /// <summary>The coordinate system's origin is at point and its X, Y, Z are the vehicle axes.</summary>
-        internal static bool IsVehicleFrame(IModelDoc2 doc, IFeature cs, double[] point, double[][] axes)
+        /// <summary>The coordinate system's origin is at point and its X, Y, Z are axes.</summary>
+        internal static bool IsOriginFrame(IModelDoc2 doc, IFeature cs, double[] point, double[][] axes)
         {
             MathTransform t = doc.Extension.GetCoordinateSystemTransformByName(cs.Name) as MathTransform;
             double[] d = t == null ? null : t.ArrayData as double[];

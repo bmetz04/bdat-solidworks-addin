@@ -40,7 +40,7 @@ namespace BDAT.Commands
 
             var intro = new Label
             {
-                Text = "Makes a new origin here, for origin mates in the top level:\nthe Origin' coordinate system, with X', Y' and Z' planes built on it.\nVehicle axes: X forward, Y left, Z up.\nTo move it later, edit Origin'.",
+                Text = "Makes a new origin here, for origin mates in the top level:\nthe Origin' coordinate system, with X', Y' and Z' planes built on it.\nX, Y and Z are the part's own, the same as a 3D sketch point's.\nTo move it later, edit Origin'.",
                 AutoSize = true,
                 Margin = new Padding(3, 0, 3, 10),
             };
@@ -61,7 +61,7 @@ namespace BDAT.Commands
                 Margin = new Padding(3, 6, 3, 6),
             }, 2, 1);
 
-            string[] axes = { "X (forward):", "Y (left):", "Z (up):" };
+            string[] axes = { "X:", "Y:", "Z:" };
             for (int i = 0; i < 3; i++)
             {
                 layout.Controls.Add(new Label { Text = axes[i], AutoSize = true, Margin = new Padding(3, 6, 8, 6) }, 0, i + 2);

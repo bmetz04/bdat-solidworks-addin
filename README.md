@@ -29,10 +29,10 @@ It uses the API of the "3DEXPERIENCE PLM Services" connector add-in (see `Connec
 ### Create Origin
 Makes a new origin at a point you type in, so a part or sub-assembly can be origin-mated in the top-level assembly. Works in parts and assemblies (it's on the BDAT tab in both). SolidWorks can't move the real origin, so this adds the next best thing.
 
-It uses vehicle axes (ISO 8855): **X forward, Y to the driver's left, Z up**. In FUBC top levels the nose points toward SolidWorks +Z (the Front view looks at the front of the car), so vehicle X = +Z, Y = +X and Z = +Y. That's set once, in `Forward` in `CreateOriginCommand.cs`.
+It uses SolidWorks' own **X, Y and Z**, the same ones a 3D sketch point's coordinates are measured along (X normal to Right, Y normal to Top, Z normal to Front), so numbers copied from a 3D sketch land where you expect.
 
-1. A pop-up asks for **X (forward)**, **Y (left)** and **Z (up)**. They're in **mm** unless you pick another unit in the pop-up, which also says what units the document is in. You can also type a unit after a number (`2 in`, `50 mm`). An empty box is 0.
-2. It makes the coordinate system **Origin'** at that point, placed by numbers (its X, Y, Z and rotation), with X forward, Y left and Z up.
+1. A pop-up asks for **X**, **Y** and **Z**. They're in **mm** unless you pick another unit in the pop-up, which also says what units the document is in. You can also type a unit after a number (`2 in`, `50 mm`). An empty box is 0.
+2. It makes the coordinate system **Origin'** at that point, placed by numbers (its X, Y, Z), with its axes along the part's X, Y and Z.
 3. Built on Origin': **X' Plane**, **Y' Plane** and **Z' Plane**, each through Origin' and perpendicular to the axis it's named after.
 4. It all goes in a folder called **New Origin**. Running it again adds ` 2` to the names so they stay unique.
 

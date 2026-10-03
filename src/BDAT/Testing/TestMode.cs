@@ -106,7 +106,7 @@ namespace BDAT.Testing
     /// <summary>What Create Origin made, in test mode.</summary>
     public sealed class CreateOriginTestResult
     {
-        /// <summary>The X', Y' and Z' planes' names, in that order (each perpendicular to that vehicle axis).</summary>
+        /// <summary>The X', Y' and Z' planes' names, in that order (each perpendicular to that axis).</summary>
         public string[] Planes;
 
         /// <summary>How each plane was tied to Origin': "on Origin' plane", "through Origin'" or "offset".</summary>

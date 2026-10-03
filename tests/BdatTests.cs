@@ -307,19 +307,12 @@ namespace BdatTests
                 Check(pointError != null && pointError.StartsWith("Y:"), "a bad Y should be reported as Y, got: " + pointError);
             });
 
-            Test("Create Origin uses vehicle axes: X forward (+Z), Y left, Z up", delegate
+            Test("Create Origin uses SolidWorks' own X, Y and Z (like a 3D sketch point)", delegate
             {
-                Check(CreateOriginCommand.Forward == CreateOriginCommand.ForwardDirection.PlusZ, "FUBC's top levels have the nose toward +Z (Ben, 2026-10-01)");
-                foreach (CreateOriginCommand.ForwardDirection f in Enum.GetValues(typeof(CreateOriginCommand.ForwardDirection)))
-                {
-                    double[][] a = CreateOriginCommand.VehicleAxes(f);
-                    Check(a[2][0] == 0 && a[2][1] == 1 && a[2][2] == 0, f + ": Z should be up (+Y)");
-                    double[] z = CreateOriginCommand.Cross(a[0], a[1]);
-                    for (int k = 0; k < 3; k++) Check(Math.Abs(z[k] - a[2][k]) < 1e-12, f + ": X x Y should be Z (right-handed)");
-                }
-                double[] m = CreateOriginCommand.ToModel(new[] { 0.010, -0.020, 0.030 }, CreateOriginCommand.VehicleAxes(CreateOriginCommand.ForwardDirection.PlusZ));
-                Check(Math.Abs(m[0] + 0.020) < 1e-12 && Math.Abs(m[1] - 0.030) < 1e-12 && Math.Abs(m[2] - 0.010) < 1e-12,
-                    "vehicle (10, -20, 30) mm should be model (-20, 30, 10) mm, got (" + m[0] * 1000 + ", " + m[1] * 1000 + ", " + m[2] * 1000 + ")");
+                double[][] a = CreateOriginCommand.Axes;
+                for (int i = 0; i < 3; i++)
+                    for (int k = 0; k < 3; k++)
+                        Check(a[i][k] == (i == k ? 1 : 0), "Origin' axis " + i + " should be SolidWorks axis " + i + " (Ben, 2026-10-03)");
             });
 
             Test("Create Origin formats the point for messages", delegate
@@ -341,10 +334,10 @@ namespace BdatTests
 
             Test("Create Origin tries the right rotation first", delegate
             {
-                List<double[]> candidates = CreateOriginCommand.RotationCandidates(CreateOriginCommand.VehicleAxes(CreateOriginCommand.Forward));
+                List<double[]> candidates = CreateOriginCommand.RotationCandidates(CreateOriginCommand.Axes);
                 Check(candidates.Count == 64, "every quarter-turn combination should be tried, got " + candidates.Count);
                 Check(candidates.Select(a => string.Join(",", a.Select(v => Math.Round(v, 6).ToString()).ToArray())).Distinct().Count() == 64, "no combination should be tried twice");
-                Check(candidates[0].Any(v => v != 0), "no rotation can't be first: the vehicle axes aren't SolidWorks' axes");
+                Check(candidates[0].All(v => v == 0), "no rotation should be tried first: Origin' has SolidWorks' own axes");
             });
 
             Test("Every toolbar callback exists on SwAddin", delegate
@@ -811,7 +804,7 @@ namespace BdatTests
         }
 
         /// <summary>
-        /// Runs Create Origin runs times in a new part (or assembly) with the typed vehicle coordinates, then checks what
+        /// Runs Create Origin runs times in a new part (or assembly) with the typed coordinates, then checks what
         /// it made the last time (see CheckOrigin), and that every plane is built on Origin' so moving Origin' moves them.
         /// </summary>
         private static void CreateOriginTest(ISldWorks swApp, string[] typed, double[] expected, int runs, bool assembly = false)
@@ -859,20 +852,14 @@ namespace BdatTests
             }
         }
 
-        /// <summary>FUBC's vehicle axes (nose toward +Z): vehicle (x forward, y left, z up) is model (y, z, x).</summary>
-        private static double[] VehicleToModel(double[] v)
-        {
-            return new[] { v[1], v[2], v[0] };
-        }
-
         /// <summary>
-        /// Origin' is at expected (vehicle coordinates), Origin' has X forward (+Z), Y left (+X)
-        /// and Z up (+Y), and each plane goes through the point on the right side of the origin: measured from the
+        /// Origin' is at expected (SolidWorks coordinates, as a 3D sketch point shows them), Origin' has the part's own
+        /// X, Y and Z, and each plane goes through the point on the right side of the origin: measured from the
         /// probe at (p, p, p) with SolidWorks' Measure tool, independently of how BDAT places them.
         /// </summary>
         private static void CheckOrigin(IModelDoc2 doc, CreateOriginTestResult r, double[] expected, SketchPoint probe, double p, string when)
         {
-            double[] at = VehicleToModel(expected);
+            double[] at = expected;
             string atText = "(" + (at[0] * 1000).ToString("0.###") + ", " + (at[1] * 1000).ToString("0.###") + ", " + (at[2] * 1000).ToString("0.###") + ") mm";
 
             IFeature cs = CreateOriginCommand.FeatureByName(doc, r.Origin);
@@ -883,12 +870,12 @@ namespace BdatTests
             for (int i = 0; i < 3; i++)
                 Check(Math.Abs(d[9 + i] - at[i]) < 1e-7, r.Origin + when + " is at (" + (d[9] * 1000).ToString("0.###") + ", " +
                     (d[10] * 1000).ToString("0.###") + ", " + (d[11] * 1000).ToString("0.###") + ") mm, expected " + atText);
-            double[] frame = { 0, 0, 1, 1, 0, 0, 0, 1, 0 }; // X = +Z, Y = +X, Z = +Y
+            double[] frame = { 1, 0, 0, 0, 1, 0, 0, 0, 1 }; // the part's own X, Y, Z
             for (int i = 0; i < 9; i++)
-                Check(Math.Abs(d[i] - frame[i]) < 1e-6, r.Origin + when + " isn't X forward (+Z), Y left (+X), Z up (+Y): its axes are " +
+                Check(Math.Abs(d[i] - frame[i]) < 1e-6, r.Origin + when + " isn't lined up with the part's X, Y, Z: its axes are " +
                     string.Join(", ", d.Take(9).Select(v => Math.Round(v, 3).ToString()).ToArray()));
 
-            int[] modelAxisOf = { 2, 0, 1 }; // X' Plane is at model Z, Y' at model X, Z' at model Y
+            int[] modelAxisOf = { 0, 1, 2 }; // X' Plane is at model X, Y' at Y, Z' at Z
             for (int i = 0; i < 3; i++)
             {
                 IFeature plane = CreateOriginCommand.FeatureByName(doc, r.Planes[i]);
