@@ -226,18 +226,22 @@ namespace BdatTests
             // reach the platform in test mode: it must be refused at the connector and report "not checked in".
             Test("Save MCM check-in can't reach 3DEXPERIENCE in test mode", delegate
             {
+                // Check-in is PlatformSave.Unlock, shared by Save MCM and New from EBOM.
                 Type connector = BdatType("BDAT.Connector");
-                MethodInfo unlock = BdatType("BDAT.Commands.SaveMcmCommand").GetMethod("Unlock",
-                    BindingFlags.Static | BindingFlags.NonPublic | BindingFlags.Public, null, new[] { connector, typeof(string) }, null);
-                Check(unlock != null, "SaveMcmCommand has no Unlock(Connector, string) check-in step yet");
+                Type platformSave = BdatType("BDAT.PlatformSave");
+                MethodInfo unlock = platformSave.GetMethod("Unlock",
+                    BindingFlags.Instance | BindingFlags.NonPublic | BindingFlags.Public, null, new[] { typeof(string) }, null);
+                Check(unlock != null, "PlatformSave has no Unlock(string) check-in step");
                 ConstructorInfo ctor = connector.GetConstructors(BindingFlags.Instance | BindingFlags.NonPublic).First();
                 object fake = ctor.Invoke(new object[ctor.GetParameters().Length]);
+                object platform = Activator.CreateInstance(platformSave, BindingFlags.Instance | BindingFlags.NonPublic | BindingFlags.Public,
+                    null, new object[] { null, fake, "save-mcm" }, null);
 
                 string realLog = Path.Combine(Path.GetTempPath(), "BDAT", "save-mcm.log");
                 long logBefore = File.Exists(realLog) ? new FileInfo(realLog).Length : -1;
 
                 object checkedIn;
-                try { checkedIn = unlock.Invoke(null, new object[] { fake, @"C:\BDAT-test\91251A540.SLDPRT" }); }
+                try { checkedIn = unlock.Invoke(platform, new object[] { @"C:\BDAT-test\91251A540.SLDPRT" }); }
                 catch (TargetInvocationException ex) { checkedIn = ex.InnerException; }
                 Check(TestMode.ConnectorAttempts >= 1, "check-in didn't go through the connector guard");
                 Check(!(checkedIn is bool) || !(bool)checkedIn, "check-in reported success in test mode");

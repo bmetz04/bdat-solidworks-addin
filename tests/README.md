@@ -27,7 +27,7 @@ The SolidWorks tests never close a SolidWorks they didn't start. They won't run 
 - Save MCM name validation.
 - The connector refuses to start in test mode.
 - The toolbar lists Murder Part, Save MCM, Create Origin, New from EBOM, Update BDAT and BDAT vN, in that order, and every callback name exists.
-- New from EBOM reads the EBOM CSV by column heading (quoted commas and line breaks, blank rows skipped), names assemblies from the Assembly column and parts from the component name, finds each part's assembly by control number (not row order), hides obsolete rows, and refuses a CSV with no Combined Part # column.
+- New from EBOM reads the EBOM CSV by column heading (quoted commas and line breaks, blank rows skipped), names assemblies from the Assembly column and parts from the component name, finds each part's assembly by control number (not row order), gives every row its assembly number (A0704 from 704xx, even with no assembly row) and lists the ones with no assembly row, hides obsolete rows, names the file after the combined part number (.SLDPRT or .SLDASM), and refuses a CSV with no Combined Part # column. Its Save to 3DEXPERIENCE step is never run: in test mode it only records the file name and folder it would have used.
 - Create Origin uses SolidWorks' own X, Y and Z, like a 3D sketch point.
 - Create Origin offers mm first (the default), cm, m, in and ft, names the document's units, and tries every quarter-turn rotation for Origin' once each, likely ones first.
 - Create Origin reads coordinates in the picked unit or with a typed unit (mm, cm, m, in, ", ft), refuses anything that isn't a number, and formats the point for messages (`(10, -20.5, 0 mm)`).
@@ -49,7 +49,7 @@ The SolidWorks tests never close a SolidWorks they didn't start. They won't run 
   - The Description property is set on the file and on every configuration.
   - A bad name and an empty description that's answered No both stop it.
   - The view ends up isometric and the freeze bar is at the end of the tree. Save MCM turns on the "Enable Freeze bar" option, and the tests put your setting back afterwards.
-  - Save, add to bookmark and check-in are listed as skipped, and nothing reaches the connector. Unit tests check that every way into the connector (Find, Manager, Call, Get, Set) throws in test mode, and that Save MCM's check-in step (Unlock) is refused at the connector and reports "not checked in".
+  - Save, add to bookmark and check-in are listed as skipped, and nothing reaches the connector. Unit tests check that every way into the connector (Find, Manager, Call, Get, Set) throws in test mode, and that the check-in step Save MCM and New from EBOM share (PlatformSave.Unlock) is refused at the connector and reports "not checked in".
   - The part file is never saved.
 
 - Create Origin, in new unsaved parts and an assembly that are closed without saving:
