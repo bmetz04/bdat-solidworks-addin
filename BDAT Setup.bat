@@ -89,10 +89,10 @@ catch { Finish "Could not replace BDAT.dll. Make sure SolidWorks is fully closed
 
 # FUBC drawing sheet formats. The FUBC Drawing template points "Use different sheet format" at this folder, so sheets
 # added after the first get the short title block. The path must stay the same on every PC.
-$templateDir = Join-Path $installDir 'templates'
+$templateDir = Join-Path $installDir 'Sheet Formats'
 if (-not (Test-Path $templateDir)) { New-Item -ItemType Directory -Path $templateDir | Out-Null }
 foreach ($name in @('FUBC B Continuation.slddrt')) {
-    try { $web.DownloadFile("$baseUrl/templates/$([Uri]::EscapeDataString($name))$nocache", (Join-Path $templateDir $name)) }
+    try { $web.DownloadFile("$baseUrl/sheet-formats/$([Uri]::EscapeDataString($name))$nocache", (Join-Path $templateDir $name)) }
     catch { Write-Host "Could not download $name. Extra drawing sheets will not get the FUBC title block until the next update. ($($_.Exception.Message))" -ForegroundColor Yellow }
 }
 
