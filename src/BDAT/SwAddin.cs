@@ -29,7 +29,7 @@ namespace BDAT
 
         // Bump this whenever commands are added, removed or reordered so SolidWorks
         // rebuilds the toolbar instead of reusing its cached copy.
-        private const int CommandGroupVersion = 6;
+        private const int CommandGroupVersion = 7;
 
         private ISldWorks _swApp;
         private ICommandManager _cmdMgr;
@@ -41,6 +41,7 @@ namespace BDAT
             new CommandEntry(new MurderPartCommand(), "OnMurderPart", "CanMurderPart"),
             new CommandEntry(new SaveMcmCommand(), "OnSaveMcm", "CanSaveMcm"),
             new CommandEntry(new CreateOriginCommand(), "OnCreateOrigin", "CanCreateOrigin", true),
+            new CommandEntry(new NewFromEbomCommand(), "OnNewFromEbom", "CanNewFromEbom", true),
             new CommandEntry(new UpdateCommand(), "OnUpdate", "CanUpdate", true),
             new CommandEntry(new VersionCommand(), "OnVersion", "CanVersion", true),
         };
@@ -308,11 +309,14 @@ namespace BDAT
         public void OnCreateOrigin() { Run(_commands[2].Command); }
         public int CanCreateOrigin() { return CanRun(_commands[2].Command); }
 
-        public void OnUpdate() { Run(_commands[3].Command); }
-        public int CanUpdate() { return CanRun(_commands[3].Command); }
+        public void OnNewFromEbom() { Run(_commands[3].Command); }
+        public int CanNewFromEbom() { return CanRun(_commands[3].Command); }
 
-        public void OnVersion() { Run(_commands[4].Command); }
-        public int CanVersion() { return CanRun(_commands[4].Command); }
+        public void OnUpdate() { Run(_commands[4].Command); }
+        public int CanUpdate() { return CanRun(_commands[4].Command); }
+
+        public void OnVersion() { Run(_commands[5].Command); }
+        public int CanVersion() { return CanRun(_commands[5].Command); }
 
         #endregion
 

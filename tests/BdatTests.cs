@@ -261,12 +261,45 @@ namespace BdatTests
             Test("Toolbar has the expected BDAT buttons, in order", delegate
             {
                 List<string> titles = CommandTitles(new SwAddin());
-                Check(titles.Count == 5, "expected 5 buttons, got " + titles.Count + ": " + string.Join(", ", titles.ToArray()));
+                Check(titles.Count == 6, "expected 6 buttons, got " + titles.Count + ": " + string.Join(", ", titles.ToArray()));
                 Equal("Murder Part", titles[0], "button 1");
                 Equal("Save MCM", titles[1], "button 2");
                 Equal("Create Origin", titles[2], "button 3");
-                Equal("Update BDAT", titles[3], "button 4");
-                Check(Regex.IsMatch(titles[4], @"^BDAT (v\d+|dev build)$"), "button 5 should be the version (BDAT vN), got \"" + titles[4] + "\"");
+                Equal("New from EBOM", titles[3], "button 4");
+                Equal("Update BDAT", titles[4], "button 5");
+                Check(Regex.IsMatch(titles[5], @"^BDAT (v\d+|dev build)$"), "button 6 should be the version (BDAT vN), got \"" + titles[5] + "\"");
+            });
+
+            Test("EBOM CSV is read by column heading", delegate
+            {
+                // Made-up rows in the EBOM's layout (headings with line breaks, columns in the sheet's order).
+                string csv = "\uFEFFPerson Responsible,Class,Part Control No.,Commodity Code,\"Assembly/Part #\n (Use in Cost Report)\",Revision,Status," +
+                    "\"Combined Part # \r\n(Use in 3Dx FIle Naming)\",Assembly,Area of Commodity,Sub-Assembly / Component Name\r\n" +
+                    ",Assembly,10100,BR,A0101,AA,Current,BR-A0101-AA,Balance Bar,Brake System,\r\n" +
+                    ",Part,10101,BR,10101,AA,Current,BR-10101-AA,,Brake System,\"Balance Bar, Wilwood \"\"BB\"\"\"\r\n" +
+                    ",Part,10102,BR,10102,AA,OBSOLETE,BR-10102-AA,,Brake System,Balance Bar Sleeve\r\n" +
+                    ",,,,,,,,,,\r\n" +
+                    ",Part,21201,DT,21201,AA,Current,DT-21201-AA,Front Right,Drivetrain,Engine Mount Spacer: 7.28 mm";
+                List<EbomRow> rows = Ebom.Parse(csv);
+                Check(rows.Count == 4, "expected 4 rows (blank one skipped), got " + rows.Count);
+                Equal("BR-A0101-AA", rows[0].Number, "assembly number");
+                Check(rows[0].IsAssembly, "first row is an assembly");
+                Equal("Balance Bar", rows[0].Name, "assembly name comes from the Assembly column");
+                Equal("Balance Bar, Wilwood \"BB\"", rows[1].Name, "quoted commas and quotes");
+                Equal("Balance Bar", rows[1].Parent, "parent is the assembly above");
+                Equal("Brake System", rows[1].Area, "area");
+                Check(rows[2].IsObsolete, "OBSOLETE status");
+                Equal("Engine Mount Spacer: 7.28 mm (Front Right)", rows[3].Name, "a part's Assembly column is a qualifier");
+
+                Check(Ebom.Search(rows, "", false).Count == 3, "obsolete hidden by default");
+                Check(Ebom.Search(rows, "", true).Count == 4, "obsolete shown when asked");
+                Check(Ebom.Search(rows, "balance BR-10", true).Count == 2, "every word must match, any case");
+                Equal("DT-21201-AA", Ebom.Search(rows, "drivetrain spacer", false)[0].Number, "searches area and name");
+
+                bool refused = false;
+                try { Ebom.Parse("Name,Number\r\nx,1"); }
+                catch (System.IO.InvalidDataException) { refused = true; }
+                Check(refused, "a CSV without the Combined Part # column is refused");
             });
 
             Test("Create Origin reads coordinates", delegate

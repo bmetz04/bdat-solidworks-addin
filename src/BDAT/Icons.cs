@@ -80,10 +80,13 @@ namespace BDAT
                 case 2: // Create Origin: purple circle with white X/Y/Z axes
                     DrawAxesIcon(g, cell, Color.FromArgb(110, 60, 170));
                     break;
-                case 3: // Update: green circle with a white down arrow
+                case 3: // New from EBOM: teal circle with a white list
+                    DrawListIcon(g, cell, Color.FromArgb(0, 130, 140));
+                    break;
+                case 4: // Update: green circle with a white down arrow
                     DrawArrowIcon(g, cell, Color.FromArgb(30, 140, 60), false);
                     break;
-                case 4: // Version: blue circle with an "i"
+                case 5: // Version: blue circle with an "i"
                     DrawBadge(g, cell, Color.FromArgb(30, 90, 170), "i");
                     break;
                 default:
@@ -143,6 +146,29 @@ namespace BDAT
                 g.DrawLine(pen, cx, cy, cx, cy - len);
                 g.DrawLine(pen, cx, cy, cx + len, cy);
                 g.DrawLine(pen, cx, cy, cx - len * 0.6f, cy + len * 0.6f);
+            }
+        }
+
+        private static void DrawListIcon(Graphics g, Rectangle cell, Color color)
+        {
+            float pad = cell.Width * 0.08f;
+            var circle = new RectangleF(cell.X + pad, cell.Y + pad, cell.Width - 2 * pad, cell.Height - 2 * pad);
+            using (var fill = new SolidBrush(color))
+                g.FillEllipse(fill, circle);
+
+            // Three rows of a table: a bullet and a line each.
+            float left = cell.X + cell.Width * 0.28f;
+            float right = cell.Right - cell.Width * 0.26f;
+            float width = Math.Max(1.5f, cell.Width * 0.09f);
+            using (var pen = new Pen(Color.White, width) { StartCap = LineCap.Round, EndCap = LineCap.Round })
+            using (var dot = new SolidBrush(Color.White))
+            {
+                for (int i = 0; i < 3; i++)
+                {
+                    float y = cell.Y + cell.Height * (0.33f + 0.17f * i);
+                    g.FillEllipse(dot, left - width, y - width, 2 * width, 2 * width);
+                    g.DrawLine(pen, left + 2.5f * width, y, right, y);
+                }
             }
         }
 
