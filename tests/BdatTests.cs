@@ -296,6 +296,20 @@ namespace BdatTests
                 Equal("Engine Mount Spacer: 7.28 mm (Front Right)", rows[6].Name, "a part's Assembly column is a qualifier");
                 Equal("Engine Mounts", rows[6].Parent, "parent by control number, obsolete assemblies ignored");
 
+                // Assembly numbers (3DEXPERIENCE folder names) come from the control number, assembly row or not.
+                Equal("A0101", rows[0].AssemblyNumber, "an assembly's own number");
+                Equal("A0101", rows[1].AssemblyNumber, "a part's assembly number");
+                Equal("A0101 Balance Bar", rows[1].AssemblyText, "number and name in the list");
+                Equal("A0402", rows[4].AssemblyNumber, "assembly number with no assembly row in the EBOM");
+                Equal("A0402", rows[4].AssemblyText, "just the number when the EBOM has no name for it");
+                Equal("A0212", rows[6].AssemblyNumber, "a part's assembly number");
+                List<string> missing = Ebom.MissingAssemblies(rows);
+                Check(missing.Count == 1 && missing[0] == "A0402 (Frame & Body, 1 part)",
+                    "assemblies to add to the EBOM: " + string.Join("; ", missing.ToArray()));
+                Equal("FR-40202-AA", Ebom.Search(rows, "a0402", false)[0].Number, "searches the assembly number");
+                Equal("BR-10101-AA.SLDPRT", NewFromEbomCommand.FileName(rows[1]), "saved under the combined part number");
+                Equal("BR-A0101-AA.SLDASM", NewFromEbomCommand.FileName(rows[0]), "assemblies save as .SLDASM");
+
                 Check(Ebom.Search(rows, "", false).Count == 5, "obsolete hidden by default");
                 Check(Ebom.Search(rows, "", true).Count == 7, "obsolete shown when asked");
                 Check(Ebom.Search(rows, "balance BR-10", true).Count == 2, "every word must match, any case");

@@ -25,8 +25,28 @@ namespace BDAT
         public string AssemblyColumn;
         /// <summary>The sheet's "Sub-Assembly / Component Name" column.</summary>
         public string ComponentColumn;
-        /// <summary>The name of the nearest assembly row above this one (empty for an assembly row itself).</summary>
+        /// <summary>
+        /// The name of the assembly this part goes in: the current assembly row with the same control-number group
+        /// (empty for an assembly row itself, or when the EBOM has no current row for that assembly).
+        /// </summary>
         public string Parent;
+        /// <summary>
+        /// The assembly number this row belongs to, e.g. A0704 for control numbers 70400 to 70499: an assembly row's own
+        /// number, or for a part, "A" + the control number without its last two digits, padded to four. It doesn't need an
+        /// assembly row, so it's known even where the EBOM is missing one. 3DEXPERIENCE folders are named by it.
+        /// Empty if the control number isn't a number.
+        /// </summary>
+        public string AssemblyNumber;
+
+        /// <summary>For the list: "A0704 Bellcranks", or just "A0704" when the EBOM has no name for it.</summary>
+        public string AssemblyText
+        {
+            get
+            {
+                string name = IsAssembly ? "" : Parent;
+                return name.Length == 0 ? AssemblyNumber : (AssemblyNumber + " " + name).Trim();
+            }
+        }
 
         public bool IsAssembly
         {
@@ -82,6 +102,7 @@ namespace BDAT
             int area = Find(headings, "area of commodity", false);
             int code = Find(headings, "commodity code", false);
             int control = Find(headings, "part control no", false);
+            int partNumber = Find(headings, "assembly/part #", false);
             int revision = Find(headings, "revision", true);
             int status = Find(headings, "status", true);
             int assembly = Find(headings, "assembly", true);
@@ -104,6 +125,10 @@ namespace BDAT
                     ComponentColumn = Cell(cells, component),
                 };
                 if (row.Number.Length == 0) continue;
+                string group = Group(row.ControlNumber);
+                string own = Cell(cells, partNumber);
+                row.AssemblyNumber = row.IsAssembly && own.Length > 0 ? own
+                    : group == null ? "" : "A" + group.PadLeft(4, '0');
                 rows.Add(row);
             }
 
@@ -137,7 +162,7 @@ namespace BDAT
             foreach (EbomRow row in rows)
             {
                 if (row.IsObsolete && !includeObsolete) continue;
-                string haystack = (row.Number + " " + row.Name + " " + row.Parent + " " + row.Area + " " + row.Class).ToLowerInvariant();
+                string haystack = (row.Number + " " + row.Name + " " + row.AssemblyNumber + " " + row.Parent + " " + row.Area + " " + row.Class).ToLowerInvariant();
                 bool all = true;
                 foreach (string w in words)
                 {
@@ -146,6 +171,28 @@ namespace BDAT
                 if (all) found.Add(row);
             }
             return found;
+        }
+
+        /// <summary>
+        /// Assembly numbers that current parts belong to but that have no current assembly row, so no name, e.g.
+        /// "A0402 (Frame &amp; Body, 7 parts)". These rows need adding to the EBOM sheet.
+        /// </summary>
+        public static List<string> MissingAssemblies(IEnumerable<EbomRow> rows)
+        {
+            var counts = new SortedDictionary<string, int>(StringComparer.Ordinal);
+            var areas = new Dictionary<string, string>();
+            foreach (EbomRow row in rows)
+            {
+                if (row.IsObsolete || row.IsAssembly || row.Parent.Length > 0 || row.AssemblyNumber.Length == 0) continue;
+                int n;
+                counts.TryGetValue(row.AssemblyNumber, out n);
+                counts[row.AssemblyNumber] = n + 1;
+                if (!areas.ContainsKey(row.AssemblyNumber)) areas[row.AssemblyNumber] = row.Area;
+            }
+            var list = new List<string>();
+            foreach (KeyValuePair<string, int> pair in counts)
+                list.Add(pair.Key + " (" + areas[pair.Key] + ", " + pair.Value + (pair.Value == 1 ? " part)" : " parts)"));
+            return list;
         }
 
         /// <summary>"101" for control number 10101: the assembly group. Null if it isn't a number.</summary>

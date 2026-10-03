@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Windows.Forms;
+using Microsoft.Win32;
 using SolidWorks.Interop.sldworks;
 using SolidWorks.Interop.swconst;
 using BDAT.Testing;
@@ -19,8 +20,10 @@ namespace BDAT.Commands
     ///   3. Creates a new document from SolidWorks' default part or assembly template, titled with the combined
     ///      part number (e.g. BR-10101-AA, the EBOM's "Use in 3Dx File Naming" column), so that's the name it's
     ///      saved under, and sets the Description and Part Number properties (Description in every configuration too).
-    ///
-    /// It only reads the EBOM and never saves anything: saving to 3DEXPERIENCE is still done by hand.
+    ///   4. Unless "Save to 3DEXPERIENCE" is unticked: saves it to 3DEXPERIENCE under that name (the description goes
+    ///      up with it), adds it to its assembly's folder and checks it in. Folders are bookmarks named by assembly
+    ///      number (A0704 for parts 70401 to 70499), which comes from the part's own control number, so it works even
+    ///      where the EBOM has no assembly row. Each folder is picked once and remembered (or built in, KnownFolders).
     /// </summary>
     public sealed class NewFromEbomCommand : IBdatCommand
     {
@@ -75,7 +78,8 @@ namespace BDAT.Commands
             List<EbomRow> rows = TryLoad(owner, csv);
             if (rows == null) return;
 
-            EbomRow row = Pick(owner, csv, source, rows);
+            bool saveToPlatform;
+            EbomRow row = Pick(owner, csv, source, rows, out saveToPlatform);
             if (row == null) return;
 
             swDocumentTypes_e type = row.IsAssembly ? swDocumentTypes_e.swDocASSEMBLY : swDocumentTypes_e.swDocPART;
@@ -103,18 +107,25 @@ namespace BDAT.Commands
             {
                 string description, resolved;
                 doc.Extension.get_CustomPropertyManager("").Get4(DescriptionProperty, false, out description, out resolved);
+                // Saving needs 3DEXPERIENCE, so test mode only records where it would have gone.
                 TestMode.LastNewFromEbom = new NewFromEbomTestResult
                 {
                     Number = row.Number,
                     Title = doc.GetTitle(),
                     Description = description,
                     IsAssembly = doc.GetType() == (int)swDocumentTypes_e.swDocASSEMBLY,
+                    Folder = row.AssemblyNumber,
+                    FileName = FileName(row),
                 };
+                return;
             }
+
+            if (saveToPlatform) SaveToPlatform(swApp, owner, doc, row);
         }
 
-        private static EbomRow Pick(IWin32Window owner, string csv, string source, List<EbomRow> rows)
+        private static EbomRow Pick(IWin32Window owner, string csv, string source, List<EbomRow> rows, out bool saveToPlatform)
         {
+            saveToPlatform = false;
             if (TestMode.Enabled)
             {
                 foreach (EbomRow r in rows)
@@ -124,8 +135,157 @@ namespace BDAT.Commands
 
             using (var form = new NewFromEbomForm(csv, source, rows))
             {
-                return form.ShowDialog(owner) == DialogResult.OK ? form.Selected : null;
+                if (form.ShowDialog(owner) != DialogResult.OK) return null;
+                saveToPlatform = form.SaveToPlatform;
+                return form.Selected;
             }
+        }
+
+        /// <summary>The file name it's saved under: the combined part number, e.g. BR-10101-AA.SLDPRT.</summary>
+        internal static string FileName(EbomRow row)
+        {
+            return row.Number + (row.IsAssembly ? ".SLDASM" : ".SLDPRT");
+        }
+
+        // ---------------------------------------------------------------- 3DEXPERIENCE
+
+        private const string LogName = "new-from-ebom";
+
+        /// <summary>
+        /// Saves the new document to 3DEXPERIENCE as e.g. BR-10101-AA (the Description properties go up with it), puts it
+        /// in its assembly's folder (the bookmark named by the assembly number, e.g. A0101), and checks it in.
+        /// If anything stops it, the document stays open and unsaved, and it says why.
+        /// </summary>
+        private void SaveToPlatform(ISldWorks swApp, IWin32Window owner, IModelDoc2 doc, EbomRow row)
+        {
+            string fileName = FileName(row);
+            string notSaved = "\n\n" + row.Number + " is open but not saved. Save it to 3DEXPERIENCE by hand, or close it.";
+
+            Connector connector = Connector.Find();
+            if (connector == null)
+            {
+                Ui.Tell(swApp, "Couldn't find the 3DEXPERIENCE connector in this SolidWorks session " +
+                    "(is the \"3DEXPERIENCE PLM Services\" add-in on?)." + notSaved, swMessageBoxIcon_e.swMbWarning);
+                return;
+            }
+            if (!connector.IsConnected)
+            {
+                Ui.Tell(swApp, "You're not logged in to 3DEXPERIENCE." + notSaved, swMessageBoxIcon_e.swMbWarning);
+                return;
+            }
+
+            var platform = new PlatformSave(swApp, connector, LogName);
+            string existing = platform.ExistingOnPlatform(doc, fileName);
+            if (existing != null)
+            {
+                Ui.Tell(swApp, row.Number + " is already in 3DEXPERIENCE (" + existing + "), so the new one wasn't saved.\n\n" +
+                    "Open the existing one instead, and close this new one without saving.", swMessageBoxIcon_e.swMbWarning);
+                return;
+            }
+
+            bool cancelled;
+            Bookmark folder = ResolveFolder(connector, owner, row, out cancelled);
+            if (cancelled)
+            {
+                Ui.Tell(swApp, "Nothing was saved." + notSaved, swMessageBoxIcon_e.swMbInformation);
+                return;
+            }
+
+            if (!platform.Save(doc, fileName))
+            {
+                Ui.Tell(swApp, "3DEXPERIENCE didn't save " + row.Number + ". Check the 3DEXPERIENCE task pane for details." + notSaved,
+                    swMessageBoxIcon_e.swMbStop);
+                return;
+            }
+
+            string where = folder == null ? "" : " in " + FolderLabel(row);
+            string done;
+            swMessageBoxIcon_e icon = swMessageBoxIcon_e.swMbInformation;
+            string phid = folder == null ? null : platform.WaitForPhysicalId(doc);
+            if (folder != null && string.IsNullOrEmpty(phid))
+            {
+                done = "Saved " + row.Number + " to 3DEXPERIENCE, but it didn't show up within " + PlatformSave.SaveWaitSeconds +
+                    " seconds, so it wasn't put in " + FolderLabel(row) + ".\n\nOnce the save finishes, add it by hand " +
+                    "(right-click it in 3DEXPERIENCE > Add to Bookmark).";
+                icon = swMessageBoxIcon_e.swMbWarning;
+                where = "";
+            }
+            else
+            {
+                if (folder != null) platform.AddToBookmark(folder.Id, phid);
+                done = "Saved " + row.Number + " (" + row.Name + ") to 3DEXPERIENCE" + where + " and checked it in.";
+            }
+
+            if (!platform.Unlock(doc.GetPathName()))
+            {
+                done += "\n\nIt couldn't be checked in, so it's still locked by you. Unlock it from the 3DEXPERIENCE task pane " +
+                    "(right-click it > Unlock).";
+                icon = swMessageBoxIcon_e.swMbWarning;
+            }
+            Ui.Tell(swApp, done, icon);
+        }
+
+        private static string FolderLabel(EbomRow row)
+        {
+            string name = row.IsAssembly ? row.Name : row.Parent;
+            return row.AssemblyNumber + (name.Length > 0 ? " (" + name + ")" : "");
+        }
+
+        // The team's assembly folders in 3DEXPERIENCE, by assembly number, once they exist, so nobody has to pick them:
+        // { "A0704", "<bookmark id>" }, ... Until then each person picks a folder the first time and BDAT remembers it.
+        private static readonly Dictionary<string, string> KnownFolders = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+
+        private const string FoldersKeyPath = @"Software\BDAT\EbomFolders";
+
+        /// <summary>
+        /// The bookmark for the row's assembly number: built in, remembered, or picked now (and remembered).
+        /// Null with cancelled false means save without a folder.
+        /// </summary>
+        private Bookmark ResolveFolder(Connector connector, IWin32Window owner, EbomRow row, out bool cancelled)
+        {
+            cancelled = false;
+            string number = row.AssemblyNumber;
+            string label = FolderLabel(row);
+            if (number.Length == 0) return AskNoFolder(owner, row, "It has no assembly number in the EBOM.", out cancelled);
+
+            string id;
+            if (KnownFolders.TryGetValue(number, out id)) return new Bookmark { Id = id, Title = number };
+            using (RegistryKey key = Registry.CurrentUser.OpenSubKey(FoldersKeyPath))
+            {
+                id = key == null ? null : key.GetValue(number) as string;
+                if (!string.IsNullOrEmpty(id)) return new Bookmark { Id = id, Title = number };
+            }
+
+            DialogResult go = Ui.Show(owner,
+                "Which 3DEXPERIENCE folder is " + label + "? In the next window, pick the bookmark named " + number +
+                ". BDAT remembers it for next time.\n\nIf there's no folder for it yet, cancel that window to save without one.",
+                Title, MessageBoxButtons.OKCancel, MessageBoxIcon.Information);
+            if (go != DialogResult.OK) { cancelled = true; return null; }
+
+            Bookmark picked = PlatformSave.ChooseBookmark(connector, owner, "Pick the folder for " + label);
+            if (picked == null) return AskNoFolder(owner, row, "No folder was picked.", out cancelled);
+
+            if (picked.Title.IndexOf(number, StringComparison.OrdinalIgnoreCase) < 0 &&
+                Ui.Show(owner, "You picked \"" + picked.Title + "\", not " + number + ". Use it for " + number + " from now on?",
+                    Title, MessageBoxButtons.YesNo, MessageBoxIcon.Question) != DialogResult.Yes)
+            {
+                cancelled = true;
+                return null;
+            }
+
+            using (RegistryKey key = Registry.CurrentUser.CreateSubKey(FoldersKeyPath))
+            {
+                if (key != null) key.SetValue(number, picked.Id, RegistryValueKind.String);
+            }
+            PlatformSave.Log(LogName, "folder for " + number + " = " + picked.Id + " (" + picked.Title + ")");
+            return picked;
+        }
+
+        private Bookmark AskNoFolder(IWin32Window owner, EbomRow row, string why, out bool cancelled)
+        {
+            cancelled = Ui.Show(owner, why + "\n\nSave " + row.Number + " to 3DEXPERIENCE without putting it in a folder?",
+                Title, MessageBoxButtons.YesNo, MessageBoxIcon.Question) != DialogResult.Yes;
+            return null;
         }
 
         /// <summary>Description in the file and every configuration (3DEXPERIENCE reads both); Part Number in the file.</summary>

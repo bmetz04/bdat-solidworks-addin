@@ -14,6 +14,7 @@ namespace BDAT.Commands
         private readonly Label _source;
         private readonly Label _count;
         private readonly Button _create;
+        private readonly CheckBox _save;
         private readonly Font _bold;
         private List<EbomRow> _rows;
         private string _csvPath;
@@ -58,7 +59,7 @@ namespace BDAT.Commands
             };
             _list.Columns.Add("Part #", 120);
             _list.Columns.Add("Name", 280);
-            _list.Columns.Add("In assembly", 190);
+            _list.Columns.Add("Assembly", 220);
             _list.Columns.Add("Area", 140);
             _list.Columns.Add("Class", 70);
             _list.SelectedIndexChanged += delegate { _create.Enabled = Selected != null; };
@@ -85,8 +86,10 @@ namespace BDAT.Commands
             var cancel = new Button { Text = "Cancel", DialogResult = DialogResult.Cancel, AutoSize = true };
             _create = new Button { Text = "Create", AutoSize = true, Enabled = false };
             _create.Click += delegate { if (Selected != null) DialogResult = DialogResult.OK; };
+            _save = new CheckBox { Text = "Save to 3DEXPERIENCE", AutoSize = true, Checked = true, Margin = new Padding(3, 7, 12, 3) };
             buttons.Controls.Add(cancel);
             buttons.Controls.Add(_create);
+            buttons.Controls.Add(_save);
             bottom.Controls.Add(buttons, 1, 0);
             layout.Controls.Add(bottom, 0, 3);
             layout.SetColumnSpan(bottom, 2);
@@ -101,6 +104,12 @@ namespace BDAT.Commands
         public EbomRow Selected
         {
             get { return _list.SelectedItems.Count == 0 ? null : _list.SelectedItems[0].Tag as EbomRow; }
+        }
+
+        /// <summary>Whether to save the new part to 3DEXPERIENCE straight away, in its assembly's folder.</summary>
+        public bool SaveToPlatform
+        {
+            get { return _save.Checked; }
         }
 
         protected override void Dispose(bool disposing)
@@ -136,7 +145,7 @@ namespace BDAT.Commands
             _list.Items.Clear();
             foreach (EbomRow row in found)
             {
-                var item = new ListViewItem(new[] { row.Number, row.Name, row.Parent, row.Area, row.Class }) { Tag = row };
+                var item = new ListViewItem(new[] { row.Number, row.Name, row.AssemblyText, row.Area, row.Class }) { Tag = row };
                 if (row.IsAssembly) item.Font = _bold;
                 _list.Items.Add(item);
             }

@@ -139,6 +139,10 @@ namespace BDAT.Testing
         public string Title;
         public string Description;
         public bool IsAssembly;
+        /// <summary>The 3DEXPERIENCE folder (assembly number) it would have been saved in. Test mode never saves.</summary>
+        public string Folder;
+        /// <summary>The file name it would have been saved under, e.g. BR-10101-AA.SLDPRT.</summary>
+        public string FileName;
     }
 
     /// <summary>What Save MCM would have saved, in test mode.</summary>

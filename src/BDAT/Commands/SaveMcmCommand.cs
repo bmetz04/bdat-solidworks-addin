@@ -43,9 +43,6 @@ namespace BDAT.Commands
         private const string BookmarkIdValue = "McMasterBookmarkId";
         private const string BookmarkTitleValue = "McMasterBookmarkTitle";
 
-        // How long to wait for 3DEXPERIENCE to report the saved part's id (saves can finish in the background).
-        private const int SaveWaitSeconds = 90;
-
         public bool IsEnabled(ISldWorks swApp)
         {
             IModelDoc2 doc = swApp.ActiveDoc as IModelDoc2;
@@ -85,10 +82,11 @@ namespace BDAT.Commands
             }
 
             IWin32Window owner = SolidWorksWindow(swApp);
+            var platform = new PlatformSave(swApp, connector, LogName);
             string sourceFile = SourceFileName(doc);
             string originalPath = doc.GetPathName();
 
-            if (!string.IsNullOrEmpty(originalPath) && !string.IsNullOrEmpty(PhysicalId(connector, originalPath)))
+            if (!string.IsNullOrEmpty(originalPath) && !string.IsNullOrEmpty(platform.PhysicalId(originalPath)))
             {
                 DialogResult again = MessageBox.Show(owner,
                     "\"" + sourceFile + "\" is already in 3DEXPERIENCE.\n\nSave it as a new part anyway?",
@@ -109,7 +107,7 @@ namespace BDAT.Commands
                 description = form.Description;
             }
 
-            string existing = ExistingOnPlatform(connector, doc, name);
+            string existing = platform.ExistingOnPlatform(doc, name + ".SLDPRT");
             if (existing != null)
             {
                 Tell(swApp, "\"" + name + "\" is already in 3DEXPERIENCE (" + existing + ").\n\n" +
@@ -126,22 +124,8 @@ namespace BDAT.Commands
             string freezeProblem = IsometricAndFreeze(swApp, doc);
 
             // 6. Save under the new name, then bookmark it.
-            bool saved = SaveWithoutDialog(swApp, connector, doc, name);
-            if (!saved)
-            {
-                // Fallback: the connector's own Save to 3DEXPERIENCE window (it pre-selects the bookmark).
-                Log("falling back to SaveNoOption for " + name);
-                object saver = connector.Manager("Save");
-                IntPtr unknown = Marshal.GetIUnknownForObject(doc);
-                try
-                {
-                    saved = (bool)connector.Call(saver, "IEnoSwSave", "SaveNoOption", unknown, name);
-                }
-                finally
-                {
-                    Marshal.Release(unknown);
-                }
-            }
+            // (If it can't save without a window it falls back to the connector's own, which pre-selects the bookmark.)
+            bool saved = platform.Save(doc, name + ".SLDPRT");
             if (!saved)
             {
                 Tell(swApp, "3DEXPERIENCE didn't save \"" + name + "\". Check the 3DEXPERIENCE task pane for details.\n\n" +
@@ -150,24 +134,22 @@ namespace BDAT.Commands
                 return;
             }
 
-            string phid = WaitForPhysicalId(connector, doc);
+            string phid = platform.WaitForPhysicalId(doc);
             if (string.IsNullOrEmpty(phid))
             {
-                Tell(swApp, "\"" + name + "\" was sent to 3DEXPERIENCE, but it didn't show up within " + SaveWaitSeconds +
+                Tell(swApp, "\"" + name + "\" was sent to 3DEXPERIENCE, but it didn't show up within " + PlatformSave.SaveWaitSeconds +
                     " seconds, so it wasn't added to " + bookmark.Title + ".\n\n" +
                     "Once the save finishes, add it to the bookmark by hand (right-click it in 3DEXPERIENCE > Add to Bookmark).",
                     swMessageBoxIcon_e.swMbWarning);
                 return;
             }
 
-            object authoring = connector.Manager("Authoring");
-            object result = connector.Call(authoring, "IEnoSwAuthoring", "AddToBookmark", bookmark.Id, new[] { phid });
-            Log("AddToBookmark(" + bookmark.Id + ", " + phid + ") returned " + result);
+            platform.AddToBookmark(bookmark.Id, phid);
 
             // 7. Check in: unlock the part so it isn't left reserved by you.
             string done = "Saved \"" + name + "\" to 3DEXPERIENCE in " + DestinationPath + bookmark.Title + " and checked it in.";
             swMessageBoxIcon_e icon = swMessageBoxIcon_e.swMbInformation;
-            if (!Unlock(connector, doc.GetPathName()))
+            if (!platform.Unlock(doc.GetPathName()))
             {
                 done = "Saved \"" + name + "\" to 3DEXPERIENCE in " + DestinationPath + bookmark.Title +
                     ", but couldn't check it in, so it's still locked by you.\n\n" +
@@ -259,30 +241,6 @@ namespace BDAT.Commands
             }
         }
 
-        /// <summary>Releases your lock on the saved file. True if it's unlocked afterwards (or was never locked).</summary>
-        private static bool Unlock(Connector connector, string path)
-        {
-            if (string.IsNullOrEmpty(path)) { Log("check-in: the part has no file path"); return false; }
-            try
-            {
-                object cache = connector.Manager("FileCache");
-                object before = connector.Call(cache, "IEnoSwFileCache7", "GetLockStatus", path);
-                Log("check-in: lock status before " + before);
-                if (before != null && before.ToString() == "notLocked") { Log("check-in: already unlocked"); return true; }
-
-                object commands = connector.Manager("UiCommands");
-                bool ok = (bool)connector.Call(commands, "IEnoSwUiCommands", "UnreserveFiles", (object)new[] { path });
-                object after = connector.Call(cache, "IEnoSwFileCache7", "GetLockStatus", path);
-                Log("check-in: UnreserveFiles returned " + ok + ", lock status after " + after);
-                return ok && (after == null || after.ToString() != "lockedByMe");
-            }
-            catch (Exception ex)
-            {
-                Log("check-in failed: " + ex.Message);
-                return false;
-            }
-        }
-
         /// <summary>The McMaster part number: "91251A537_Socket Head Screw" -> "91251A537".</summary>
         internal static string DefaultName(string fileName)
         {
@@ -331,130 +289,6 @@ namespace BDAT.Commands
             }
         }
 
-        /// <summary>
-        /// Saves the part as "name.SLDPRT" in the 3DEXPERIENCE work folder, then has the connector upload that file
-        /// with no Save to 3DEXPERIENCE window. Returns false, having changed nothing, if it can't get that far,
-        /// so the caller can fall back to the connector's window. If the upload itself fails, it shows the
-        /// connector's window for the same file instead.
-        /// </summary>
-        private static bool SaveWithoutDialog(ISldWorks swApp, Connector connector, IModelDoc2 doc, string name)
-        {
-            string path;
-            try
-            {
-                string workFolder = connector.Call(connector.Manager("Open"), "IEnoSwOpen3", "GetWorkFolder") as string;
-                if (string.IsNullOrEmpty(workFolder) || !Directory.Exists(workFolder)) { Log("no work folder: " + workFolder); return false; }
-
-                path = Path.Combine(workFolder, name + ".SLDPRT");
-                bool alreadyThere = string.Equals(doc.GetPathName(), path, StringComparison.OrdinalIgnoreCase);
-                if (!alreadyThere && File.Exists(path))
-                {
-                    // A leftover local copy, e.g. the part was deleted from 3DEXPERIENCE but not from the work folder.
-                    // Only overwrite it if it isn't on the platform and isn't open in SolidWorks.
-                    if (!string.IsNullOrEmpty(PhysicalId(connector, path))) { Log("already on the platform: " + path); return false; }
-                    if (swApp.GetOpenDocumentByName(path) != null) { Log("work folder copy is open: " + path); return false; }
-                    Log("overwriting leftover work folder copy: " + path);
-                }
-
-                if (!alreadyThere)
-                {
-                    Log("saving local copy: " + path);
-                    int errors = 0, warnings = 0;
-                    bool local = doc.Extension.SaveAs3(path, (int)swSaveAsVersion_e.swSaveAsCurrentVersion,
-                        (int)swSaveAsOptions_e.swSaveAsOptions_Silent, null, null, ref errors, ref warnings);
-                    if (!local || !File.Exists(path)) { Log("local save failed, error " + errors); return false; }
-                }
-            }
-            catch (Exception ex)
-            {
-                Log("local save failed: " + ex.Message);
-                return false;
-            }
-
-            Log("local copy saved, uploading with SaveAPI");
-            try
-            {
-                if (UploadWithSaveApi(connector, path)) { Log("saved without dialog: " + path); return true; }
-            }
-            catch (Exception ex)
-            {
-                Log("SaveAPI failed: " + ex.Message);
-            }
-
-            object saver = connector.Manager("Save");
-            Log("showing the connector window for " + path);
-            return (bool)connector.Call(saver, "IEnoSwSave5", "SaveFile", path, true);
-        }
-
-        /// <summary>
-        /// The connector's scripting save (IEnoSwSaveAPI): Prepare then Commit, JSON in and out, no window.
-        /// Input is {"version":"1.0","scope":[{"file":"path"}]}; each reply has "status":"OK" or "ERROR" and "errInfo".
-        /// </summary>
-        private static bool UploadWithSaveApi(Connector connector, string path)
-        {
-            object api = connector.Manager("SaveAPI");
-            string file = path.Replace("\\", "\\\\").Replace("\"", "\\\"");
-
-            string prepared = connector.Call(api, "IEnoSwSaveAPI", "Prepare",
-                "{\"version\":\"1.0\",\"scope\":[{\"file\":\"" + file + "\"}]}") as string;
-            Log("SaveAPI Prepare: " + prepared);
-            if (prepared == null || prepared.IndexOf("\"OK\"", StringComparison.Ordinal) < 0) return false;
-
-            string committed = connector.Call(api, "IEnoSwSaveAPI", "Commit", "{\"version\":\"1.0\"}") as string;
-            Log("SaveAPI Commit: " + committed);
-            return committed != null && committed.IndexOf("\"OK\"", StringComparison.Ordinal) >= 0;
-        }
-
-        /// <summary>The work-folder path of "name.SLDPRT" if a part by that name is already on the platform, otherwise null.</summary>
-        private static string ExistingOnPlatform(Connector connector, IModelDoc2 doc, string name)
-        {
-            try
-            {
-                string workFolder = connector.Call(connector.Manager("Open"), "IEnoSwOpen3", "GetWorkFolder") as string;
-                if (string.IsNullOrEmpty(workFolder)) return null;
-                string path = Path.Combine(workFolder, name + ".SLDPRT");
-                if (string.Equals(doc.GetPathName(), path, StringComparison.OrdinalIgnoreCase)) return null;
-                return File.Exists(path) && !string.IsNullOrEmpty(PhysicalId(connector, path)) ? path : null;
-            }
-            catch
-            {
-                return null;
-            }
-        }
-
-        private static string PhysicalId(Connector connector, string path)
-        {
-            try
-            {
-                return connector.Call(connector.Manager("FileCache"), "IEnoSwFileCache", "GetFilePhysicalId", path) as string;
-            }
-            catch
-            {
-                return null;
-            }
-        }
-
-        private static string WaitForPhysicalId(Connector connector, IModelDoc2 doc)
-        {
-            DateTime giveUp = DateTime.Now.AddSeconds(SaveWaitSeconds);
-            while (true)
-            {
-                string path = doc.GetPathName();
-                string phid = string.IsNullOrEmpty(path) ? null : PhysicalId(connector, path);
-                if (string.IsNullOrEmpty(phid)) phid = doc.Extension.GetPLMID();
-                if (!string.IsNullOrEmpty(phid)) return phid;
-                if (DateTime.Now > giveUp) return null;
-                Application.DoEvents();
-                Thread.Sleep(1000);
-            }
-        }
-
-        private sealed class Bookmark
-        {
-            public string Id;
-            public string Title;
-        }
-
         /// <summary>The McMaster Carr bookmark: built in, remembered, or picked once.</summary>
         private Bookmark ResolveBookmark(Connector connector, ISldWorks swApp, IWin32Window owner)
         {
@@ -472,18 +306,8 @@ namespace BDAT.Commands
                 "In the next window, open Formula UBC Racing > Vendor CAD, select McMaster Carr and click Select.",
                 Title, MessageBoxButtons.OK, MessageBoxIcon.Information);
 
-            object chooser = connector.Manager("BookmarkChooser");
-            connector.Set(chooser, "IEnoSwBookmarkChooser", "DialogTitle", "Pick the McMaster Carr bookmark");
-            connector.Set(chooser, "IEnoSwBookmarkChooser", "ShowCancelButton", true);
-            connector.Set(chooser, "IEnoSwBookmarkChooser", "ShowSelectButton", true);
-            connector.Call(chooser, "IEnoSwBookmarkChooser2", "ShowDialog2", owner.Handle);
-
-            var picked = new Bookmark
-            {
-                Id = connector.Get(chooser, "IEnoSwBookmarkChooser", "SelectedBookmarkId") as string,
-                Title = connector.Get(chooser, "IEnoSwBookmarkChooser", "SelectedBookmarkTitle") as string,
-            };
-            if (string.IsNullOrEmpty(picked.Id)) return null;
+            Bookmark picked = PlatformSave.ChooseBookmark(connector, owner, "Pick the McMaster Carr bookmark");
+            if (picked == null) return null;
             if (string.IsNullOrEmpty(picked.Title)) picked.Title = BookmarkTitle;
 
             if (!string.Equals(picked.Title, BookmarkTitle, StringComparison.OrdinalIgnoreCase) &&
@@ -516,20 +340,12 @@ namespace BDAT.Commands
             public IntPtr Handle { get { return _handle; } }
         }
 
+        private const string LogName = "save-mcm";
+
         /// <summary>Appends a line to %TEMP%\BDAT\save-mcm.log, so a failed save can be diagnosed afterwards.</summary>
         private static void Log(string message)
         {
-            try
-            {
-                string dir = Path.Combine(Path.GetTempPath(), "BDAT");
-                Directory.CreateDirectory(dir);
-                // Test runs get their own log so they never show up as a real save.
-                File.AppendAllText(Path.Combine(dir, TestMode.Enabled ? "save-mcm-tests.log" : "save-mcm.log"), DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss") + "  " + message + System.Environment.NewLine);
-            }
-            catch
-            {
-                // Logging must never break the save.
-            }
+            PlatformSave.Log(LogName, message);
         }
 
         private static void Tell(ISldWorks swApp, string message, swMessageBoxIcon_e icon)
