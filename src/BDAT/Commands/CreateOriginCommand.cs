@@ -13,7 +13,8 @@ namespace BDAT.Commands
     /// Create Origin: type a point, get a new origin there, so a part or sub-assembly can be origin-mated in the top
     /// level. Works in parts and assemblies. (SolidWorks can't move the real origin, so this is the next best thing.)
     ///
-    /// It uses SolidWorks' own X, Y and Z, the same ones a 3D sketch point's coordinates are measured along.
+    /// It uses SolidWorks' own X, Y and Z, the same ones a 3D sketch point's coordinates are measured along. FUBC models
+    /// the car the SolidWorks way (Ben, 2026-10-03): Z forward (the Front view looks at the nose), Y up, X to the car's left.
     ///
     ///   1. A pop-up asks for X, Y and Z, in mm unless another unit is picked (it also shows
     ///      the document's units), or with a unit typed after the number, e.g. "2 in".
@@ -28,7 +29,7 @@ namespace BDAT.Commands
     {
         public string Title { get { return "Create Origin"; } }
 
-        public string Hint { get { return "Make a new origin (Origin' coordinate system lined up with the part's X, Y, Z, plus X', Y', Z' planes) at a point you type in"; } }
+        public string Hint { get { return "Make a new origin (Origin' coordinate system lined up with the part's X (left), Y (up), Z (forward), plus X', Y', Z' planes) at a point you type in"; } }
 
         /// <summary>
         /// Origin''s X, Y and Z as SolidWorks directions: the part's own X, Y and Z, the same ones a 3D sketch point's

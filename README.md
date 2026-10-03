@@ -29,7 +29,7 @@ It uses the API of the "3DEXPERIENCE PLM Services" connector add-in (see `Connec
 ### Create Origin
 Makes a new origin at a point you type in, so a part or sub-assembly can be origin-mated in the top-level assembly. Works in parts and assemblies (it's on the BDAT tab in both). SolidWorks can't move the real origin, so this adds the next best thing.
 
-It uses SolidWorks' own **X, Y and Z**, the same ones a 3D sketch point's coordinates are measured along (X normal to Right, Y normal to Top, Z normal to Front), so numbers copied from a 3D sketch land where you expect.
+It uses SolidWorks' own **X, Y and Z**, the same ones a 3D sketch point's coordinates are measured along (X normal to Right, Y normal to Top, Z normal to Front), so numbers copied from a 3D sketch land where you expect. FUBC models the car the SolidWorks way: Z forward (the Front view looks at the nose), Y up and X to the car's left, and the pop-up labels them that way.
 
 1. A pop-up asks for **X**, **Y** and **Z**. They're in **mm** unless you pick another unit in the pop-up, which also says what units the document is in. You can also type a unit after a number (`2 in`, `50 mm`). An empty box is 0.
 2. It makes the coordinate system **Origin'** at that point, placed by numbers (its X, Y, Z), with its axes along the part's X, Y and Z.
