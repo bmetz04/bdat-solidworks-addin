@@ -16,9 +16,10 @@ namespace BDAT.Commands
     ///
     /// Steps:
     ///   1. Find the 3DEXPERIENCE connector and make sure you're logged in.
-    ///   2. Work out which bookmark is "McMaster Carr". The first time, you pick it once and BDAT remembers it.
-    ///   3. Show a pop-up to confirm. For "91251A537_Socket Head Screw" the name is filled in with the part number
+    ///   2. Show a pop-up to confirm. For "91251A537_Socket Head Screw" the name is filled in with the part number
     ///      before the first underscore ("91251A537") and the description with the rest ("Socket Head Screw").
+    ///   3. Confirm the folder, the same way New from EBOM does: "Save 91251A537 in McMaster Carr?". Yes uses the
+    ///      known McMaster Carr bookmark, No (or no known bookmark) opens the picker and remembers the pick.
     ///   4. Put the description in the part's "Description" custom property, file-level (CAD Family) and on every
     ///      configuration (Physical Product).
     ///   5. Set the view to isometric (that becomes the 3DEXPERIENCE thumbnail) and freeze the whole feature tree.
@@ -35,8 +36,8 @@ namespace BDAT.Commands
         private const string BookmarkTitle = "McMaster Carr";
         private const string DescriptionProperty = "Description";
 
-        // Formula UBC Racing > Vendor CAD > McMaster Carr, so nobody on the team has to pick it.
-        // Set this to "" to make everyone pick the bookmark once instead (remembered in the registry).
+        // Formula UBC Racing > Vendor CAD > McMaster Carr, so nobody on the team has to pick it. A folder picked with
+        // "No" at the confirm is remembered in the registry and wins over this. "" makes everyone pick it once.
         private const string KnownBookmarkId = "31D68EF2C00003006ABDD66A000060EA";
 
         private const string UserKeyPath = @"Software\BDAT";
@@ -94,13 +95,11 @@ namespace BDAT.Commands
                 if (again != DialogResult.Yes) return;
             }
 
-            // 2. Bookmark.
-            Bookmark bookmark = ResolveBookmark(connector, swApp, owner);
-            if (bookmark == null) return;
-
-            // 3. Confirm, name and description.
+            // 2. Confirm, name and description.
+            Bookmark known = KnownBookmark();
             string name, description;
-            using (var form = new SaveMcmForm(sourceFile, DefaultName(sourceFile), DefaultDescription(sourceFile), DestinationPath + bookmark.Title))
+            using (var form = new SaveMcmForm(sourceFile, DefaultName(sourceFile), DefaultDescription(sourceFile),
+                DestinationPath + (known == null ? BookmarkTitle : known.Title)))
             {
                 if (form.ShowDialog(owner) != DialogResult.OK) return;
                 name = form.PartName;
@@ -113,6 +112,14 @@ namespace BDAT.Commands
                 Tell(swApp, "\"" + name + "\" is already in 3DEXPERIENCE (" + existing + ").\n\n" +
                     "Nothing was saved. Use the existing part, or delete it from 3DEXPERIENCE first.",
                     swMessageBoxIcon_e.swMbWarning);
+                return;
+            }
+
+            // 3. Folder: "Save 91251A537 in McMaster Carr?" Yes, or No to pick another.
+            Bookmark bookmark = ConfirmFolder(connector, owner, name, known);
+            if (bookmark == null)
+            {
+                Tell(swApp, "Nothing was saved.", swMessageBoxIcon_e.swMbInformation);
                 return;
             }
 
@@ -144,7 +151,23 @@ namespace BDAT.Commands
                 return;
             }
 
-            platform.AddToBookmark(bookmark.Id, phid);
+            // A bookmark that was deleted or moved (a stale id) doesn't take the part: pick McMaster Carr again and retry.
+            if (!PlatformSave.AddedToBookmark(platform.AddToBookmark(bookmark.Id, phid)))
+            {
+                Bookmark repicked = null;
+                if (Ui.Show(owner, "\"" + name + "\" was saved, but BDAT couldn't put it in " + bookmark.Title +
+                        " (the folder may have been deleted or moved).\n\nPick the McMaster Carr folder now?",
+                        Title, MessageBoxButtons.YesNo, MessageBoxIcon.Warning) == DialogResult.Yes)
+                    repicked = PickFolder(connector, owner);
+                if (repicked == null || !PlatformSave.AddedToBookmark(platform.AddToBookmark(repicked.Id, phid)))
+                {
+                    Tell(swApp, "\"" + name + "\" was saved to 3DEXPERIENCE but isn't in a McMaster Carr folder.\n\n" +
+                        "Add it by hand (right-click it in 3DEXPERIENCE > Add to Bookmark), then unlock it.",
+                        swMessageBoxIcon_e.swMbWarning);
+                    return;
+                }
+                bookmark = repicked;
+            }
 
             // 7. Check in: unlock the part so it isn't left reserved by you.
             string done = "Saved \"" + name + "\" to 3DEXPERIENCE in " + DestinationPath + bookmark.Title + " and checked it in.";
@@ -184,12 +207,20 @@ namespace BDAT.Commands
                 Ui.Show(null, SaveMcmForm.EmptyDescriptionQuestion, Title, MessageBoxButtons.YesNo, MessageBoxIcon.Question) != DialogResult.Yes)
                 return;
 
+            // The folder confirm, answered from TestMode.Answers. No would open the picker, which needs 3DEXPERIENCE.
+            Bookmark known = KnownBookmark();
+            if (known == null || Ui.Show(null, FolderQuestion(name, known), Title, MessageBoxButtons.YesNoCancel, MessageBoxIcon.Question) != DialogResult.Yes)
+            {
+                Ui.Tell(swApp, "Test mode: the McMaster Carr folder picker needs 3DEXPERIENCE, so it isn't opened.", swMessageBoxIcon_e.swMbInformation);
+                return;
+            }
+
             var result = new SaveMcmTestResult
             {
                 SourceFile = sourceFile,
                 Name = name,
                 Description = description,
-                Destination = DestinationPath + BookmarkTitle,
+                Destination = DestinationPath + known.Title,
             };
             if (description.Length > 0)
             {
@@ -289,30 +320,61 @@ namespace BDAT.Commands
             }
         }
 
-        /// <summary>The McMaster Carr bookmark: built in, remembered, or picked once.</summary>
-        private Bookmark ResolveBookmark(Connector connector, ISldWorks swApp, IWin32Window owner)
+        /// <summary>The McMaster Carr bookmark: one picked on this PC, else the built-in one. Null if neither.</summary>
+        internal static Bookmark KnownBookmark()
         {
-            if (KnownBookmarkId.Length > 0) return new Bookmark { Id = KnownBookmarkId, Title = BookmarkTitle };
-
-            using (RegistryKey key = Registry.CurrentUser.OpenSubKey(UserKeyPath))
+            try
             {
-                string id = key == null ? null : key.GetValue(BookmarkIdValue) as string;
-                string title = key == null ? null : key.GetValue(BookmarkTitleValue) as string;
-                if (!string.IsNullOrEmpty(id)) return new Bookmark { Id = id, Title = string.IsNullOrEmpty(title) ? BookmarkTitle : title };
+                using (RegistryKey key = Registry.CurrentUser.OpenSubKey(UserKeyPath))
+                {
+                    string id = key == null ? null : key.GetValue(BookmarkIdValue) as string;
+                    string title = key == null ? null : key.GetValue(BookmarkTitleValue) as string;
+                    if (!string.IsNullOrEmpty(id)) return new Bookmark { Id = id, Title = string.IsNullOrEmpty(title) ? BookmarkTitle : title };
+                }
             }
+            catch (Exception)
+            {
+                // Nothing picked on this PC.
+            }
+            return KnownBookmarkId.Length > 0 ? new Bookmark { Id = KnownBookmarkId, Title = BookmarkTitle } : null;
+        }
 
-            MessageBox.Show(owner,
-                "BDAT needs to know which 3DEXPERIENCE bookmark is McMaster Carr. You only do this once.\n\n" +
-                "In the next window, open Formula UBC Racing > Vendor CAD, select McMaster Carr and click Select.",
-                Title, MessageBoxButtons.OK, MessageBoxIcon.Information);
+        internal static string FolderQuestion(string name, Bookmark folder)
+        {
+            return "Save " + name + " in " + folder.Title + "?\n\nNo picks a different folder.";
+        }
 
-            Bookmark picked = PlatformSave.ChooseBookmark(connector, owner, "Pick the McMaster Carr bookmark");
+        /// <summary>
+        /// Like New from EBOM: a known folder is confirmed with "Save 91251A537 in McMaster Carr?" (Yes uses it, No opens
+        /// the picker); with no known folder the picker opens straight away. Null if cancelled.
+        /// </summary>
+        private Bookmark ConfirmFolder(Connector connector, IWin32Window owner, string name, Bookmark known)
+        {
+            if (known != null)
+            {
+                DialogResult use = Ui.Show(owner, FolderQuestion(name, known), Title, MessageBoxButtons.YesNoCancel, MessageBoxIcon.Question);
+                if (use == DialogResult.Yes) return known;
+                if (use != DialogResult.No) return null;
+            }
+            else if (Ui.Show(owner,
+                "Which 3DEXPERIENCE folder is McMaster Carr? In the next window, open Formula UBC Racing > Vendor CAD and pick " +
+                "McMaster Carr. BDAT remembers it.", Title, MessageBoxButtons.OKCancel, MessageBoxIcon.Information) != DialogResult.OK)
+            {
+                return null;
+            }
+            return PickFolder(connector, owner);
+        }
+
+        /// <summary>The picker titled "Pick McMaster Carr", with the New from EBOM name check. Remembers the pick. Null if cancelled.</summary>
+        private Bookmark PickFolder(Connector connector, IWin32Window owner)
+        {
+            Bookmark picked = PlatformSave.ChooseBookmark(connector, owner, "Pick " + BookmarkTitle);
             if (picked == null) return null;
-            if (string.IsNullOrEmpty(picked.Title)) picked.Title = BookmarkTitle;
+            if (picked.Title.Length == 0) picked.Title = BookmarkTitle;
 
-            if (!string.Equals(picked.Title, BookmarkTitle, StringComparison.OrdinalIgnoreCase) &&
-                MessageBox.Show(owner, "You picked \"" + picked.Title + "\", not \"" + BookmarkTitle + "\". Use it anyway?",
-                    Title, MessageBoxButtons.YesNo, MessageBoxIcon.Question) != DialogResult.Yes)
+            if (!IsMcMasterFolder(picked.Title) &&
+                Ui.Show(owner, "You picked \"" + picked.Title + "\", which isn't named " + BookmarkTitle + ". Use it for McMaster parts from now on?",
+                    Title, MessageBoxButtons.YesNo, MessageBoxIcon.Warning) != DialogResult.Yes)
                 return null;
 
             using (RegistryKey key = Registry.CurrentUser.CreateSubKey(UserKeyPath))
@@ -323,8 +385,14 @@ namespace BDAT.Commands
                     key.SetValue(BookmarkTitleValue, picked.Title, RegistryValueKind.String);
                 }
             }
-            Log("McMaster Carr bookmark id = " + picked.Id);
+            Log("McMaster Carr folder = " + picked.Id + " (" + picked.Title + ")");
             return picked;
+        }
+
+        /// <summary>True if a bookmark title names the McMaster Carr folder, in any case ("Mcmaster Carr" counts).</summary>
+        internal static bool IsMcMasterFolder(string title)
+        {
+            return EbomFolders.TitleMatches(title, BookmarkTitle);
         }
 
         private static IWin32Window SolidWorksWindow(ISldWorks swApp)

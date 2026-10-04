@@ -384,6 +384,24 @@ namespace BdatTests
                 Check(NewFromEbomCommand.IsPublishingPc, "BDAT running from the repo counts as the publishing PC (Set up folders shows)");
             });
 
+            Test("Save MCM folder: confirm question, name check and bookmark reply", delegate
+            {
+                Check(SaveMcmCommand.IsMcMasterFolder("McMaster Carr"), "McMaster Carr");
+                Check(SaveMcmCommand.IsMcMasterFolder("Mcmaster Carr"), "Mcmaster Carr (any case)");
+                Check(!SaveMcmCommand.IsMcMasterFolder("Vendor CAD"), "another folder isn't McMaster Carr");
+                Check(!SaveMcmCommand.IsMcMasterFolder("McMaster Carrots"), "whole words only");
+
+                Bookmark known = new Bookmark { Id = "X", Title = "McMaster Carr" };
+                Check(SaveMcmCommand.FolderQuestion("91251A540", known).StartsWith("Save 91251A540 in McMaster Carr?"),
+                    "the confirm reads \"Save <name> in McMaster Carr?\"");
+                Check(SaveMcmCommand.KnownBookmark() != null, "there's always a McMaster Carr folder to confirm (built in or picked)");
+
+                Check(PlatformSave.AddedToBookmark("{\"status\":\"success\",\"objectsAdded\":1,\"objectsAlreadyPresent\":0}"), "success reply");
+                Check(PlatformSave.AddedToBookmark("{\"status\": \"success\",\"objectsAdded\":0,\"objectsAlreadyPresent\":1}"), "already in it counts");
+                Check(!PlatformSave.AddedToBookmark("{\"status\":\"error\",\"errInfo\":\"Bookmark folder was not found\"}"), "a deleted bookmark is refused");
+                Check(!PlatformSave.AddedToBookmark(null), "no reply is refused");
+            });
+
             Test("Create Origin reads coordinates", delegate
             {
                 CreateOriginCommand.LengthUnit mm = CreateOriginCommand.Millimetres;
@@ -610,6 +628,10 @@ namespace BdatTests
                     });
                     Test("Save MCM: refuses a bad name", delegate { SaveMcmRefusedTest(swApp, samples.Threaded, "bad/name", "x", null); });
                     Test("Save MCM: empty description, answer No stops", delegate { SaveMcmRefusedTest(swApp, samples.Threaded, null, "", false); });
+                    Test("Save MCM: answering No at \"Save in McMaster Carr?\" stops without the picker", delegate
+                    {
+                        SaveMcmRefusedTest(swApp, samples.Threaded, null, null, false);
+                    });
                     Test("Save MCM: empty description, answer Yes saves without one", delegate
                     {
                         TestMode.Answers.Enqueue(true);
@@ -1103,7 +1125,7 @@ namespace BdatTests
                 Check(r != null, "Save MCM stopped early: " + string.Join(" | ", TestMode.Messages.ToArray()));
                 Equal(expectedName, r.Name, "name");
                 Equal(expectedDescription, r.Description, "description");
-                Check(r.Destination.EndsWith("McMaster Carr"), "destination should be the McMaster Carr bookmark, got " + r.Destination);
+                Check(r.Destination.EndsWith("McMaster Carr", StringComparison.OrdinalIgnoreCase), "destination should be the McMaster Carr bookmark, got " + r.Destination);
 
                 // Steps: the local ones ran, the platform ones (including check-in) were skipped.
                 List<string> steps = StepsOf(r);

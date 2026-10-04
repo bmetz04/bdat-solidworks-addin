@@ -178,11 +178,30 @@ namespace BDAT
             }
         }
 
-        public void AddToBookmark(string bookmarkId, string physicalId)
+        /// <summary>Adds the document to the bookmark. Returns the connector's reply (JSON), or null if it threw.</summary>
+        public string AddToBookmark(string bookmarkId, string physicalId)
         {
-            object authoring = _connector.Manager("Authoring");
-            object result = _connector.Call(authoring, "IEnoSwAuthoring", "AddToBookmark", bookmarkId, new[] { physicalId });
-            Log("AddToBookmark(" + bookmarkId + ", " + physicalId + ") returned " + result);
+            try
+            {
+                object authoring = _connector.Manager("Authoring");
+                object result = _connector.Call(authoring, "IEnoSwAuthoring", "AddToBookmark", bookmarkId, new[] { physicalId });
+                Log("AddToBookmark(" + bookmarkId + ", " + physicalId + ") returned " + result);
+                return result == null ? null : result.ToString();
+            }
+            catch (Exception ex)
+            {
+                Log("AddToBookmark(" + bookmarkId + ", " + physicalId + ") failed: " + ex.Message);
+                return null;
+            }
+        }
+
+        /// <summary>
+        /// True if an AddToBookmark reply says the document is in the bookmark, e.g.
+        /// {"status":"success","objectsAdded":1,...}. False for an error reply, e.g. a bookmark that was deleted.
+        /// </summary>
+        public static bool AddedToBookmark(string reply)
+        {
+            return reply != null && reply.Replace(" ", "").IndexOf("\"status\":\"success\"", StringComparison.OrdinalIgnoreCase) >= 0;
         }
 
         /// <summary>Check in: releases your lock on the saved file. True if it's unlocked afterwards (or was never locked).</summary>
