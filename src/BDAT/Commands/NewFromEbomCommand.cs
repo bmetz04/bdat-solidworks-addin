@@ -213,8 +213,15 @@ namespace BDAT.Commands
             }
             else
             {
-                if (folder != null) platform.AddToBookmark(folder.Id, phid);
-                done = "Saved " + row.Number + " (" + row.Name + ") to 3DEXPERIENCE" + where + " and checked it in.";
+                string refused = folder == null ? null : platform.AddToBookmark(folder.Id, phid);
+                if (refused != null)
+                {
+                    done = "Saved " + row.Number + " (" + row.Name + ") to 3DEXPERIENCE and checked it in, but it couldn't be put in " +
+                        FolderLabel(row) + ":\n\n" + refused + PlatformSave.BookmarkAdvice(refused);
+                    icon = swMessageBoxIcon_e.swMbWarning;
+                }
+                else
+                    done = "Saved " + row.Number + " (" + row.Name + ") to 3DEXPERIENCE" + where + " and checked it in.";
             }
 
             if (!platform.Unlock(doc.GetPathName()))

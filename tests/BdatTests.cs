@@ -381,6 +381,13 @@ namespace BdatTests
                 // The harness runs from tests\bin, two folders below the repo.
                 string teamFile = Path.GetFullPath(Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "..", "..", "release", "ebom-folders.csv"));
                 Check(File.Exists(teamFile) && EbomFolders.Parse(File.ReadAllText(teamFile)) != null, "the team list in the repo can be read");
+                // AddToBookmark's replies (the failure is the one 3DEXPERIENCE gave on 2026-10-03).
+                Check(PlatformSave.BookmarkError("{\"status\":\"success\",\"objectsAdded\":1,\"objectsAlreadyPresent\":0}") == null, "success is no error");
+                Equal("You do not have security context to change the content of this Bookmark Folder.",
+                    PlatformSave.BookmarkError("{\"status\":\"failure\",\"error\":\"You do not have security context to change the content of this Bookmark Folder.\"}"),
+                    "a refused AddToBookmark is reported, with 3DEXPERIENCE's reason");
+                Check(PlatformSave.BookmarkError(null) != null, "no reply is an error");
+                Check(PlatformSave.BookmarkAdvice("You do not have security context to change it").Contains("collaborative space"), "security context advice");
                 Check(NewFromEbomCommand.IsPublishingPc, "BDAT running from the repo counts as the publishing PC (Set up folders shows)");
             });
 

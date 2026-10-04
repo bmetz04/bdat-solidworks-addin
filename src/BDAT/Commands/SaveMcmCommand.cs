@@ -144,15 +144,20 @@ namespace BDAT.Commands
                 return;
             }
 
-            platform.AddToBookmark(bookmark.Id, phid);
+            string refused = platform.AddToBookmark(bookmark.Id, phid);
 
             // 7. Check in: unlock the part so it isn't left reserved by you.
             string done = "Saved \"" + name + "\" to 3DEXPERIENCE in " + DestinationPath + bookmark.Title + " and checked it in.";
             swMessageBoxIcon_e icon = swMessageBoxIcon_e.swMbInformation;
+            if (refused != null)
+            {
+                done = "Saved \"" + name + "\" to 3DEXPERIENCE and checked it in, but it couldn't be put in " + DestinationPath +
+                    bookmark.Title + ":\n\n" + refused + PlatformSave.BookmarkAdvice(refused);
+                icon = swMessageBoxIcon_e.swMbWarning;
+            }
             if (!platform.Unlock(doc.GetPathName()))
             {
-                done = "Saved \"" + name + "\" to 3DEXPERIENCE in " + DestinationPath + bookmark.Title +
-                    ", but couldn't check it in, so it's still locked by you.\n\n" +
+                done += "\n\nIt couldn't be checked in, so it's still locked by you. " +
                     "Unlock it from the 3DEXPERIENCE task pane (right-click it > Unlock).";
                 icon = swMessageBoxIcon_e.swMbWarning;
             }
