@@ -29,7 +29,7 @@ namespace BDAT
 
         // Bump this whenever commands are added, removed or reordered so SolidWorks
         // rebuilds the toolbar instead of reusing its cached copy.
-        private const int CommandGroupVersion = 7;
+        private const int CommandGroupVersion = 8;
 
         private ISldWorks _swApp;
         private ICommandManager _cmdMgr;
@@ -40,10 +40,10 @@ namespace BDAT
         {
             new CommandEntry(new MurderPartCommand(), "OnMurderPart", "CanMurderPart"),
             new CommandEntry(new SaveMcmCommand(), "OnSaveMcm", "CanSaveMcm"),
-            new CommandEntry(new CreateOriginCommand(), "OnCreateOrigin", "CanCreateOrigin", true),
-            new CommandEntry(new NewFromEbomCommand(), "OnNewFromEbom", "CanNewFromEbom", true),
-            new CommandEntry(new UpdateCommand(), "OnUpdate", "CanUpdate", true),
-            new CommandEntry(new VersionCommand(), "OnVersion", "CanVersion", true),
+            new CommandEntry(new CreateOriginCommand(), "OnCreateOrigin", "CanCreateOrigin"),
+            new CommandEntry(new NewFromEbomCommand(), "OnNewFromEbom", "CanNewFromEbom"),
+            new CommandEntry(new UpdateCommand(), "OnUpdate", "CanUpdate"),
+            new CommandEntry(new VersionCommand(), "OnVersion", "CanVersion"),
         };
 
         #region ISwAddin
@@ -126,8 +126,8 @@ namespace BDAT
             foreach (CommandEntry entry in _commands)
                 entry.CommandId = group.get_CommandID(entry.ItemIndex);
 
-            // Put the buttons on a "BDAT" tab in the CommandManager ribbon when a part is open, and the ones that
-            // work in assemblies on a "BDAT" tab when an assembly is open.
+            // Put every button on a "BDAT" tab in the CommandManager ribbon for parts and for assemblies, so the tab
+            // looks the same in both. A button that can't run in the open document is greyed out by its Can callback.
             AddCommandTab(swDocumentTypes_e.swDocPART);
             AddCommandTab(swDocumentTypes_e.swDocASSEMBLY);
 
@@ -145,10 +145,7 @@ namespace BDAT
 
             var ids = new List<int>();
             foreach (CommandEntry entry in _commands)
-            {
-                if (docType == swDocumentTypes_e.swDocASSEMBLY && !entry.InAssemblies) continue;
                 ids.Add(entry.CommandId);
-            }
 
             // Two layers: small buttons with the text beside the icon, stacked two to a column.
             // SolidWorks stacks up to three of these per box, so each pair gets its own box.
@@ -275,23 +272,15 @@ namespace BDAT
         private sealed class CommandEntry
         {
             public CommandEntry(IBdatCommand command, string callback, string enableCallback)
-                : this(command, callback, enableCallback, false)
-            {
-            }
-
-            public CommandEntry(IBdatCommand command, string callback, string enableCallback, bool inAssemblies)
             {
                 Command = command;
                 Callback = callback;
                 EnableCallback = enableCallback;
-                InAssemblies = inAssemblies;
             }
 
             public IBdatCommand Command { get; private set; }
             public string Callback { get; private set; }
             public string EnableCallback { get; private set; }
-            /// <summary>Also on the BDAT tab when an assembly is open.</summary>
-            public bool InAssemblies { get; private set; }
             public int ItemIndex { get; set; }
             public int CommandId { get; set; }
         }
