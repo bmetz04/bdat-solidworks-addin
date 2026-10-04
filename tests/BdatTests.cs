@@ -1375,10 +1375,39 @@ namespace BdatTests
             return s;
         }
 
+        /// <summary>Another part template: one beside the missing default, else SolidWorks' own. Null if there's none.</summary>
+        private static string FallbackPartTemplate(string missingDefault)
+        {
+            try
+            {
+                string dir = string.IsNullOrEmpty(missingDefault) ? null : Path.GetDirectoryName(missingDefault);
+                if (!string.IsNullOrEmpty(dir) && Directory.Exists(dir))
+                {
+                    string[] near = Directory.GetFiles(dir, "*.prtdot");
+                    if (near.Length > 0) return near[0];
+                }
+            }
+            catch (Exception)
+            {
+                // Fall through to SolidWorks' own template.
+            }
+            string ownTemplate = Path.Combine(System.Environment.GetFolderPath(System.Environment.SpecialFolder.CommonApplicationData),
+                @"SOLIDWORKS\SOLIDWORKS 2025\templates\Part.prtdot");
+            return File.Exists(ownTemplate) ? ownTemplate : null;
+        }
+
         internal static IModelDoc2 NewPart(ISldWorks swApp)
         {
             string template = swApp.GetUserPreferenceStringValue((int)swUserPreferenceStringValue_e.swDefaultTemplatePart);
-            if (string.IsNullOrEmpty(template) || !File.Exists(template)) throw new Exception("no default part template (" + template + ")");
+            if (string.IsNullOrEmpty(template) || !File.Exists(template))
+            {
+                // The default can point at a template that's been renamed or not synced from 3DEXPERIENCE yet.
+                // Any part template will do for sample parts, so use another one rather than fail.
+                string fallback = FallbackPartTemplate(template);
+                if (fallback == null) throw new Exception("no default part template (" + template + ")");
+                Console.WriteLine("     (default part template missing, using " + fallback + ")");
+                template = fallback;
+            }
             var doc = swApp.NewDocument(template, 0, 0, 0) as IModelDoc2;
             if (doc == null) throw new Exception("couldn't make a new part");
             doc.SketchManager.AddToDB = true; // no snapping while sketching
