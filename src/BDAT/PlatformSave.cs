@@ -178,30 +178,56 @@ namespace BDAT
             }
         }
 
-        /// <summary>Adds the document to the bookmark. Returns the connector's reply (JSON), or null if it threw.</summary>
+        /// <summary>Adds the saved document to a bookmark. Null if it worked, otherwise 3DEXPERIENCE's reason.</summary>
         public string AddToBookmark(string bookmarkId, string physicalId)
         {
-            try
-            {
-                object authoring = _connector.Manager("Authoring");
-                object result = _connector.Call(authoring, "IEnoSwAuthoring", "AddToBookmark", bookmarkId, new[] { physicalId });
-                Log("AddToBookmark(" + bookmarkId + ", " + physicalId + ") returned " + result);
-                return result == null ? null : result.ToString();
-            }
-            catch (Exception ex)
-            {
-                Log("AddToBookmark(" + bookmarkId + ", " + physicalId + ") failed: " + ex.Message);
-                return null;
-            }
+            object authoring = _connector.Manager("Authoring");
+            object result = _connector.Call(authoring, "IEnoSwAuthoring", "AddToBookmark", bookmarkId, new[] { physicalId });
+            Log("AddToBookmark(" + bookmarkId + ", " + physicalId + ") returned " + result);
+            return BookmarkError(result as string);
         }
 
         /// <summary>
-        /// True if an AddToBookmark reply says the document is in the bookmark, e.g.
-        /// {"status":"success","objectsAdded":1,...}. False for an error reply, e.g. a bookmark that was deleted.
+        /// Reads AddToBookmark's reply, e.g. {"status":"success",...} or {"status":"failure","error":"You do not have
+        /// security context to change the content of this Bookmark Folder."}. Null for success, otherwise the error.
         /// </summary>
-        public static bool AddedToBookmark(string reply)
+        internal static string BookmarkError(string reply)
         {
-            return reply != null && reply.Replace(" ", "").IndexOf("\"status\":\"success\"", StringComparison.OrdinalIgnoreCase) >= 0;
+            if (string.IsNullOrEmpty(reply)) return "3DEXPERIENCE didn't answer.";
+            if (JsonString(reply, "status") == "success") return null;
+            string error = JsonString(reply, "error");
+            return string.IsNullOrEmpty(error) ? reply : error;
+        }
+
+        // Just enough JSON for the connector's flat replies: the string value of "name", or null.
+        private static string JsonString(string json, string name)
+        {
+            string key = "\"" + name + "\"";
+            int at = json.IndexOf(key, StringComparison.Ordinal);
+            if (at < 0) return null;
+            int colon = json.IndexOf(':', at + key.Length);
+            int open = colon < 0 ? -1 : json.IndexOf('"', colon + 1);
+            if (open < 0) return null;
+            var sb = new System.Text.StringBuilder();
+            for (int i = open + 1; i < json.Length; i++)
+            {
+                char c = json[i];
+                if (c == '\\' && i + 1 < json.Length) { sb.Append(json[++i]); continue; }
+                if (c == '"') return sb.ToString();
+                sb.Append(c);
+            }
+            return null;
+        }
+
+        /// <summary>What to tell people when AddToBookmark is refused.</summary>
+        internal static string BookmarkAdvice(string error)
+        {
+            string advice = "\n\nAdd it by hand: find it in 3DEXPERIENCE, right-click it > Add to Bookmark.";
+            if (error != null && error.IndexOf("security context", StringComparison.OrdinalIgnoreCase) >= 0)
+                advice = "\n\nThat usually means your 3DEXPERIENCE security context (collaborative space and role, shown at the top " +
+                    "of the 3DEXPERIENCE task pane) isn't the team's one, so it was also saved in that space. Switch to the team's " +
+                    "collaborative space before saving." + advice;
+            return advice;
         }
 
         /// <summary>Check in: releases your lock on the saved file. True if it's unlocked afterwards (or was never locked).</summary>

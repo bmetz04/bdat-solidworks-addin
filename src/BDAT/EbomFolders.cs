@@ -54,29 +54,21 @@ namespace BDAT
                 }
             }
 
+            return Mine().TryGetValue(assemblyNumber, out found) ? found : null;
+        }
+
+        /// <summary>Folders picked on this PC: the picked list, plus the registry (the registry wins).</summary>
+        private static Dictionary<string, Bookmark> Mine()
+        {
+            var mine = new Dictionary<string, Bookmark>(StringComparer.OrdinalIgnoreCase);
             try
             {
-                using (RegistryKey key = Registry.CurrentUser.OpenSubKey(KeyPath))
-                {
-                    string id = key == null ? null : key.GetValue(assemblyNumber) as string;
-                    if (!string.IsNullOrEmpty(id))
-                    {
-                        string title = key.GetValue(assemblyNumber + " title") as string;
-                        return new Bookmark { Id = id, Title = string.IsNullOrEmpty(title) ? assemblyNumber : title };
-                    }
-                }
+                if (File.Exists(PickedPath)) mine = Parse(File.ReadAllText(PickedPath, Encoding.UTF8));
             }
             catch (Exception)
             {
-                // No remembered folder.
+                // A broken picked list: the registry may still have them.
             }
-            return null;
-        }
-
-        /// <summary>Every known folder: this PC's picks, overridden by the team list.</summary>
-        public static Dictionary<string, Bookmark> All()
-        {
-            var mine = new Dictionary<string, Bookmark>(StringComparer.OrdinalIgnoreCase);
             try
             {
                 using (RegistryKey key = Registry.CurrentUser.OpenSubKey(KeyPath))
@@ -96,8 +88,15 @@ namespace BDAT
             }
             catch (Exception)
             {
-                // Nothing remembered on this PC.
+                // Nothing remembered in the registry.
             }
+            return mine;
+        }
+
+        /// <summary>Every known folder: this PC's picks, overridden by the team list.</summary>
+        public static Dictionary<string, Bookmark> All()
+        {
+            Dictionary<string, Bookmark> mine = Mine();
 
             bool fresh;
             string team = Ebom.DownloadTeamFile(TeamUrl, TeamCachePath, delegate(string text) { Parse(text); }, out fresh);
@@ -130,13 +129,20 @@ namespace BDAT
         /// <summary>Remembers a picked folder on this PC and adds it to the picked list for the team.</summary>
         public static void Remember(string assemblyNumber, Bookmark folder)
         {
-            using (RegistryKey key = Registry.CurrentUser.CreateSubKey(KeyPath))
+            try
             {
-                if (key != null)
+                using (RegistryKey key = Registry.CurrentUser.CreateSubKey(KeyPath))
                 {
-                    key.SetValue(assemblyNumber, folder.Id, RegistryValueKind.String);
-                    key.SetValue(assemblyNumber + " title", folder.Title ?? "", RegistryValueKind.String);
+                    if (key != null)
+                    {
+                        key.SetValue(assemblyNumber, folder.Id, RegistryValueKind.String);
+                        key.SetValue(assemblyNumber + " title", folder.Title ?? "", RegistryValueKind.String);
+                    }
                 }
+            }
+            catch (Exception)
+            {
+                // The picked list below still has it.
             }
             try
             {

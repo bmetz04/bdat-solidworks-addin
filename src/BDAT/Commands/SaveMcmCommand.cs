@@ -151,31 +151,35 @@ namespace BDAT.Commands
                 return;
             }
 
-            // A bookmark that was deleted or moved (a stale id) doesn't take the part: pick McMaster Carr again and retry.
-            if (!PlatformSave.AddedToBookmark(platform.AddToBookmark(bookmark.Id, phid)))
+            string refused = platform.AddToBookmark(bookmark.Id, phid);
+
+            // A folder that was deleted or moved (a stale id) won't take the part: offer to pick McMaster Carr again and
+            // retry. A security context refusal is about your 3DEXPERIENCE role, so picking again wouldn't help.
+            if (refused != null && refused.IndexOf("security context", StringComparison.OrdinalIgnoreCase) < 0 &&
+                Ui.Show(owner, "\"" + name + "\" was saved, but it couldn't be put in " + bookmark.Title + ":\n\n" + refused +
+                    "\n\nThe folder may have been deleted or moved. Pick the McMaster Carr folder now?",
+                    Title, MessageBoxButtons.YesNo, MessageBoxIcon.Warning) == DialogResult.Yes)
             {
-                Bookmark repicked = null;
-                if (Ui.Show(owner, "\"" + name + "\" was saved, but BDAT couldn't put it in " + bookmark.Title +
-                        " (the folder may have been deleted or moved).\n\nPick the McMaster Carr folder now?",
-                        Title, MessageBoxButtons.YesNo, MessageBoxIcon.Warning) == DialogResult.Yes)
-                    repicked = PickFolder(connector, owner);
-                if (repicked == null || !PlatformSave.AddedToBookmark(platform.AddToBookmark(repicked.Id, phid)))
+                Bookmark repicked = PickFolder(connector, owner);
+                if (repicked != null)
                 {
-                    Tell(swApp, "\"" + name + "\" was saved to 3DEXPERIENCE but isn't in a McMaster Carr folder.\n\n" +
-                        "Add it by hand (right-click it in 3DEXPERIENCE > Add to Bookmark), then unlock it.",
-                        swMessageBoxIcon_e.swMbWarning);
-                    return;
+                    refused = platform.AddToBookmark(repicked.Id, phid);
+                    bookmark = repicked;
                 }
-                bookmark = repicked;
             }
 
             // 7. Check in: unlock the part so it isn't left reserved by you.
             string done = "Saved \"" + name + "\" to 3DEXPERIENCE in " + DestinationPath + bookmark.Title + " and checked it in.";
             swMessageBoxIcon_e icon = swMessageBoxIcon_e.swMbInformation;
+            if (refused != null)
+            {
+                done = "Saved \"" + name + "\" to 3DEXPERIENCE and checked it in, but it couldn't be put in " + DestinationPath +
+                    bookmark.Title + ":\n\n" + refused + PlatformSave.BookmarkAdvice(refused);
+                icon = swMessageBoxIcon_e.swMbWarning;
+            }
             if (!platform.Unlock(doc.GetPathName()))
             {
-                done = "Saved \"" + name + "\" to 3DEXPERIENCE in " + DestinationPath + bookmark.Title +
-                    ", but couldn't check it in, so it's still locked by you.\n\n" +
+                done += "\n\nIt couldn't be checked in, so it's still locked by you. " +
                     "Unlock it from the 3DEXPERIENCE task pane (right-click it > Unlock).";
                 icon = swMessageBoxIcon_e.swMbWarning;
             }

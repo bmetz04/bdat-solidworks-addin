@@ -381,10 +381,17 @@ namespace BdatTests
                 // The harness runs from tests\bin, two folders below the repo.
                 string teamFile = Path.GetFullPath(Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "..", "..", "release", "ebom-folders.csv"));
                 Check(File.Exists(teamFile) && EbomFolders.Parse(File.ReadAllText(teamFile)) != null, "the team list in the repo can be read");
+                // AddToBookmark's replies (the failure is the one 3DEXPERIENCE gave on 2026-10-03).
+                Check(PlatformSave.BookmarkError("{\"status\":\"success\",\"objectsAdded\":1,\"objectsAlreadyPresent\":0}") == null, "success is no error");
+                Equal("You do not have security context to change the content of this Bookmark Folder.",
+                    PlatformSave.BookmarkError("{\"status\":\"failure\",\"error\":\"You do not have security context to change the content of this Bookmark Folder.\"}"),
+                    "a refused AddToBookmark is reported, with 3DEXPERIENCE's reason");
+                Check(PlatformSave.BookmarkError(null) != null, "no reply is an error");
+                Check(PlatformSave.BookmarkAdvice("You do not have security context to change it").Contains("collaborative space"), "security context advice");
                 Check(NewFromEbomCommand.IsPublishingPc, "BDAT running from the repo counts as the publishing PC (Set up folders shows)");
             });
 
-            Test("Save MCM folder: confirm question, name check and bookmark reply", delegate
+            Test("Save MCM folder: confirm question and name check", delegate
             {
                 Check(SaveMcmCommand.IsMcMasterFolder("McMaster Carr"), "McMaster Carr");
                 Check(SaveMcmCommand.IsMcMasterFolder("Mcmaster Carr"), "Mcmaster Carr (any case)");
@@ -395,11 +402,6 @@ namespace BdatTests
                 Check(SaveMcmCommand.FolderQuestion("91251A540", known).StartsWith("Save 91251A540 in McMaster Carr?"),
                     "the confirm reads \"Save <name> in McMaster Carr?\"");
                 Check(SaveMcmCommand.KnownBookmark() != null, "there's always a McMaster Carr folder to confirm (built in or picked)");
-
-                Check(PlatformSave.AddedToBookmark("{\"status\":\"success\",\"objectsAdded\":1,\"objectsAlreadyPresent\":0}"), "success reply");
-                Check(PlatformSave.AddedToBookmark("{\"status\": \"success\",\"objectsAdded\":0,\"objectsAlreadyPresent\":1}"), "already in it counts");
-                Check(!PlatformSave.AddedToBookmark("{\"status\":\"error\",\"errInfo\":\"Bookmark folder was not found\"}"), "a deleted bookmark is refused");
-                Check(!PlatformSave.AddedToBookmark(null), "no reply is refused");
             });
 
             Test("Create Origin reads coordinates", delegate
