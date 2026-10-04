@@ -381,6 +381,7 @@ namespace BdatTests
                 // The harness runs from tests\bin, two folders below the repo.
                 string teamFile = Path.GetFullPath(Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "..", "..", "release", "ebom-folders.csv"));
                 Check(File.Exists(teamFile) && EbomFolders.Parse(File.ReadAllText(teamFile)) != null, "the team list in the repo can be read");
+                Check(NewFromEbomCommand.IsPublishingPc, "BDAT running from the repo counts as the publishing PC (Set up folders shows)");
             });
 
             Test("Create Origin reads coordinates", delegate

@@ -280,6 +280,31 @@ namespace BDAT.Commands
             return picked;
         }
         /// <summary>
+        /// True when this BDAT runs from a copy of the repo that has publish.ps1 (the PC BDAT is published from), not from a
+        /// teammate's install. "Set up folders..." only shows there, since that's where Publish BDAT picks up the folders.
+        /// </summary>
+        internal static bool IsPublishingPc
+        {
+            get
+            {
+                try
+                {
+                    string dir = Path.GetDirectoryName(typeof(NewFromEbomCommand).Assembly.Location);
+                    for (int i = 0; i < 6 && !string.IsNullOrEmpty(dir); i++)
+                    {
+                        if (File.Exists(Path.Combine(dir, "publish.ps1")) && Directory.Exists(Path.Combine(dir, ".git"))) return true;
+                        dir = Path.GetDirectoryName(dir);
+                    }
+                }
+                catch (Exception)
+                {
+                    // Can't tell: treat it as a teammate's PC.
+                }
+                return false;
+            }
+        }
+
+        /// <summary>
         /// "Set up folders...": goes through every assembly number with no known folder, in order, and has you pick each
         /// one. Every pick is saved straight away (EbomFolders.Remember), so stopping keeps your progress and running it
         /// again carries on. Publish BDAT then shares the picks with the team.

@@ -82,10 +82,14 @@ namespace BDAT.Commands
             var change = new Button { Text = "Open another EBOM file...", AutoSize = true };
             change.Click += OnChangeFile;
             _source = new Label { AutoSize = true, ForeColor = SystemColors.GrayText, Margin = new Padding(6, 8, 3, 0) };
-            var folders = new Button { Text = "Set up folders...", AutoSize = true };
-            folders.Click += delegate { NewFromEbomCommand.SetUpFolders(this, _rows); };
             left.Controls.Add(change);
-            left.Controls.Add(folders);
+            if (NewFromEbomCommand.IsPublishingPc)
+            {
+                // Only on the PC BDAT is published from: Publish BDAT shares the folders picked there with the team.
+                var folders = new Button { Text = "Set up folders...", AutoSize = true };
+                folders.Click += delegate { NewFromEbomCommand.SetUpFolders(this, _rows); };
+                left.Controls.Add(folders);
+            }
             left.Controls.Add(_source);
             bottom.Controls.Add(left, 0, 0);
 
