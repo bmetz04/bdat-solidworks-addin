@@ -292,7 +292,9 @@ namespace BDAT.Commands
                     string dir = Path.GetDirectoryName(typeof(NewFromEbomCommand).Assembly.Location);
                     for (int i = 0; i < 6 && !string.IsNullOrEmpty(dir); i++)
                     {
-                        if (File.Exists(Path.Combine(dir, "publish.ps1")) && Directory.Exists(Path.Combine(dir, ".git"))) return true;
+                        // .git is a folder in a normal clone and a file in a git worktree.
+                        string git = Path.Combine(dir, ".git");
+                        if (File.Exists(Path.Combine(dir, "publish.ps1")) && (Directory.Exists(git) || File.Exists(git))) return true;
                         dir = Path.GetDirectoryName(dir);
                     }
                 }
