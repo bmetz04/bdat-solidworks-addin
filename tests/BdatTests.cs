@@ -226,18 +226,22 @@ namespace BdatTests
             // reach the platform in test mode: it must be refused at the connector and report "not checked in".
             Test("Save MCM check-in can't reach 3DEXPERIENCE in test mode", delegate
             {
+                // Check-in is PlatformSave.Unlock, shared by Save MCM and New from EBOM.
                 Type connector = BdatType("BDAT.Connector");
-                MethodInfo unlock = BdatType("BDAT.Commands.SaveMcmCommand").GetMethod("Unlock",
-                    BindingFlags.Static | BindingFlags.NonPublic | BindingFlags.Public, null, new[] { connector, typeof(string) }, null);
-                Check(unlock != null, "SaveMcmCommand has no Unlock(Connector, string) check-in step yet");
+                Type platformSave = BdatType("BDAT.PlatformSave");
+                MethodInfo unlock = platformSave.GetMethod("Unlock",
+                    BindingFlags.Instance | BindingFlags.NonPublic | BindingFlags.Public, null, new[] { typeof(string) }, null);
+                Check(unlock != null, "PlatformSave has no Unlock(string) check-in step");
                 ConstructorInfo ctor = connector.GetConstructors(BindingFlags.Instance | BindingFlags.NonPublic).First();
                 object fake = ctor.Invoke(new object[ctor.GetParameters().Length]);
+                object platform = Activator.CreateInstance(platformSave, BindingFlags.Instance | BindingFlags.NonPublic | BindingFlags.Public,
+                    null, new object[] { null, fake, "save-mcm" }, null);
 
                 string realLog = Path.Combine(Path.GetTempPath(), "BDAT", "save-mcm.log");
                 long logBefore = File.Exists(realLog) ? new FileInfo(realLog).Length : -1;
 
                 object checkedIn;
-                try { checkedIn = unlock.Invoke(null, new object[] { fake, @"C:\BDAT-test\91251A540.SLDPRT" }); }
+                try { checkedIn = unlock.Invoke(platform, new object[] { @"C:\BDAT-test\91251A540.SLDPRT" }); }
                 catch (TargetInvocationException ex) { checkedIn = ex.InnerException; }
                 Check(TestMode.ConnectorAttempts >= 1, "check-in didn't go through the connector guard");
                 Check(!(checkedIn is bool) || !(bool)checkedIn, "check-in reported success in test mode");
@@ -261,12 +265,130 @@ namespace BdatTests
             Test("Toolbar has the expected BDAT buttons, in order", delegate
             {
                 List<string> titles = CommandTitles(new SwAddin());
-                Check(titles.Count == 5, "expected 5 buttons, got " + titles.Count + ": " + string.Join(", ", titles.ToArray()));
+                Check(titles.Count == 6, "expected 6 buttons, got " + titles.Count + ": " + string.Join(", ", titles.ToArray()));
                 Equal("Murder Part", titles[0], "button 1");
                 Equal("Save MCM", titles[1], "button 2");
                 Equal("Create Origin", titles[2], "button 3");
-                Equal("Update BDAT", titles[3], "button 4");
-                Check(Regex.IsMatch(titles[4], @"^BDAT (v\d+|dev build)$"), "button 5 should be the version (BDAT vN), got \"" + titles[4] + "\"");
+                Equal("New from EBOM", titles[3], "button 4");
+                Equal("Update BDAT", titles[4], "button 5");
+                Check(Regex.IsMatch(titles[5], @"^BDAT (v\d+|dev build)$"), "button 6 should be the version (BDAT vN), got \"" + titles[5] + "\"");
+            });
+
+            Test("EBOM CSV is read by column heading", delegate
+            {
+                // Made-up rows in the EBOM's layout (headings with line breaks, columns in the sheet's order).
+                string csv = "\uFEFFPerson Responsible,Class,Part Control No.,Commodity Code,\"Assembly/Part #\n (Use in Cost Report)\",Revision,Status," +
+                    "\"Combined Part # \r\n(Use in 3Dx FIle Naming)\",Assembly,Area of Commodity,Sub-Assembly / Component Name\r\n" +
+                    ",Assembly,10100,BR,A0101,AA,Current,BR-A0101-AA,Balance Bar,Brake System,\r\n" +
+                    ",Part,10101,BR,10101,AA,Current,BR-10101-AA,,Brake System,\"Balance Bar, Wilwood \"\"BB\"\"\"\r\n" +
+                    ",Part,10102,BR,10102,AA,OBSOLETE,BR-10102-AA,,Brake System,Balance Bar Sleeve\r\n" +
+                    ",,,,,,,,,,\r\n" +
+                    ",Assembly,21200,DT,A0212,AA,OBSOLETE,DT-A0212-AA,Carburetor,Drivetrain,\r\n" +
+                    ",Part,40202,FR,40202,AA,Current,FR-40202-AA,,Frame & Body,Main Element\r\n" +
+                    ",Assembly,21200,DT,A0212,AA,Current,DT-A0212-AA,Engine Mounts,Drivetrain,\r\n" +
+                    ",Part,21201,DT,21201,AA,Current,DT-21201-AA,Front Right,Drivetrain,Engine Mount Spacer: 7.28 mm\r\n" +
+                    ",Assembly,70400,SU,A0704,AA,Current,SU-A0704-AA,Bellcranks,Suspension,\r\n" +
+                    ",Part,70501,SU,70501,AA,Current,SU-70501-AA,,Suspension,Bellcrank Bearing";
+                List<EbomRow> rows = Ebom.Parse(csv);
+                Check(rows.Count == 9, "expected 9 rows (blank one skipped), got " + rows.Count);
+                Equal("BR-A0101-AA", rows[0].Number, "assembly number");
+                Check(rows[0].IsAssembly, "first row is an assembly");
+                Equal("Balance Bar", rows[0].Name, "assembly name comes from the Assembly column");
+                Equal("Balance Bar, Wilwood \"BB\"", rows[1].Name, "quoted commas and quotes");
+                Equal("Balance Bar", rows[1].Parent, "parent is the assembly above");
+                Equal("Brake System", rows[1].Area, "area");
+                Check(rows[2].IsObsolete, "OBSOLETE status");
+                Equal("", rows[4].Parent, "a part isn't put under the (obsolete) assembly row above it");
+                Equal("Engine Mount Spacer: 7.28 mm (Front Right)", rows[6].Name, "a part's Assembly column is a qualifier");
+                Equal("Engine Mounts", rows[6].Parent, "parent by control number, obsolete assemblies ignored");
+
+                // Assembly numbers (3DEXPERIENCE folder names) come from the control number, assembly row or not.
+                Equal("A0101", rows[0].AssemblyNumber, "an assembly's own number");
+                Equal("A0101", rows[1].AssemblyNumber, "a part's assembly number");
+                Equal("A0101 Balance Bar", rows[1].AssemblyText, "number and name in the list");
+                Equal("A0402", rows[4].AssemblyNumber, "assembly number with no assembly row in the EBOM");
+                Equal("A0402", rows[4].AssemblyText, "just the number when the EBOM has no name for it");
+                Equal("A0212", rows[6].AssemblyNumber, "a part's assembly number");
+                Equal("A0704", rows[8].AssemblyNumber, "a part whose own assembly (A0705) has no row goes under the one above it in the sheet");
+                Equal("Bellcranks", rows[8].Parent, "...named after that assembly");
+                List<string> missing = Ebom.MissingAssemblies(rows);
+                Check(missing.Count == 1 && missing[0] == "A0402 (Frame & Body, 1 part)",
+                    "assemblies to add to the EBOM: " + string.Join("; ", missing.ToArray()));
+                Equal("FR-40202-AA", Ebom.Search(rows, "a0402", false)[0].Number, "searches the assembly number");
+                Equal("BR-10101-AA.SLDPRT", NewFromEbomCommand.FileName(rows[1]), "saved under the combined part number");
+                Equal("BR-A0101-AA.SLDASM", NewFromEbomCommand.FileName(rows[0]), "assemblies save as .SLDASM");
+
+                // The pop-up's tree: each assembly number with its current parts under it, obsolete rows left out.
+                List<NewFromEbomForm.EbomGroup> groups = NewFromEbomForm.BuildGroups(rows);
+                Equal("A0101,A0212,A0402,A0704", string.Join(",", groups.Select(g => g.Number).ToArray()), "groups in assembly-number order");
+                Check(groups[3].Assembly == rows[7] && groups[3].Parts.Count == 1 && groups[3].Parts[0] == rows[8], "Bellcranks holds the stray A0705 part");
+                Check(groups[0].Assembly == rows[0] && groups[0].Parts.Count == 1 && groups[0].Parts[0] == rows[1], "Balance Bar has its current part only");
+                Check(groups[1].Assembly == rows[5], "the current assembly row heads its group, not the obsolete one");
+                Check(groups[1].Parts.Count == 1 && groups[1].Parts[0] == rows[6], "Engine Mounts has its part");
+                Check(groups[2].Assembly == null && groups[2].Parts.Count == 1 && groups[2].Parts[0] == rows[4], "A0402 has a header with no assembly row");
+                Equal("Frame & Body", groups[2].Area, "a header with no assembly row takes its parts' area");
+
+                Check(Ebom.Search(rows, "", false).Count == 7, "obsolete hidden by default");
+                Check(Ebom.Search(rows, "", true).Count == 9, "obsolete shown when asked");
+                Check(Ebom.Search(rows, "balance BR-10", true).Count == 2, "every word must match, any case");
+                Equal("DT-21201-AA", Ebom.Search(rows, "drivetrain spacer", false)[0].Number, "searches area and name");
+
+                bool refused = false;
+                try { Ebom.Parse("Name,Number\r\nx,1"); }
+                catch (System.IO.InvalidDataException) { refused = true; }
+                Check(refused, "a CSV without the Combined Part # column is refused");
+            });
+
+            Test("EBOM folder list is read, merged and matched by assembly number", delegate
+            {
+                string csv = "Assembly Number,Bookmark Id,Bookmark Title\r\n" +
+                    "A0704,ID704,A0704\r\n" +
+                    "a0101,ID101,\"A0101 Balance Bar, front\"\r\n" +
+                    ",IDX,blank number is skipped\r\n" +
+                    "A0999,,blank id is skipped\r\n";
+                Dictionary<string, Bookmark> team = EbomFolders.Parse(csv);
+                Check(team.Count == 2, "expected 2 folders, got " + team.Count);
+                Equal("ID704", team["A0704"].Id, "id by assembly number");
+                Equal("ID101", team["A0101"].Id, "assembly numbers ignore case");
+                Equal("A0101 Balance Bar, front", team["A0101"].Title, "quoted title");
+
+                Dictionary<string, Bookmark> again = EbomFolders.Parse(EbomFolders.Format(team));
+                Check(again.Count == 2 && again["A0101"].Title == "A0101 Balance Bar, front", "Format then Parse gives the same list");
+
+                var picked = new Dictionary<string, Bookmark>(StringComparer.OrdinalIgnoreCase);
+                picked["A0704"] = new Bookmark { Id = "NEW704", Title = "A0704" };
+                picked["A0705"] = new Bookmark { Id = "ID705", Title = "A0705" };
+                Dictionary<string, Bookmark> merged = EbomFolders.Merge(team, picked);
+                Check(merged.Count == 3, "merge adds new picks");
+                Equal("NEW704", merged["A0704"].Id, "a pick replaces the team's entry");
+                Equal("ID101", merged["A0101"].Id, "team entries without a pick stay");
+
+                Check(EbomFolders.TitleMatches("A0704", "A0704"), "exact title");
+                Check(EbomFolders.TitleMatches("a0704", "A0704"), "any case");
+                Check(EbomFolders.TitleMatches("A0704 Bellcranks", "A0704"), "number then name");
+                Check(EbomFolders.TitleMatches("Bellcranks (A0704)", "A0704"), "name then number");
+                Check(!EbomFolders.TitleMatches("A07041", "A0704"), "a longer number isn't a match");
+                Check(!EbomFolders.TitleMatches("Bellcranks", "A0704"), "no number, no match");
+
+                List<string> needed = EbomFolders.StillNeeded(new[] { "A0101", "A0102", "a0704", "A0102", "", "A0705" }, merged);
+                Equal("A0102", string.Join(",", needed.ToArray()), "only numbers with no folder, once each, in order");
+
+                bool refused = false;
+                try { EbomFolders.Parse("Name,Id\r\nx,1"); }
+                catch (System.IO.InvalidDataException) { refused = true; }
+                Check(refused, "a CSV that isn't the folder list is refused");
+
+                // The harness runs from tests\bin, two folders below the repo.
+                string teamFile = Path.GetFullPath(Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "..", "..", "release", "ebom-folders.csv"));
+                Check(File.Exists(teamFile) && EbomFolders.Parse(File.ReadAllText(teamFile)) != null, "the team list in the repo can be read");
+                // AddToBookmark's replies (the failure is the one 3DEXPERIENCE gave on 2026-10-03).
+                Check(PlatformSave.BookmarkError("{\"status\":\"success\",\"objectsAdded\":1,\"objectsAlreadyPresent\":0}") == null, "success is no error");
+                Equal("You do not have security context to change the content of this Bookmark Folder.",
+                    PlatformSave.BookmarkError("{\"status\":\"failure\",\"error\":\"You do not have security context to change the content of this Bookmark Folder.\"}"),
+                    "a refused AddToBookmark is reported, with 3DEXPERIENCE's reason");
+                Check(PlatformSave.BookmarkError(null) != null, "no reply is an error");
+                Check(PlatformSave.BookmarkAdvice("You do not have security context to change it").Contains("collaborative space"), "security context advice");
+                Check(NewFromEbomCommand.IsPublishingPc, "BDAT running from the repo counts as the publishing PC (Set up folders shows)");
             });
 
             Test("Create Origin reads coordinates", delegate

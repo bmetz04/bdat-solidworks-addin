@@ -17,7 +17,8 @@ namespace BDAT.Testing
     ///   - Save MCM runs its pop-up, naming and description logic, records the outcome in LastSaveMcm and stops,
     ///   - any attempt to reach the 3DEXPERIENCE connector throws and is counted in ConnectorAttempts,
     ///   - Update BDAT never downloads or starts the installer,
-    ///   - Create Origin takes its X, Y and Z from OriginCoordinates instead of the pop-up.
+    ///   - Create Origin takes its X, Y and Z from OriginCoordinates instead of the pop-up,
+    ///   - New from EBOM reads EbomCsvPath and picks EbomPick instead of showing its pop-up.
     /// </summary>
     public static class TestMode
     {
@@ -55,6 +56,9 @@ namespace BDAT.Testing
             InstallerLaunches = 0;
             OriginCoordinates = null;
             LastCreateOrigin = null;
+            EbomCsvPath = null;
+            EbomPick = null;
+            LastNewFromEbom = null;
         }
 
         /// <summary>Text of every dialog that would have been shown, oldest first.</summary>
@@ -77,6 +81,15 @@ namespace BDAT.Testing
 
         /// <summary>What Create Origin made on its last run, or null if it made nothing.</summary>
         public static CreateOriginTestResult LastCreateOrigin;
+
+        /// <summary>The EBOM CSV New from EBOM reads in test mode (it never reads or changes the saved one).</summary>
+        public static string EbomCsvPath;
+
+        /// <summary>The combined part number to pick in the New from EBOM pop-up. Null (or not in the EBOM) means Cancel.</summary>
+        public static string EbomPick;
+
+        /// <summary>What New from EBOM made on its last run, or null if it made nothing.</summary>
+        public static NewFromEbomTestResult LastNewFromEbom;
 
         /// <summary>How many times something tried to use the 3DEXPERIENCE connector. Must stay 0.</summary>
         public static int ConnectorAttempts;
@@ -117,6 +130,19 @@ namespace BDAT.Testing
 
         /// <summary>The folder they were put in, or null if there isn't one.</summary>
         public string Folder;
+    }
+
+    /// <summary>What New from EBOM made, in test mode.</summary>
+    public sealed class NewFromEbomTestResult
+    {
+        public string Number;
+        public string Title;
+        public string Description;
+        public bool IsAssembly;
+        /// <summary>The 3DEXPERIENCE folder (assembly number) it would have been saved in. Test mode never saves.</summary>
+        public string Folder;
+        /// <summary>The file name it would have been saved under, e.g. BR-10101-AA.SLDPRT.</summary>
+        public string FileName;
     }
 
     /// <summary>What Save MCM would have saved, in test mode.</summary>
