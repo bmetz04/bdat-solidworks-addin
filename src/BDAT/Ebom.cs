@@ -250,8 +250,16 @@ namespace BDAT
         /// </summary>
         public static string TeamCopy(out bool fresh)
         {
+            return DownloadTeamFile(TeamUrl, TeamCachePath, delegate(string text) { Parse(text); }, out fresh);
+        }
+
+        /// <summary>
+        /// Downloads a team file from the repo to cache and returns cache. Offline (or if GitHub is slow, or validate
+        /// throws), returns the copy downloaded last time, with fresh false. Null if there's neither.
+        /// </summary>
+        internal static string DownloadTeamFile(string url, string cache, Action<string> validate, out bool fresh)
+        {
             fresh = false;
-            string cache = TeamCachePath;
             try
             {
                 ServicePointManager.SecurityProtocol |= SecurityProtocolType.Tls12;
@@ -259,8 +267,8 @@ namespace BDAT
                 {
                     web.Headers.Add("Cache-Control", "no-cache");
                     // The query string stops GitHub's download cache from handing back an older copy.
-                    byte[] data = web.DownloadData(TeamUrl + "?t=" + DateTime.UtcNow.Ticks);
-                    Parse(Encoding.UTF8.GetString(data)); // only keep it if it really is the EBOM
+                    byte[] data = web.DownloadData(url + "?t=" + DateTime.UtcNow.Ticks);
+                    validate(Encoding.UTF8.GetString(data)); // only keep it if it's the right kind of file
                     Directory.CreateDirectory(Path.GetDirectoryName(cache));
                     string temp = cache + ".download";
                     File.WriteAllBytes(temp, data);

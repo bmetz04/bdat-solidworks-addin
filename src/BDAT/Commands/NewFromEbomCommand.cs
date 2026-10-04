@@ -23,7 +23,8 @@ namespace BDAT.Commands
     ///   4. Unless "Save to 3DEXPERIENCE" is unticked: saves it to 3DEXPERIENCE under that name (the description goes
     ///      up with it), adds it to its assembly's folder and checks it in. Folders are bookmarks named by assembly
     ///      number (A0704 for parts 70401 to 70499), which comes from the part's own control number, so it works even
-    ///      where the EBOM has no assembly row. Each folder is picked once and remembered (or built in, KnownFolders).
+    ///      where the EBOM has no assembly row. Each folder is picked once and then known to the whole team (EbomFolders);
+    ///      a known folder is just confirmed. "Set up folders..." in the pop-up picks them all in one go.
     /// </summary>
     public sealed class NewFromEbomCommand : IBdatCommand
     {
@@ -231,15 +232,10 @@ namespace BDAT.Commands
             return row.AssemblyNumber + (name.Length > 0 ? " (" + name + ")" : "");
         }
 
-        // The team's assembly folders in 3DEXPERIENCE, by assembly number, once they exist, so nobody has to pick them:
-        // { "A0704", "<bookmark id>" }, ... Until then each person picks a folder the first time and BDAT remembers it.
-        private static readonly Dictionary<string, string> KnownFolders = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
-
-        private const string FoldersKeyPath = @"Software\BDAT\EbomFolders";
-
         /// <summary>
-        /// The bookmark for the row's assembly number: built in, remembered, or picked now (and remembered).
-        /// Null with cancelled false means save without a folder.
+        /// The folder for the row's assembly number. A known one (team list or this PC, see EbomFolders) is confirmed with
+        /// "Save BR-70401-AA in A0704 (Bellcranks)?": Yes uses it, No opens the picker. An unknown one is picked now and
+        /// remembered for the team. Null with cancelled false means save without a folder.
         /// </summary>
         private Bookmark ResolveFolder(Connector connector, IWin32Window owner, EbomRow row, out bool cancelled)
         {
@@ -248,37 +244,108 @@ namespace BDAT.Commands
             string label = FolderLabel(row);
             if (number.Length == 0) return AskNoFolder(owner, row, "It has no assembly number in the EBOM.", out cancelled);
 
-            string id;
-            if (KnownFolders.TryGetValue(number, out id)) return new Bookmark { Id = id, Title = number };
-            using (RegistryKey key = Registry.CurrentUser.OpenSubKey(FoldersKeyPath))
+            Bookmark known = EbomFolders.Find(number);
+            if (known != null)
             {
-                id = key == null ? null : key.GetValue(number) as string;
-                if (!string.IsNullOrEmpty(id)) return new Bookmark { Id = id, Title = number };
+                string title = string.Equals(known.Title, number, StringComparison.OrdinalIgnoreCase) ? label : known.Title + " (" + label + ")";
+                DialogResult use = Ui.Show(owner, "Save " + row.Number + " in " + title + "?\n\nNo picks a different folder.",
+                    Title, MessageBoxButtons.YesNoCancel, MessageBoxIcon.Question);
+                if (use == DialogResult.Yes) return known;
+                if (use != DialogResult.No) { cancelled = true; return null; }
+            }
+            else
+            {
+                DialogResult go = Ui.Show(owner,
+                    "Which 3DEXPERIENCE folder is " + label + "? In the next window, pick the bookmark named " + number +
+                    ". BDAT remembers it, and once it's published, nobody on the team has to pick it again.\n\n" +
+                    "If there's no folder for it yet, cancel that window to save without one.",
+                    Title, MessageBoxButtons.OKCancel, MessageBoxIcon.Information);
+                if (go != DialogResult.OK) { cancelled = true; return null; }
             }
 
-            DialogResult go = Ui.Show(owner,
-                "Which 3DEXPERIENCE folder is " + label + "? In the next window, pick the bookmark named " + number +
-                ". BDAT remembers it for next time.\n\nIf there's no folder for it yet, cancel that window to save without one.",
-                Title, MessageBoxButtons.OKCancel, MessageBoxIcon.Information);
-            if (go != DialogResult.OK) { cancelled = true; return null; }
-
-            Bookmark picked = PlatformSave.ChooseBookmark(connector, owner, "Pick the folder for " + label);
+            Bookmark picked = PlatformSave.ChooseBookmark(connector, owner, "Pick " + label);
             if (picked == null) return AskNoFolder(owner, row, "No folder was picked.", out cancelled);
+            if (picked.Title.Length == 0) picked.Title = number;
 
-            if (picked.Title.IndexOf(number, StringComparison.OrdinalIgnoreCase) < 0 &&
-                Ui.Show(owner, "You picked \"" + picked.Title + "\", not " + number + ". Use it for " + number + " from now on?",
-                    Title, MessageBoxButtons.YesNo, MessageBoxIcon.Question) != DialogResult.Yes)
+            if (!EbomFolders.TitleMatches(picked.Title, number) &&
+                Ui.Show(owner, "You picked \"" + picked.Title + "\", which isn't named " + number + ". Use it for " + number + " from now on?",
+                    Title, MessageBoxButtons.YesNo, MessageBoxIcon.Warning) != DialogResult.Yes)
             {
                 cancelled = true;
                 return null;
             }
 
-            using (RegistryKey key = Registry.CurrentUser.CreateSubKey(FoldersKeyPath))
-            {
-                if (key != null) key.SetValue(number, picked.Id, RegistryValueKind.String);
-            }
+            EbomFolders.Remember(number, picked);
             PlatformSave.Log(LogName, "folder for " + number + " = " + picked.Id + " (" + picked.Title + ")");
             return picked;
+        }
+        /// <summary>
+        /// "Set up folders...": goes through every assembly number with no known folder, in order, and has you pick each
+        /// one. Every pick is saved straight away (EbomFolders.Remember), so stopping keeps your progress and running it
+        /// again carries on. Publish BDAT then shares the picks with the team.
+        /// </summary>
+        internal static void SetUpFolders(IWin32Window owner, List<EbomRow> rows)
+        {
+            const string caption = "Set up folders";
+            if (TestMode.Enabled) { Ui.Show(owner, "Set up folders needs 3DEXPERIENCE, so it doesn't run in test mode.", caption, MessageBoxButtons.OK, MessageBoxIcon.Information); return; }
+
+            Connector connector = Connector.Find();
+            if (connector == null || !connector.IsConnected)
+            {
+                Ui.Show(owner, connector == null ? "Couldn't find the 3DEXPERIENCE connector (is the \"3DEXPERIENCE PLM Services\" add-in on?)."
+                    : "You're not logged in to 3DEXPERIENCE. Log in from the 3DEXPERIENCE task pane, then try again.",
+                    caption, MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                return;
+            }
+
+            var labels = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+            var numbers = new List<string>();
+            foreach (NewFromEbomForm.EbomGroup group in NewFromEbomForm.BuildGroups(rows))
+            {
+                // Only real assembly numbers (an assembly row with no number is listed by its part number instead).
+                if (group.Number.Length == 0 || (group.Assembly != null && group.Assembly.AssemblyNumber != group.Number)) continue;
+                numbers.Add(group.Number);
+                labels[group.Number] = group.Number + (group.Assembly != null && group.Assembly.Name.Length > 0 ? " (" + group.Assembly.Name + ")" : "");
+            }
+            List<string> needed = EbomFolders.StillNeeded(numbers, EbomFolders.All());
+            if (needed.Count == 0)
+            {
+                Ui.Show(owner, "Every assembly in the EBOM already has its folder.", caption, MessageBoxButtons.OK, MessageBoxIcon.Information);
+                return;
+            }
+            if (Ui.Show(owner, needed.Count + " of " + numbers.Count + " assemblies don't have a folder yet. For each one, pick the bookmark " +
+                    "named after it (e.g. A0704 for Bellcranks). Cancel the picker to skip one or stop; what you've picked is kept.\n\n" +
+                    "Afterwards, Publish BDAT shares them with the team.", caption, MessageBoxButtons.OKCancel, MessageBoxIcon.Information) != DialogResult.OK)
+                return;
+
+            int done = 0, skipped = 0;
+            for (int i = 0; i < needed.Count; i++)
+            {
+                string number = needed[i];
+                Bookmark picked = PlatformSave.ChooseBookmark(connector, owner, "Pick " + labels[number] + "  (" + (i + 1) + " of " + needed.Count + ")");
+                if (picked == null)
+                {
+                    if (Ui.Show(owner, "No folder picked for " + labels[number] + ".\n\nSkip it and go on to the next one? (No stops here.)",
+                            caption, MessageBoxButtons.YesNo, MessageBoxIcon.Question) != DialogResult.Yes) break;
+                    skipped++;
+                    continue;
+                }
+                if (picked.Title.Length == 0) picked.Title = number;
+                if (!EbomFolders.TitleMatches(picked.Title, number) &&
+                    Ui.Show(owner, "You picked \"" + picked.Title + "\", which isn't named " + number + ". Use it for " + number + " anyway?\n\n" +
+                        "No picks again.", caption, MessageBoxButtons.YesNo, MessageBoxIcon.Warning) != DialogResult.Yes)
+                {
+                    i--; // pick this one again
+                    continue;
+                }
+                EbomFolders.Remember(number, picked);
+                PlatformSave.Log(LogName, "set up folder for " + number + " = " + picked.Id + " (" + picked.Title + ")");
+                done++;
+            }
+            int left = needed.Count - done;
+            Ui.Show(owner, "Picked " + done + " folder" + (done == 1 ? "" : "s") + (skipped > 0 ? ", skipped " + skipped : "") + ". " +
+                (left > 0 ? left + " still to do; run Set up folders again to carry on. " : "") +
+                (done > 0 ? "Run Publish BDAT to share them with the team." : ""), caption, MessageBoxButtons.OK, MessageBoxIcon.Information);
         }
 
         private Bookmark AskNoFolder(IWin32Window owner, EbomRow row, string why, out bool cancelled)

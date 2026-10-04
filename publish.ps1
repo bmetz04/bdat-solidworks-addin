@@ -111,6 +111,28 @@ if ($marker -ge 0) { $history = $history.Substring(0, $marker + 1) + $entry + $h
 else { $history = $history.TrimEnd() + "`r`n`r`n" + $entry }
 [IO.File]::WriteAllText($historyFile, $history)
 
+# Folders picked in New from EBOM on this PC go into the team list, so nobody else has to pick them.
+$pickedFolders = Join-Path $env:LOCALAPPDATA 'BDAT\ebom-folders-picked.csv'
+if (Test-Path $pickedFolders) {
+    $teamFolders = Join-Path $release 'ebom-folders.csv'
+    $merged = @{}
+    if (Test-Path $teamFolders) { Import-Csv $teamFolders | Where-Object { $_.'Assembly Number' -and $_.'Bookmark Id' } | ForEach-Object { $merged[$_.'Assembly Number'] = $_ } }
+    $added = 0
+    Import-Csv $pickedFolders | Where-Object { $_.'Assembly Number' -and $_.'Bookmark Id' } | ForEach-Object {
+        $old = $merged[$_.'Assembly Number']
+        if (-not $old -or $old.'Bookmark Id' -ne $_.'Bookmark Id') { $added++ }
+        $merged[$_.'Assembly Number'] = $_   # a pick replaces the team's entry
+    }
+    $lines = @('Assembly Number,Bookmark Id,Bookmark Title')
+    foreach ($key in ($merged.Keys | Sort-Object)) {
+        $row = $merged[$key]
+        $lines += (@($row.'Assembly Number', $row.'Bookmark Id', $row.'Bookmark Title') | ForEach-Object {
+            $v = [string]$_; if ($v -match '[,"]') { '"' + $v.Replace('"', '""') + '"' } else { $v } }) -join ','
+    }
+    [IO.File]::WriteAllText($teamFolders, ($lines -join "`r`n") + "`r`n", (New-Object Text.UTF8Encoding($false)))
+    if ($added -gt 0) { Write-Host "Shared $added New from EBOM folder(s) with the team (release\ebom-folders.csv)." }
+}
+
 git add -A
 git commit -q -m "Publish BDAT $version"
 git push origin HEAD

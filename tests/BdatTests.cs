@@ -339,6 +339,50 @@ namespace BdatTests
                 Check(refused, "a CSV without the Combined Part # column is refused");
             });
 
+            Test("EBOM folder list is read, merged and matched by assembly number", delegate
+            {
+                string csv = "Assembly Number,Bookmark Id,Bookmark Title\r\n" +
+                    "A0704,ID704,A0704\r\n" +
+                    "a0101,ID101,\"A0101 Balance Bar, front\"\r\n" +
+                    ",IDX,blank number is skipped\r\n" +
+                    "A0999,,blank id is skipped\r\n";
+                Dictionary<string, Bookmark> team = EbomFolders.Parse(csv);
+                Check(team.Count == 2, "expected 2 folders, got " + team.Count);
+                Equal("ID704", team["A0704"].Id, "id by assembly number");
+                Equal("ID101", team["A0101"].Id, "assembly numbers ignore case");
+                Equal("A0101 Balance Bar, front", team["A0101"].Title, "quoted title");
+
+                Dictionary<string, Bookmark> again = EbomFolders.Parse(EbomFolders.Format(team));
+                Check(again.Count == 2 && again["A0101"].Title == "A0101 Balance Bar, front", "Format then Parse gives the same list");
+
+                var picked = new Dictionary<string, Bookmark>(StringComparer.OrdinalIgnoreCase);
+                picked["A0704"] = new Bookmark { Id = "NEW704", Title = "A0704" };
+                picked["A0705"] = new Bookmark { Id = "ID705", Title = "A0705" };
+                Dictionary<string, Bookmark> merged = EbomFolders.Merge(team, picked);
+                Check(merged.Count == 3, "merge adds new picks");
+                Equal("NEW704", merged["A0704"].Id, "a pick replaces the team's entry");
+                Equal("ID101", merged["A0101"].Id, "team entries without a pick stay");
+
+                Check(EbomFolders.TitleMatches("A0704", "A0704"), "exact title");
+                Check(EbomFolders.TitleMatches("a0704", "A0704"), "any case");
+                Check(EbomFolders.TitleMatches("A0704 Bellcranks", "A0704"), "number then name");
+                Check(EbomFolders.TitleMatches("Bellcranks (A0704)", "A0704"), "name then number");
+                Check(!EbomFolders.TitleMatches("A07041", "A0704"), "a longer number isn't a match");
+                Check(!EbomFolders.TitleMatches("Bellcranks", "A0704"), "no number, no match");
+
+                List<string> needed = EbomFolders.StillNeeded(new[] { "A0101", "A0102", "a0704", "A0102", "", "A0705" }, merged);
+                Equal("A0102", string.Join(",", needed.ToArray()), "only numbers with no folder, once each, in order");
+
+                bool refused = false;
+                try { EbomFolders.Parse("Name,Id\r\nx,1"); }
+                catch (System.IO.InvalidDataException) { refused = true; }
+                Check(refused, "a CSV that isn't the folder list is refused");
+
+                // The harness runs from tests\bin, two folders below the repo.
+                string teamFile = Path.GetFullPath(Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "..", "..", "release", "ebom-folders.csv"));
+                Check(File.Exists(teamFile) && EbomFolders.Parse(File.ReadAllText(teamFile)) != null, "the team list in the repo can be read");
+            });
+
             Test("Create Origin reads coordinates", delegate
             {
                 CreateOriginCommand.LengthUnit mm = CreateOriginCommand.Millimetres;
