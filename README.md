@@ -1,6 +1,6 @@
 # BDAT for SolidWorks 2025
 
-A SolidWorks add-in that puts FUBC speed-up macros on a **BDAT** toolbar, menu, and CommandManager tab. Every macro is its own button.
+A SolidWorks add-in that puts FUBC speed-up macros on a **BDAT** toolbar, menu, and CommandManager tab. Every macro is its own button. The tab shows the same buttons in parts and assemblies; a button that can't run in the open document (Murder Part and Save MCM in an assembly) is greyed out.
 
 ## Commands
 
@@ -27,7 +27,7 @@ The first time you use it, it asks you to pick the McMaster Carr bookmark once a
 It uses the API of the "3DEXPERIENCE PLM Services" connector add-in (see `Connector.cs`), because the official SolidWorks API can't choose a bookmark when saving.
 
 ### Create Origin
-Makes a new origin at a point you type in, so a part or sub-assembly can be origin-mated in the top-level assembly. Works in parts and assemblies (it's on the BDAT tab in both). SolidWorks can't move the real origin, so this adds the next best thing.
+Makes a new origin at a point you type in, so a part or sub-assembly can be origin-mated in the top-level assembly. Works in parts and assemblies. SolidWorks can't move the real origin, so this adds the next best thing.
 
 It uses SolidWorks' own **X, Y and Z**, the same ones a 3D sketch point's coordinates are measured along (X normal to Right, Y normal to Top, Z normal to Front), so numbers copied from a 3D sketch land where you expect.
 
@@ -77,7 +77,7 @@ Alternative: with Visual Studio 2022 or the .NET SDK installed, `dotnet build sr
 
 1. Close SolidWorks.
 2. Right-click `install.bat` and choose **Run as administrator**.
-3. Start SolidWorks. BDAT appears under **Tools > Add-Ins** (ticked to load at startup) and as a **BDAT** tab when a part is open.
+3. Start SolidWorks. BDAT appears under **Tools > Add-Ins** (ticked to load at startup) and as a **BDAT** tab when a part or assembly is open.
 
 To remove it, run `uninstall.bat` as administrator.
 
