@@ -265,13 +265,14 @@ namespace BdatTests
             Test("Toolbar has the expected BDAT buttons, in order", delegate
             {
                 List<string> titles = CommandTitles(new SwAddin());
-                Check(titles.Count == 6, "expected 6 buttons, got " + titles.Count + ": " + string.Join(", ", titles.ToArray()));
+                Check(titles.Count == 7, "expected 7 buttons, got " + titles.Count + ": " + string.Join(", ", titles.ToArray()));
                 Equal("Murder Part", titles[0], "button 1");
                 Equal("Save MCM", titles[1], "button 2");
                 Equal("Create Origin", titles[2], "button 3");
                 Equal("New from EBOM", titles[3], "button 4");
-                Equal("Update BDAT", titles[4], "button 5");
-                Check(Regex.IsMatch(titles[5], @"^BDAT (v\d+|dev build)$"), "button 6 should be the version (BDAT vN), got \"" + titles[5] + "\"");
+                Equal("Name Cut List", titles[4], "button 5");
+                Equal("Update BDAT", titles[5], "button 6");
+                Check(Regex.IsMatch(titles[6], @"^BDAT (v\d+|dev build)$"), "button 7 should be the version (BDAT vN), got \"" + titles[6] + "\"");
             });
 
             Test("EBOM CSV is read by column heading", delegate
@@ -673,6 +674,7 @@ namespace BdatTests
                     // particular body count, just that no geometry is lost and the usual guarantees hold.
                     Test("Murder Part: two-body part", delegate { MurderTest(swApp, samples.TwoBody, samples.TwoBodyVolume, 0, work); });
                     Test("Murder Part: answering No changes nothing", delegate { MurderCancelTest(swApp, samples.Threaded); });
+                    Test("Name Cut List: makes a weldment and names the items 001, 002", delegate { NameCutListTest(swApp, samples.TwoBody); });
                     Test("Save MCM: fills in part number and description", delegate
                     {
                         SaveMcmTest(swApp, samples.Threaded, null, null, "91251A540", "Socket Head Screw");
@@ -982,6 +984,42 @@ namespace BdatTests
             {
                 swApp.CloseDoc(original.GetTitle());
             }
+        }
+
+        // ---- Name Cut List
+
+        /// <summary>
+        /// The two-body sample has no cut list, so Name Cut List must make it a weldment and name its two items
+        /// 001 and 002. A second run must give the same names (the items already hold them). Nothing is saved.
+        /// </summary>
+        private static void NameCutListTest(ISldWorks swApp, string partPath)
+        {
+            string before = Snapshot(partPath);
+            IModelDoc2 doc = Open(swApp, partPath);
+            try
+            {
+                Check(!FeatureTypes(doc).Contains("CutListFolder"), "the sample already has a cut list");
+                var command = new NameCutListCommand();
+                Check(command.IsEnabled(swApp), "Name Cut List should be clickable with a part open");
+
+                for (int run = 1; run <= 2; run++)
+                {
+                    TestMode.LastNameCutList = null;
+                    TestMode.Messages.Clear();
+                    command.Run(swApp);
+                    string said = string.Join(" | ", TestMode.Messages.ToArray());
+                    Check(TestMode.LastNameCutList != null, "run " + run + " renamed nothing: " + said);
+                    Equal("001,002", string.Join(",", TestMode.LastNameCutList.ToArray()), "run " + run + " names");
+                    Check(FeatureTypes(doc).Contains("WeldmentFeature"), "the part wasn't made a weldment");
+                    List<string> names = Features(doc).Where(f => f.GetTypeName2() == "CutListFolder").Select(f => f.Name).ToList();
+                    Equal("001,002", string.Join(",", names.ToArray()), "run " + run + " cut list items in the tree");
+                }
+            }
+            finally
+            {
+                swApp.CloseDoc(doc.GetTitle());
+            }
+            Equal(before, Snapshot(partPath), "sample file (Name Cut List must not save)");
         }
 
         // ---- Save MCM

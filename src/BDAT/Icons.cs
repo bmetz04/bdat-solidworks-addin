@@ -83,10 +83,13 @@ namespace BDAT
                 case 3: // New from EBOM: teal circle with a white list
                     DrawListIcon(g, cell, Color.FromArgb(0, 130, 140));
                     break;
-                case 4: // Update: green circle with a white down arrow
+                case 4: // Name Cut List: brown circle with "01"
+                    DrawBadge(g, cell, Color.FromArgb(150, 85, 30), "01", 0.36f);
+                    break;
+                case 5: // Update: green circle with a white down arrow
                     DrawArrowIcon(g, cell, Color.FromArgb(30, 140, 60), false);
                     break;
-                case 5: // Version: blue circle with an "i"
+                case 6: // Version: blue circle with an "i"
                     DrawBadge(g, cell, Color.FromArgb(30, 90, 170), "i");
                     break;
                 default:
@@ -174,11 +177,16 @@ namespace BDAT
 
         private static void DrawBadge(Graphics g, Rectangle cell, Color color, string text)
         {
+            DrawBadge(g, cell, color, text, 0.45f);
+        }
+
+        private static void DrawBadge(Graphics g, Rectangle cell, Color color, string text, float textSize)
+        {
             float pad = cell.Width * 0.08f;
             var rect = new RectangleF(cell.X + pad, cell.Y + pad, cell.Width - 2 * pad, cell.Height - 2 * pad);
             using (var fill = new SolidBrush(color))
                 g.FillEllipse(fill, rect);
-            using (var font = new Font(FontFamily.GenericSansSerif, cell.Width * 0.45f, FontStyle.Bold, GraphicsUnit.Pixel))
+            using (var font = new Font(FontFamily.GenericSansSerif, cell.Width * textSize, FontStyle.Bold, GraphicsUnit.Pixel))
             using (var format = new StringFormat { Alignment = StringAlignment.Center, LineAlignment = StringAlignment.Center })
                 g.DrawString(text, font, Brushes.White, rect, format);
         }
