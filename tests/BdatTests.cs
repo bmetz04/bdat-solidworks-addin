@@ -428,6 +428,35 @@ namespace BdatTests
                 Check(bell != null && bell.Title == "A0704", "folder title");
                 Equal("Formula UBC Racing > Suspension > A0704", bell == null ? "" : bell.Path, "folder path from the links");
 
+                // Where "Make folder" suggests putting A0705: beside the other A07xx folders, not the A01xx ones.
+                var folders = new List<FoundBookmark>
+                {
+                    new FoundBookmark { Id = "ROOT", Title = "Formula UBC Racing", Path = "Formula UBC Racing" },
+                    new FoundBookmark { Id = "S", Title = "Suspension", ParentId = "ROOT", Path = "Formula UBC Racing > Suspension" },
+                    new FoundBookmark { Id = "BR", Title = "Brakes", ParentId = "ROOT", Path = "Formula UBC Racing > Brakes" },
+                    new FoundBookmark { Id = "1", Title = "A0704", ParentId = "S" },
+                    new FoundBookmark { Id = "2", Title = "A0706 Uprights", ParentId = "S" },
+                    new FoundBookmark { Id = "3", Title = "A0101", ParentId = "BR" },
+                    new FoundBookmark { Id = "4", Title = "A0102", ParentId = "BR" },
+                    new FoundBookmark { Id = "5", Title = "A0103", ParentId = "BR" },
+                };
+                FoundBookmark place = BookmarkSearch.SuggestParent("A0705", folders);
+                Equal("S", place == null ? "" : place.Id, "a new A07xx folder goes with the other suspension folders");
+                place = BookmarkSearch.SuggestParent("A0901", folders);
+                Equal("BR", place == null ? "" : place.Id, "a new system's folder goes where most assembly folders are");
+                Check(BookmarkSearch.SuggestParent("A0705", folders.GetRange(0, 3)) == null, "no assembly folders yet: ask where");
+
+                var created = new FakeCreateResult();
+                created.items.Add(new FakeCreateItem { id = "NEWID", title = "A0705" });
+                Equal("NEWID", BookmarkSearch.CreatedId(created, "A0705"), "the new folder's id from CreateBookmark's answer");
+                Check(BookmarkSearch.CreatedId(new FakeCreateResult(), "A0705") == null, "no item, no folder");
+
+                bool refusedCreate = false;
+                try { string err; BookmarkSearch.Create("S", "Suspension", "A0705", out err); }
+                catch (InvalidOperationException) { refusedCreate = true; }
+                Check(refusedCreate, "making a folder can't reach 3DEXPERIENCE in test mode");
+                TestMode.ConnectorAttempts = 0;
+
                 bool refused = false;
                 try { BookmarkSearch.Find("A0704", new[] { "X" }); }
                 catch (InvalidOperationException) { refused = true; }
@@ -1345,6 +1374,18 @@ namespace BdatTests
         public string Ds6w_label { get; set; }
         public string From { get; set; }
         public string To { get; set; }
+    }
+
+    // Stand-ins for JsCreateBookmarkResult (items is a field, as in the connector) and its Item.
+    public sealed class FakeCreateResult
+    {
+        public List<FakeCreateItem> items = new List<FakeCreateItem>();
+    }
+
+    public sealed class FakeCreateItem
+    {
+        public string id;
+        public string title;
     }
 
     internal sealed class Samples

@@ -296,10 +296,15 @@ namespace BDAT.Commands
                         : "BDAT couldn't search the 3DEXPERIENCE folders just now.";
                     int choice = Ui.Choose(owner,
                         "Where should " + row.Number + " go? It belongs in " + label + ".\n\n" + why + "\n\n" +
-                        "Make a folder named " + number + " in 3DEXPERIENCE (in Bookmarks, where the other assembly folders are), " +
-                        "then click Search again. Or pick an existing folder, or save it without a folder for now.",
-                        Title, MessageBoxIcon.Warning, "Search again", "Pick a folder...", "Save without folder", "Cancel");
-                    if (choice == 0) { BookmarkSearch.Refresh(); continue; }
+                        "BDAT can make the " + number + " folder for you, or you can pick an existing folder, or save it " +
+                        "without a folder for now.",
+                        Title, MessageBoxIcon.Warning, "Make folder " + number, "Pick a folder...", "Save without folder", "Cancel");
+                    if (choice == 0)
+                    {
+                        Bookmark made = MakeFolder(connector, owner, number, label);
+                        if (made != null) return made;
+                        continue; // back to the choices
+                    }
                     if (choice == 1) break;
                     if (choice == 2) return null; // save without a folder
                     cancelled = true;
@@ -469,6 +474,43 @@ namespace BDAT.Commands
             Ui.Show(owner, "Picked " + done + " folder" + (done == 1 ? "" : "s") + (skipped > 0 ? ", skipped " + skipped : "") + ". " +
                 (left > 0 ? left + " still to do; run Set up folders again to carry on. " : "") +
                 (done > 0 ? "Run Publish BDAT to share them with the team." : ""), caption, MessageBoxButtons.OK, MessageBoxIcon.Information);
+        }
+
+        /// <summary>
+        /// "Make folder": makes a bookmark named after the assembly number, where the other assembly folders of that system
+        /// are (you confirm the place, or choose another), and remembers it. Null if it wasn't made (back to the choices).
+        /// </summary>
+        private Bookmark MakeFolder(Connector connector, IWin32Window owner, string number, string label)
+        {
+            string parentId = null, parentPath = null;
+            FoundBookmark suggested = BookmarkSearch.SuggestParent(number, SearchStartIds());
+            if (suggested != null)
+            {
+                int where = Ui.Choose(owner, "Make a folder named " + number + " for " + label + " in:\n\n" + suggested.Path +
+                    "\n\nThat's where the other assembly folders like it are.", Title, MessageBoxIcon.Question,
+                    "Make it here", "Choose another place...", "Back");
+                if (where == 2) return null;
+                if (where == 0) { parentId = suggested.Id; parentPath = suggested.Path; }
+            }
+            if (parentId == null)
+            {
+                Bookmark place = PlatformSave.ChooseBookmark(connector, owner, "Pick where to make the " + number + " folder");
+                if (place == null) return null;
+                parentId = place.Id;
+                parentPath = string.IsNullOrEmpty(place.Title) ? "the folder you picked" : place.Title;
+            }
+
+            string error;
+            FoundBookmark made = BookmarkSearch.Create(parentId, parentPath, number, out error);
+            if (made == null)
+            {
+                Ui.Show(owner, "Couldn't make the " + number + " folder: " + error + "\n\nYou can make it in 3DEXPERIENCE yourself, or pick a folder instead.",
+                    Title, MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                return null;
+            }
+            var folder = new Bookmark { Id = made.Id, Title = made.Title };
+            EbomFolders.Remember(number, folder);
+            return folder;
         }
 
         /// <summary>Folders BDAT already knows, to find the team's top folder from: McMaster Carr, then every remembered one.</summary>

@@ -13,6 +13,8 @@ namespace BDAT
         public string Id;
         public string Title;
         public string Path;
+        /// <summary>The folder it's in (null for the top folder).</summary>
+        public string ParentId;
     }
 
     /// <summary>
@@ -151,6 +153,135 @@ namespace BDAT
             }
         }
 
+        // ---------------------------------------------------------------- making a folder
+
+        /// <summary>
+        /// Where a new folder for the assembly number should go: next to the other folders of the same system (A07xx for
+        /// A0705), otherwise where most assembly folders are. Null if there are no assembly folders yet (then ask).
+        /// </summary>
+        public static FoundBookmark SuggestParent(string assemblyNumber, IEnumerable<string> knownBookmarkIds)
+        {
+            List<FoundBookmark> tree = Tree(knownBookmarkIds);
+            return tree == null ? null : SuggestParent(assemblyNumber, tree);
+        }
+
+        internal static FoundBookmark SuggestParent(string assemblyNumber, List<FoundBookmark> tree)
+        {
+            var byId = new Dictionary<string, FoundBookmark>(StringComparer.Ordinal);
+            foreach (FoundBookmark b in tree) byId[b.Id] = b;
+            string system = assemblyNumber.Length >= 3 ? assemblyNumber.Substring(0, 3) : assemblyNumber; // "A07"
+            var votesSame = new Dictionary<string, int>(StringComparer.Ordinal);
+            var votesAll = new Dictionary<string, int>(StringComparer.Ordinal);
+            foreach (FoundBookmark b in tree)
+            {
+                if (b.ParentId == null || !byId.ContainsKey(b.ParentId) || !LooksLikeAssemblyFolder(b.Title)) continue;
+                Vote(votesAll, b.ParentId);
+                if (b.Title.Trim().StartsWith(system, StringComparison.OrdinalIgnoreCase)) Vote(votesSame, b.ParentId);
+            }
+            string best = Top(votesSame) ?? Top(votesAll);
+            return best == null ? null : byId[best];
+        }
+
+        // "A0704", "A0704 Bellcranks": A, four digits, then the end or a separator.
+        private static bool LooksLikeAssemblyFolder(string title)
+        {
+            string t = (title ?? "").Trim();
+            if (t.Length < 5 || char.ToUpperInvariant(t[0]) != 'A') return false;
+            for (int i = 1; i < 5; i++) if (!char.IsDigit(t[i])) return false;
+            return TitleIsFor(t, t.Substring(0, 5));
+        }
+
+        private static void Vote(Dictionary<string, int> votes, string id)
+        {
+            int n;
+            votes.TryGetValue(id, out n);
+            votes[id] = n + 1;
+        }
+
+        private static string Top(Dictionary<string, int> votes)
+        {
+            string best = null;
+            int most = 0;
+            foreach (KeyValuePair<string, int> v in votes)
+                if (v.Value > most) { best = v.Key; most = v.Value; }
+            return best;
+        }
+
+        /// <summary>
+        /// Makes a folder (bookmark) titled title inside parentId, the way the connector's own "save folder" does
+        /// (WebServices.CreateBookmark with the session's CSRF token). Only called when someone clicks "Make folder".
+        /// Returns the new folder, or null with the reason in error.
+        /// </summary>
+        public static FoundBookmark Create(string parentId, string parentPath, string title, out string error)
+        {
+            error = null;
+            TestMode.BlockConnector("BookmarkSearch.Create");
+            try
+            {
+                Assembly infra = Connector.ConnectorAssembly("TaskPaneInfra");
+                Assembly wsapi = Connector.ConnectorAssembly("WSAPI");
+                Type iec = infra == null ? null : infra.GetType("TaskPaneInfra.IEC");
+                Type web = wsapi == null ? null : wsapi.GetType("WSAPI.WebServices");
+                const BindingFlags any = BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static;
+                FieldInfo lockField = iec == null ? null : iec.GetField("_serverLock", any);
+                MethodInfo getServer = iec == null ? null : iec.GetMethod("get_server", any);
+                MethodInfo login = web == null ? null : web.GetMethod("LoginTo3DSpace", any);
+                MethodInfo create = web == null ? null : web.GetMethod("CreateBookmark", any);
+                if (lockField == null || getServer == null || login == null || create == null)
+                {
+                    error = "this version of the 3DEXPERIENCE connector doesn't offer it.";
+                    return null;
+                }
+
+                object serverLock = lockField.GetValue(null) ?? new object();
+                lock (serverLock)
+                {
+                    object server = getServer.Invoke(null, null);
+                    if (server == null) { error = "you're not connected to 3DEXPERIENCE."; return null; }
+                    var cc = new CookieContainer();
+                    object session = login.Invoke(null, new object[] { server, cc });
+                    if (!Succeeded(session)) { error = "couldn't sign in to 3DSpace."; return null; }
+                    string csrfName = Property(session, "Item1") as string;
+                    string csrfValue = Property(session, "Item2") as string;
+
+                    PlatformSave.Log(LogName, "making folder \"" + title + "\" in " + parentPath + " (" + parentId + ")");
+                    object result = create.Invoke(null, new object[] { server, cc, csrfName, csrfValue, parentId, title });
+                    string id = CreatedId(result, title);
+                    if (id == null)
+                    {
+                        string message = result == null ? null : Property(result, "message") as string;
+                        error = string.IsNullOrEmpty(message) ? "3DEXPERIENCE didn't make it." : message;
+                        PlatformSave.Log(LogName, "making folder failed: " + error);
+                        return null;
+                    }
+                    PlatformSave.Log(LogName, "made folder \"" + title + "\" = " + id);
+                    Refresh();
+                    return new FoundBookmark { Id = id, Title = title, ParentId = parentId, Path = parentPath + " > " + title };
+                }
+            }
+            catch (Exception ex)
+            {
+                Exception inner = ex is TargetInvocationException && ex.InnerException != null ? ex.InnerException : ex;
+                PlatformSave.Log(LogName, "making folder failed: " + inner);
+                error = inner.Message;
+                return null;
+            }
+        }
+
+        // The new folder's id from CreateBookmark's result: the item whose title matches (as the connector reads it).
+        internal static string CreatedId(object result, string title)
+        {
+            IEnumerable items = result == null ? null : Field(result, "items") as IEnumerable;
+            if (items == null) return null;
+            foreach (object item in items)
+            {
+                string t = Field(item, "title") as string;
+                string id = Field(item, "id") as string;
+                if (!string.IsNullOrEmpty(id) && string.Equals(t, title, StringComparison.OrdinalIgnoreCase)) return id;
+            }
+            return null;
+        }
+
         /// <summary>
         /// The expand result as folders with paths. Its Results hold folder entries (ResourceId + Ds6w_label) and links
         /// (From = parent id, To = child id), the same way the connector's bookmark download reads it.
@@ -176,7 +307,10 @@ namespace BDAT
 
             var tree = new List<FoundBookmark>();
             foreach (KeyValuePair<string, string> folder in titles)
-                tree.Add(new FoundBookmark { Id = folder.Key, Title = folder.Value, Path = PathOf(folder.Key, titles, parents) });
+            {
+                string parent;
+                tree.Add(new FoundBookmark { Id = folder.Key, Title = folder.Value, Path = PathOf(folder.Key, titles, parents), ParentId = parents.TryGetValue(folder.Key, out parent) ? parent : null });
+            }
             return tree;
         }
 
