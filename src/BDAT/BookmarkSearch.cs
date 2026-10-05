@@ -121,25 +121,40 @@ namespace BDAT
                     var cc = new CookieContainer();
                     if (!Succeeded(login.Invoke(null, new object[] { server, cc }))) { PlatformSave.Log(LogName, "folder search: 3DSpace login failed"); return null; }
 
-                    // The team's top folder: walk up from a folder BDAT already knows.
-                    string rootId = null, rootTitle = null;
-                    foreach (string id in knownBookmarkIds)
+                    // The team's top folder(s): walk all the way up from each folder BDAT already knows. GetBookmarkInfo
+                    // only reports one parent level at a time, so ask again for each parent until there's none.
+                    var roots = new Dictionary<string, string>(StringComparer.Ordinal); // id -> title
+                    foreach (string start in knownBookmarkIds)
                     {
-                        if (string.IsNullOrEmpty(id)) continue;
-                        object b = info.Invoke(null, new object[] { server, cc, id });
-                        while (b != null)
+                        if (string.IsNullOrEmpty(start)) continue;
+                        string id = start, title = null;
+                        var seen = new HashSet<string>(StringComparer.Ordinal);
+                        while (id != null && seen.Add(id) && seen.Count < 30)
                         {
-                            object parent = Field(b, "parent");
-                            if (parent == null) { rootId = Field(b, "physicalId") as string; rootTitle = Field(b, "title") as string; break; }
-                            b = parent;
+                            object b = info.Invoke(null, new object[] { server, cc, id });
+                            if (b == null) { id = null; break; }
+                            // Use the highest ancestor this answer knows about.
+                            object top = b;
+                            while (Field(top, "parent") != null) top = Field(top, "parent");
+                            string topId = Field(top, "physicalId") as string;
+                            title = Field(top, "title") as string;
+                            if (string.IsNullOrEmpty(topId) || topId == id) break; // nothing above: id is the top
+                            id = topId;
                         }
-                        if (!string.IsNullOrEmpty(rootId)) break;
+                        if (!string.IsNullOrEmpty(id) && !roots.ContainsKey(id)) roots[id] = title ?? "";
                     }
-                    if (string.IsNullOrEmpty(rootId)) { PlatformSave.Log(LogName, "folder search: couldn't find the top folder"); return null; }
+                    if (roots.Count == 0) { PlatformSave.Log(LogName, "folder search: couldn't find the top folder"); return null; }
 
-                    object result = expand.Invoke(null, new object[] { server, cc, rootId });
-                    List<FoundBookmark> tree = Parse(result, rootId, rootTitle);
-                    PlatformSave.Log(LogName, "folder search: read " + tree.Count + " folders under " + rootTitle + " (" + rootId + ")");
+                    var tree = new List<FoundBookmark>();
+                    var have = new HashSet<string>(StringComparer.Ordinal);
+                    foreach (KeyValuePair<string, string> root in roots)
+                    {
+                        object result = expand.Invoke(null, new object[] { server, cc, root.Key });
+                        List<FoundBookmark> part = Parse(result, root.Key, root.Value);
+                        PlatformSave.Log(LogName, "folder search: read " + part.Count + " folders under " + root.Value + " (" + root.Key + ")");
+                        foreach (FoundBookmark b in part)
+                            if (have.Add(b.Id)) tree.Add(b);
+                    }
                     _tree = tree;
                     _treeTime = DateTime.Now;
                     return tree;
