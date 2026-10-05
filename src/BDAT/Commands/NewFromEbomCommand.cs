@@ -13,7 +13,7 @@ namespace BDAT.Commands
     /// New from EBOM: pick a row of the team's EBOM and get a new, unsaved part (or assembly, for an Assembly row)
     /// already named and described from it.
     ///
-    ///   1. Downloads the team's EBOM (release/ebom.csv in the repo, the Google Sheet downloaded as CSV), keeping
+    ///   1. Downloads the team's EBOM straight from the Master eBOM Google Sheet (published to the web as CSV), keeping
     ///      a copy for when it's offline. With neither, it asks for a CSV and remembers it for this Windows user.
     ///   2. A pop-up lists the EBOM's current rows, searchable by part number, name, assembly or area. Obsolete rows
     ///      never show: their numbers have been reused by current parts.
