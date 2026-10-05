@@ -454,6 +454,16 @@ namespace BdatTests
                 Check(refusedCreate, "making a folder can't reach 3DEXPERIENCE in test mode");
                 TestMode.ConnectorAttempts = 0;
 
+                bool refusedExisting = false;
+                try { ExistingParts.Exists("BR-10101-AA"); }
+                catch (InvalidOperationException) { refusedExisting = true; }
+                Check(refusedExisting, "the 'already in 3DEXPERIENCE' check can't reach 3DEXPERIENCE in test mode");
+                ExistingParts.SetForTests(new[] { "br-10101-aa" });
+                Check(ExistingParts.Check(new[] { "BR-10101-AA", "BR-10102-AA" }, TimeSpan.FromMinutes(5)).Contains("BR-10101-AA"),
+                    "existing numbers match whatever case 3DEXPERIENCE answers in");
+                ExistingParts.SetForTests(null);
+                TestMode.ConnectorAttempts = 0;
+
                 bool refused = false;
                 try { BookmarkSearch.Find("A0704", new[] { "X" }); }
                 catch (InvalidOperationException) { refused = true; }

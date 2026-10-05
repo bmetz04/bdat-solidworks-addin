@@ -174,7 +174,7 @@ namespace BDAT.Commands
         private void Confirm()
         {
             EbomRow row = Selected;
-            if (row == null) return;
+            if (row == null || Exists(row)) return;
             using (var details = new NewFromEbomDetailsForm(row, SaveText(row)))
             {
                 if (details.ShowDialog(this) != DialogResult.OK) return;
@@ -205,6 +205,7 @@ namespace BDAT.Commands
             base.OnShown(e);
             FitNameColumn();
             _search.Focus();
+            CheckExisting();
         }
 
         /// <summary>source: how to describe it, e.g. "Team EBOM"; null names the file.</summary>
@@ -336,7 +337,11 @@ namespace BDAT.Commands
                 shown += matchingParts.Count;
                 if (!open) continue;
                 foreach (EbomRow part in parts)
-                    _list.Items.Add(new ListViewItem(new[] { Indent + part.Number, part.Name, part.Area, part.Class }) { Tag = part });
+                {
+                    var item = new ListViewItem(new[] { Indent + part.Number, part.Name + (Exists(part) ? InPlatform : ""), part.Area, part.Class }) { Tag = part };
+                    if (Exists(part)) item.ForeColor = Taken;
+                    _list.Items.Add(item);
+                }
             }
 
             foreach (ListViewItem item in _list.Items)
@@ -361,7 +366,55 @@ namespace BDAT.Commands
                 _count.Text = shown + (shown == 1 ? " match" : " matches") + " in " + groupsShown + (groupsShown == 1 ? " assembly" : " assemblies") + ".";
             else
                 _count.Text = groupsShown + " assemblies, " + current + " current EBOM rows. Click ▶, double-click or press → to show an assembly's parts.";
+            _count.Text += "  " + ExistingStatus();
             ShowPicked();
+        }
+
+        // ---------------------------------------------------------------- what's already in 3DEXPERIENCE
+
+        // Numbers already in 3DEXPERIENCE (checked in the background when the pop-up opens). Null until known.
+        private HashSet<string> _existing;
+        private bool _checking, _checkFailed;
+        private static readonly Color Taken = Color.FromArgb(150, 150, 150);
+        private const string InPlatform = "   (in 3DEXPERIENCE)";
+
+        private bool Exists(EbomRow row)
+        {
+            return row != null && _existing != null && _existing.Contains(row.Number);
+        }
+
+        private string ExistingStatus()
+        {
+            if (_checking) return "Checking 3DEXPERIENCE for numbers that already exist...";
+            if (_checkFailed) return "Couldn't check 3DEXPERIENCE for numbers that already exist.";
+            if (_existing == null) return "";
+            int n = 0;
+            foreach (EbomRow row in _rows)
+                if (!row.IsObsolete && _existing.Contains(row.Number)) n++;
+            return n == 0 ? "None are in 3DEXPERIENCE yet." : n + " already in 3DEXPERIENCE (greyed out).";
+        }
+
+        /// <summary>Starts the background check of which EBOM numbers are already in 3DEXPERIENCE.</summary>
+        private void CheckExisting()
+        {
+            if (Testing.TestMode.Enabled) return;
+            var numbers = new List<string>();
+            foreach (EbomRow row in _rows)
+                if (!row.IsObsolete && !numbers.Contains(row.Number)) numbers.Add(row.Number);
+            _checking = true;
+            _checkFailed = false;
+            Fill();
+            var worker = new System.ComponentModel.BackgroundWorker();
+            worker.DoWork += delegate(object s, System.ComponentModel.DoWorkEventArgs e) { e.Result = ExistingParts.Check(numbers, TimeSpan.FromMinutes(5)); };
+            worker.RunWorkerCompleted += delegate(object s, System.ComponentModel.RunWorkerCompletedEventArgs e)
+            {
+                if (IsDisposed) return;
+                _checking = false;
+                _existing = e.Error == null ? e.Result as HashSet<string> : null;
+                _checkFailed = _existing == null;
+                Fill();
+            };
+            worker.RunWorkerAsync();
         }
 
         private ListViewItem HeaderItem(EbomGroup group, bool open)
@@ -370,8 +423,9 @@ namespace BDAT.Commands
             ListViewItem item;
             if (group.Assembly != null)
             {
-                string name = group.Assembly.Name + (group.Parts.Count > 0 ? "   (" + group.Parts.Count + ")" : "");
+                string name = group.Assembly.Name + (group.Parts.Count > 0 ? "   (" + group.Parts.Count + ")" : "") + (Exists(group.Assembly) ? InPlatform : "");
                 item = new ListViewItem(new[] { marker + group.Assembly.Number, name, group.Area, group.Assembly.Class }) { Tag = group.Assembly };
+                if (Exists(group.Assembly)) item.ForeColor = Taken;
             }
             else
             {
@@ -402,6 +456,12 @@ namespace BDAT.Commands
             string kind = row.IsAssembly ? "assembly" : "part";
             _create.Text = "Create " + kind;
             _pickedNumber.Text = row.Number + "   " + row.Name;
+            if (Exists(row))
+            {
+                _create.Enabled = false;
+                _pickedDetails.Text = "Already in 3DEXPERIENCE, so there's nothing to create. Open it from 3DEXPERIENCE instead.";
+                return;
+            }
             string where = row.IsAssembly ? "" : row.Parent.Length > 0 ? " in " + row.AssemblyNumber + " " + row.Parent : row.AssemblyNumber.Length > 0 ? " in " + row.AssemblyNumber : "";
             string save = SaveText(row);
             _pickedDetails.Text = "New " + kind + ", " + row.Area + where + ". " + save;

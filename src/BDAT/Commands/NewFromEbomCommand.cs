@@ -84,6 +84,15 @@ namespace BDAT.Commands
             EbomRow row = Pick(owner, csv, source, rows, out saveToPlatform, out checkIn, out description);
             if (row == null) return;
 
+            // Last check before making anything: is this number already anywhere in 3DEXPERIENCE? (The pop-up greys
+            // those out, but its background check may not have finished, or someone may have just made it.)
+            if (!TestMode.Enabled && ExistingParts.Exists(row.Number) == true)
+            {
+                Ui.Tell(swApp, row.Number + " (" + row.Name + ") is already in 3DEXPERIENCE, so nothing was made.\n\n" +
+                    "Open it from 3DEXPERIENCE instead.", swMessageBoxIcon_e.swMbWarning);
+                return;
+            }
+
             swDocumentTypes_e type = row.IsAssembly ? swDocumentTypes_e.swDocASSEMBLY : swDocumentTypes_e.swDocPART;
             string template = swApp.GetUserPreferenceStringValue((int)(row.IsAssembly
                 ? swUserPreferenceStringValue_e.swDefaultTemplateAssembly
@@ -201,7 +210,9 @@ namespace BDAT.Commands
                 return;
             }
 
-            if (!platform.Save(doc, fileName))
+            bool savedOk = platform.Save(doc, fileName);
+            if (savedOk) ExistingParts.Remember(row.Number);
+            if (!savedOk)
             {
                 Ui.Tell(swApp, "3DEXPERIENCE didn't save " + row.Number + ". Check the 3DEXPERIENCE task pane for details." + notSaved,
                     swMessageBoxIcon_e.swMbStop);
