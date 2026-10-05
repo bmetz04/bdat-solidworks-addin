@@ -406,6 +406,35 @@ namespace BdatTests
                 Check(SaveMcmCommand.KnownBookmark() != null, "there's always a McMaster Carr folder to confirm (built in or picked)");
             });
 
+            Test("Folder search matches assembly numbers and reads the folder tree", delegate
+            {
+                Check(BookmarkSearch.TitleIsFor("A0704", "A0704"), "exact title");
+                Check(BookmarkSearch.TitleIsFor(" a0704 ", "A0704"), "any case, spaces trimmed");
+                Check(BookmarkSearch.TitleIsFor("A0704 Bellcranks", "A0704"), "number then name");
+                Check(BookmarkSearch.TitleIsFor("A0704 - Bellcranks", "A0704"), "number, dash, name");
+                Check(!BookmarkSearch.TitleIsFor("A07041", "A0704"), "a longer number isn't it");
+                Check(!BookmarkSearch.TitleIsFor("SU-A0704-AA", "A0704"), "a part number isn't a folder for it");
+                Check(!BookmarkSearch.TitleIsFor("Bellcranks", "A0704"), "no number, no match");
+
+                // The expand result's shape: folder entries plus From/To links (made-up ids).
+                var result = new FakeExpand();
+                result.Results.Add(new FakeExpandRow { ResourceId = "S", Ds6w_label = "Suspension" });
+                result.Results.Add(new FakeExpandRow { ResourceId = "B", Ds6w_label = "A0704" });
+                result.Results.Add(new FakeExpandRow { From = "ROOT", To = "S" });
+                result.Results.Add(new FakeExpandRow { From = "S", To = "B" });
+                List<FoundBookmark> tree = BookmarkSearch.Parse(result, "ROOT", "Formula UBC Racing");
+                Check(tree.Count == 3, "root plus two folders, got " + tree.Count);
+                FoundBookmark bell = tree.Find(b => b.Id == "B");
+                Check(bell != null && bell.Title == "A0704", "folder title");
+                Equal("Formula UBC Racing > Suspension > A0704", bell == null ? "" : bell.Path, "folder path from the links");
+
+                bool refused = false;
+                try { BookmarkSearch.Find("A0704", new[] { "X" }); }
+                catch (InvalidOperationException) { refused = true; }
+                Check(refused && TestMode.ConnectorAttempts >= 1, "the folder search can't reach 3DEXPERIENCE in test mode");
+                TestMode.ConnectorAttempts = 0;
+            });
+
             Test("Create Origin reads coordinates", delegate
             {
                 CreateOriginCommand.LengthUnit mm = CreateOriginCommand.Millimetres;
@@ -1303,6 +1332,21 @@ namespace BdatTests
     }
 
     /// <summary>The sample parts, made fresh for each run in the run's temp folder.</summary>
+    // Stand-ins for the connector's JsCVServletExpandV2Result, which BookmarkSearch reads by property name.
+    public sealed class FakeExpand
+    {
+        private readonly List<FakeExpandRow> _results = new List<FakeExpandRow>();
+        public List<FakeExpandRow> Results { get { return _results; } }
+    }
+
+    public sealed class FakeExpandRow
+    {
+        public string ResourceId { get; set; }
+        public string Ds6w_label { get; set; }
+        public string From { get; set; }
+        public string To { get; set; }
+    }
+
     internal sealed class Samples
     {
         private const double Radius = 0.005;    // 10 mm diameter

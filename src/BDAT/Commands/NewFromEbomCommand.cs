@@ -269,6 +269,23 @@ namespace BDAT.Commands
             }
             else
             {
+                // Not known yet: look for a folder named after it in 3DEXPERIENCE.
+                List<FoundBookmark> hits = BookmarkSearch.Find(number, SearchStartIds());
+                if (hits.Count > 0)
+                {
+                    FoundBookmark best = hits[0];
+                    string others = hits.Count > 1 ? "\n\n" + (hits.Count - 1) + " other folder" + (hits.Count == 2 ? " is" : "s are") + " named like it. No lets you pick." : "";
+                    DialogResult use = Ui.Show(owner, "Found the folder for " + label + ":\n\n" + best.Path + "\n\nSave " + row.Number + " there?" + others,
+                        Title, MessageBoxButtons.YesNoCancel, MessageBoxIcon.Question);
+                    if (use == DialogResult.Yes)
+                    {
+                        var folder = new Bookmark { Id = best.Id, Title = best.Title };
+                        EbomFolders.Remember(number, folder);
+                        PlatformSave.Log(LogName, "folder for " + number + " found by name = " + best.Id + " (" + best.Path + ")");
+                        return folder;
+                    }
+                    if (use != DialogResult.No) { cancelled = true; return null; }
+                }
                 DialogResult go = Ui.Show(owner,
                     "Which 3DEXPERIENCE folder is " + label + "? In the next window, pick the bookmark named " + number +
                     ". BDAT remembers it, and once it's published, nobody on the team has to pick it again.\n\n" +
@@ -372,7 +389,41 @@ namespace BDAT.Commands
                 Ui.Show(owner, "Every assembly in the EBOM already has its folder.", caption, MessageBoxButtons.OK, MessageBoxIcon.Information);
                 return;
             }
-            if (Ui.Show(owner, needed.Count + " of " + numbers.Count + " assemblies don't have a folder yet. For each one, pick the bookmark " +
+
+            // First, find as many as possible by name: one folder named exactly after the assembly number.
+            BookmarkSearch.Refresh();
+            var matched = new List<KeyValuePair<string, FoundBookmark>>();
+            List<string> startIds = SearchStartIds();
+            foreach (string number in needed)
+            {
+                List<FoundBookmark> hits = BookmarkSearch.Find(number, startIds);
+                if (hits.Count == 1 || (hits.Count > 1 && string.Equals(hits[0].Title.Trim(), number, StringComparison.OrdinalIgnoreCase)
+                        && !string.Equals(hits[1].Title.Trim(), number, StringComparison.OrdinalIgnoreCase)))
+                    matched.Add(new KeyValuePair<string, FoundBookmark>(number, hits[0]));
+            }
+            if (matched.Count > 0)
+            {
+                var list = new System.Text.StringBuilder();
+                for (int i = 0; i < matched.Count && i < 12; i++) list.Append("\n  " + labels[matched[i].Key] + "  →  " + matched[i].Value.Path);
+                if (matched.Count > 12) list.Append("\n  ... and " + (matched.Count - 12) + " more");
+                if (Ui.Show(owner, "Found " + matched.Count + " of " + needed.Count + " folders by name:" + list + "\n\nUse them?",
+                        caption, MessageBoxButtons.YesNo, MessageBoxIcon.Question) == DialogResult.Yes)
+                {
+                    foreach (KeyValuePair<string, FoundBookmark> m in matched)
+                    {
+                        EbomFolders.Remember(m.Key, new Bookmark { Id = m.Value.Id, Title = m.Value.Title });
+                        PlatformSave.Log(LogName, "set up folder for " + m.Key + " found by name = " + m.Value.Id + " (" + m.Value.Path + ")");
+                        needed.Remove(m.Key);
+                    }
+                }
+            }
+            if (needed.Count == 0)
+            {
+                Ui.Show(owner, "Every assembly now has its folder. Run Publish BDAT to share them with the team.", caption, MessageBoxButtons.OK, MessageBoxIcon.Information);
+                return;
+            }
+
+            if (Ui.Show(owner, needed.Count + " of " + numbers.Count + " assemblies still don't have a folder. For each one, pick the bookmark " +
                     "named after it (e.g. A0704 for Bellcranks). Cancel the picker to skip one or stop; what you've picked is kept.\n\n" +
                     "Afterwards, Publish BDAT shares them with the team.", caption, MessageBoxButtons.OKCancel, MessageBoxIcon.Information) != DialogResult.OK)
                 return;
@@ -405,6 +456,15 @@ namespace BDAT.Commands
             Ui.Show(owner, "Picked " + done + " folder" + (done == 1 ? "" : "s") + (skipped > 0 ? ", skipped " + skipped : "") + ". " +
                 (left > 0 ? left + " still to do; run Set up folders again to carry on. " : "") +
                 (done > 0 ? "Run Publish BDAT to share them with the team." : ""), caption, MessageBoxButtons.OK, MessageBoxIcon.Information);
+        }
+
+        /// <summary>Folders BDAT already knows, to find the team's top folder from: McMaster Carr, then every remembered one.</summary>
+        private static List<string> SearchStartIds()
+        {
+            var ids = new List<string> { SaveMcmCommand.KnownBookmarkId };
+            foreach (Bookmark b in EbomFolders.All().Values)
+                if (!ids.Contains(b.Id)) ids.Add(b.Id);
+            return ids;
         }
 
         private Bookmark AskNoFolder(IWin32Window owner, EbomRow row, string why, out bool cancelled)

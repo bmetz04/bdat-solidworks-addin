@@ -38,7 +38,7 @@ namespace BDAT.Commands
 
         // Formula UBC Racing > Vendor CAD > McMaster Carr, so nobody on the team has to pick it. A folder picked with
         // "No" at the confirm is remembered in the registry and wins over this. "" makes everyone pick it once.
-        private const string KnownBookmarkId = "31D68EF2C00003006ABDD66A000060EA";
+        internal const string KnownBookmarkId = "31D68EF2C00003006ABDD66A000060EA";
 
         private const string UserKeyPath = @"Software\BDAT";
         private const string BookmarkIdValue = "McMasterBookmarkId";

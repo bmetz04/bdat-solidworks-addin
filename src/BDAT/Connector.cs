@@ -115,6 +115,16 @@ namespace BDAT
             return t;
         }
 
+        /// <summary>One of the connector's own assemblies (e.g. "WSAPI"): the copy SolidWorks already loaded, or from the connector folder. Null if missing.</summary>
+        internal static Assembly ConnectorAssembly(string name)
+        {
+            Assembly a = Loaded(name);
+            if (a != null) return a;
+            string folder = ConnectorFolder();
+            string path = folder == null ? null : Path.Combine(folder, name + ".dll");
+            return path != null && File.Exists(path) ? Assembly.LoadFrom(path) : null;
+        }
+
         private static Assembly Loaded(string name)
         {
             foreach (Assembly a in AppDomain.CurrentDomain.GetAssemblies())
