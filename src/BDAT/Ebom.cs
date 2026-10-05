@@ -232,7 +232,13 @@ namespace BDAT
 
         // ---------------------------------------------------------------- the team copy
 
-        /// <summary>The team's EBOM in the repo (release/ebom.csv on main). Replace that file to update it for everyone.</summary>
+        /// <summary>
+        /// The "2027 Master eBOM" Google Sheet, published to the web as CSV (Ben, 2026-10-05), so edits to the sheet reach
+        /// everyone on their next click. Read-only: BDAT never writes to the sheet.
+        /// </summary>
+        public const string SheetUrl = "https://docs.google.com/spreadsheets/d/e/2PACX-1vS6L_KGdhIySeBUVFsFV_NWwzb1DOxEfJSEEjMqJgy06Ff9ySYTK379K49K0tdw6m_n3IR5RYPiPZRE/pub?gid=0&single=true&output=csv";
+
+        /// <summary>The team's EBOM in the repo (release/ebom.csv on main): the backup when the sheet can't be read.</summary>
         public const string TeamUrl = BuildInfo.ReleaseUrl + "ebom.csv";
 
         /// <summary>Where the last downloaded team copy is kept, so it still works offline.</summary>
@@ -245,16 +251,20 @@ namespace BDAT
         }
 
         /// <summary>
-        /// Downloads the team EBOM to TeamCachePath and returns that path. Offline (or if GitHub is slow), returns the copy
-        /// downloaded last time, with fresh false. Null if there's neither.
+        /// Downloads the team EBOM to TeamCachePath and returns that path: the live Google Sheet if it can be read (live
+        /// true), else the repo copy. Offline, returns the copy downloaded last time, with fresh false. Null if there's neither.
         /// </summary>
-        public static string TeamCopy(out bool fresh)
+        public static string TeamCopy(out bool fresh, out bool live)
         {
-            return DownloadTeamFile(TeamUrl, TeamCachePath, delegate(string text) { Parse(text); }, out fresh);
+            Action<string> validate = delegate(string text) { Parse(text); };
+            live = false;
+            string path = DownloadTeamFile(SheetUrl, TeamCachePath, validate, out fresh);
+            if (fresh) { live = true; return path; }
+            return DownloadTeamFile(TeamUrl, TeamCachePath, validate, out fresh);
         }
 
         /// <summary>
-        /// Downloads a team file from the repo to cache and returns cache. Offline (or if GitHub is slow, or validate
+        /// Downloads a team file (from the repo or the sheet) to cache and returns cache. Offline (or if GitHub is slow, or validate
         /// throws), returns the copy downloaded last time, with fresh false. Null if there's neither.
         /// </summary>
         internal static string DownloadTeamFile(string url, string cache, Action<string> validate, out bool fresh)
@@ -267,7 +277,7 @@ namespace BDAT
                 {
                     web.Headers.Add("Cache-Control", "no-cache");
                     // The query string stops GitHub's download cache from handing back an older copy.
-                    byte[] data = web.DownloadData(url + "?t=" + DateTime.UtcNow.Ticks);
+                    byte[] data = web.DownloadData(url + (url.IndexOf('?') < 0 ? "?" : "&") + "t=" + DateTime.UtcNow.Ticks);
                     validate(Encoding.UTF8.GetString(data)); // only keep it if it's the right kind of file
                     Directory.CreateDirectory(Path.GetDirectoryName(cache));
                     string temp = cache + ".download";

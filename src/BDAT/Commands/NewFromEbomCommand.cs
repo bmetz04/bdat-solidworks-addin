@@ -52,10 +52,10 @@ namespace BDAT.Commands
             }
             else
             {
-                bool fresh;
-                csv = Ebom.TeamCopy(out fresh);
+                bool fresh, live;
+                csv = Ebom.TeamCopy(out fresh, out live);
                 source = csv == null ? null
-                    : "Team EBOM" + (fresh ? "" : " (offline copy from " + File.GetLastWriteTime(csv).ToString("yyyy-MM-dd HH:mm") + ")");
+                    : "Team EBOM" + (live ? " (live from the Google Sheet)" : fresh ? "" : " (offline copy from " + File.GetLastWriteTime(csv).ToString("yyyy-MM-dd HH:mm") + ")");
                 if (csv == null && Ebom.SavedPath != null && File.Exists(Ebom.SavedPath)) csv = Ebom.SavedPath;
             }
 
