@@ -19,6 +19,7 @@ namespace BDAT.Testing
     ///   - Update BDAT never downloads or starts the installer,
     ///   - Create Origin takes its X, Y and Z from OriginCoordinates instead of the pop-up,
     ///   - New from EBOM reads EbomCsvPath and picks EbomPick instead of showing its pop-up,
+    ///   - Waterjet DXF exports every ticked body into WaterjetFolder instead of showing its pop-up,
     ///   - Name Cut List records the names it gave in LastNameCutList.
     /// </summary>
     public static class TestMode
@@ -61,6 +62,8 @@ namespace BDAT.Testing
             EbomPick = null;
             EbomDescription = null;
             LastNewFromEbom = null;
+            WaterjetFolder = null;
+            LastWaterjet = null;
             LastNameCutList = null;
         }
 
@@ -96,6 +99,12 @@ namespace BDAT.Testing
 
         /// <summary>What New from EBOM made on its last run, or null if it made nothing.</summary>
         public static NewFromEbomTestResult LastNewFromEbom;
+
+        /// <summary>The folder Waterjet DXF saves into instead of asking (its part's subfolder goes in here). Null means %TEMP%\BDAT\waterjet\test-output.</summary>
+        public static string WaterjetFolder;
+
+        /// <summary>The DXF file names Waterjet DXF saved on its last run, or null if it didn't get that far.</summary>
+        public static List<string> LastWaterjet;
 
         /// <summary>The names Name Cut List gave on its last run, in cut list order (empty if every item already had a number), or null if it stopped early.</summary>
         public static List<string> LastNameCutList;

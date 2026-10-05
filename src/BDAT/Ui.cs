@@ -75,7 +75,8 @@ namespace BDAT
             }
         }
 
-        private static IWin32Window SolidWorksWindow(ISldWorks swApp)
+        /// <summary>SolidWorks' main window, to own BDAT's pop-ups. Null if it can't be found.</summary>
+        internal static IWin32Window SolidWorksWindow(ISldWorks swApp)
         {
             try
             {
