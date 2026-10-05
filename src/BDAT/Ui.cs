@@ -1,4 +1,5 @@
-﻿using System.Windows.Forms;
+using System;
+using System.Windows.Forms;
 using BDAT.Testing;
 using SolidWorks.Interop.sldworks;
 using SolidWorks.Interop.swconst;
@@ -7,11 +8,12 @@ namespace BDAT
 {
     /// <summary>
     /// Every message box BDAT shows goes through here, so that in test mode they are recorded and answered
-    /// automatically instead of waiting for a click.
+    /// automatically instead of waiting for a click. Outside test mode they're BDAT's own message box (ModernMessage),
+    /// in the same look as its pop-ups, centred on SolidWorks.
     /// </summary>
     internal static class Ui
     {
-        /// <summary>A SolidWorks message box with an OK button.</summary>
+        /// <summary>A message with an OK button, over SolidWorks.</summary>
         public static void Tell(ISldWorks swApp, string message, swMessageBoxIcon_e icon)
         {
             if (TestMode.Enabled)
@@ -19,10 +21,10 @@ namespace BDAT
                 TestMode.Record("BDAT", message);
                 return;
             }
-            swApp.SendMsgToUser2(message, (int)icon, (int)swMessageBoxBtn_e.swMbOk);
+            ModernMessage.Show(SolidWorksWindow(swApp), message, "BDAT", MessageBoxButtons.OK, IconFor(icon));
         }
 
-        /// <summary>A SolidWorks Yes/No question. True for Yes.</summary>
+        /// <summary>A Yes/No question over SolidWorks. True for Yes.</summary>
         public static bool AskYesNo(ISldWorks swApp, string message)
         {
             if (TestMode.Enabled)
@@ -30,12 +32,10 @@ namespace BDAT
                 TestMode.Record("BDAT", message);
                 return TestMode.NextAnswer();
             }
-            int answer = swApp.SendMsgToUser2(message,
-                (int)swMessageBoxIcon_e.swMbQuestion, (int)swMessageBoxBtn_e.swMbYesNo);
-            return answer == (int)swMessageBoxResult_e.swMbHitYes;
+            return ModernMessage.Show(SolidWorksWindow(swApp), message, "BDAT", MessageBoxButtons.YesNo, MessageBoxIcon.Question) == DialogResult.Yes;
         }
 
-        /// <summary>A Windows message box. In test mode a "yes" answer is Yes/OK and a "no" answer is No/Cancel.</summary>
+        /// <summary>A message box over owner. In test mode a "yes" answer is Yes/OK and a "no" answer is No/Cancel.</summary>
         public static DialogResult Show(IWin32Window owner, string message, string caption, MessageBoxButtons buttons, MessageBoxIcon icon)
         {
             if (TestMode.Enabled)
@@ -47,9 +47,38 @@ namespace BDAT
                     return yes ? DialogResult.Yes : DialogResult.No;
                 return yes ? DialogResult.OK : DialogResult.Cancel;
             }
-            return owner == null
-                ? MessageBox.Show(message, caption, buttons, icon)
-                : MessageBox.Show(owner, message, caption, buttons, icon);
+            return ModernMessage.Show(owner, message, caption, buttons, icon);
+        }
+
+        private static MessageBoxIcon IconFor(swMessageBoxIcon_e icon)
+        {
+            switch (icon)
+            {
+                case swMessageBoxIcon_e.swMbStop: return MessageBoxIcon.Error;
+                case swMessageBoxIcon_e.swMbWarning: return MessageBoxIcon.Warning;
+                case swMessageBoxIcon_e.swMbQuestion: return MessageBoxIcon.Question;
+                default: return MessageBoxIcon.Information;
+            }
+        }
+
+        private static IWin32Window SolidWorksWindow(ISldWorks swApp)
+        {
+            try
+            {
+                IFrame frame = swApp == null ? null : swApp.Frame() as IFrame;
+                return frame == null ? null : new WindowHandle(new IntPtr(frame.GetHWndx64()));
+            }
+            catch (Exception)
+            {
+                return null;
+            }
+        }
+
+        private sealed class WindowHandle : IWin32Window
+        {
+            private readonly IntPtr _handle;
+            public WindowHandle(IntPtr handle) { _handle = handle; }
+            public IntPtr Handle { get { return _handle; } }
         }
     }
 }

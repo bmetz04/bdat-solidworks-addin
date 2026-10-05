@@ -80,7 +80,8 @@ namespace BDAT.Commands
             if (rows == null) return;
 
             bool saveToPlatform;
-            EbomRow row = Pick(owner, csv, source, rows, out saveToPlatform);
+            string description;
+            EbomRow row = Pick(owner, csv, source, rows, out saveToPlatform, out description);
             if (row == null) return;
 
             swDocumentTypes_e type = row.IsAssembly ? swDocumentTypes_e.swDocASSEMBLY : swDocumentTypes_e.swDocPART;
@@ -102,18 +103,18 @@ namespace BDAT.Commands
             }
 
             doc.SetTitle2(row.Number);
-            SetProperties(doc, row);
+            SetProperties(doc, row, description);
 
             if (TestMode.Enabled)
             {
-                string description, resolved;
-                doc.Extension.get_CustomPropertyManager("").Get4(DescriptionProperty, false, out description, out resolved);
+                string savedDescription, resolved;
+                doc.Extension.get_CustomPropertyManager("").Get4(DescriptionProperty, false, out savedDescription, out resolved);
                 // Saving needs 3DEXPERIENCE, so test mode only records where it would have gone.
                 TestMode.LastNewFromEbom = new NewFromEbomTestResult
                 {
                     Number = row.Number,
                     Title = doc.GetTitle(),
-                    Description = description,
+                    Description = savedDescription,
                     IsAssembly = doc.GetType() == (int)swDocumentTypes_e.swDocASSEMBLY,
                     Folder = row.AssemblyNumber,
                     FileName = FileName(row),
@@ -121,16 +122,21 @@ namespace BDAT.Commands
                 return;
             }
 
-            if (saveToPlatform) SaveToPlatform(swApp, owner, doc, row);
+            if (saveToPlatform) SaveToPlatform(swApp, owner, doc, row, description);
         }
 
-        private static EbomRow Pick(IWin32Window owner, string csv, string source, List<EbomRow> rows, out bool saveToPlatform)
+        private static EbomRow Pick(IWin32Window owner, string csv, string source, List<EbomRow> rows, out bool saveToPlatform, out string description)
         {
             saveToPlatform = false;
+            description = null;
             if (TestMode.Enabled)
             {
                 foreach (EbomRow r in rows)
-                    if (string.Equals(r.Number, TestMode.EbomPick, StringComparison.OrdinalIgnoreCase)) return r;
+                {
+                    if (!string.Equals(r.Number, TestMode.EbomPick, StringComparison.OrdinalIgnoreCase)) continue;
+                    description = NewFromEbomDetailsForm.Clean(TestMode.EbomDescription ?? r.Name);
+                    return r;
+                }
                 return null; // Cancel
             }
 
@@ -138,6 +144,7 @@ namespace BDAT.Commands
             {
                 if (form.ShowDialog(owner) != DialogResult.OK) return null;
                 saveToPlatform = form.SaveToPlatform;
+                description = form.Description;
                 return form.Selected;
             }
         }
@@ -157,7 +164,7 @@ namespace BDAT.Commands
         /// in its assembly's folder (the bookmark named by the assembly number, e.g. A0101), and checks it in.
         /// If anything stops it, the document stays open and unsaved, and it says why.
         /// </summary>
-        private void SaveToPlatform(ISldWorks swApp, IWin32Window owner, IModelDoc2 doc, EbomRow row)
+        private void SaveToPlatform(ISldWorks swApp, IWin32Window owner, IModelDoc2 doc, EbomRow row, string description)
         {
             string fileName = FileName(row);
             string notSaved = "\n\n" + row.Number + " is open but not saved. Save it to 3DEXPERIENCE by hand, or close it.";
@@ -216,12 +223,12 @@ namespace BDAT.Commands
                 string refused = folder == null ? null : platform.AddToBookmark(folder.Id, phid);
                 if (refused != null)
                 {
-                    done = "Saved " + row.Number + " (" + row.Name + ") to 3DEXPERIENCE and checked it in, but it couldn't be put in " +
+                    done = "Saved " + row.Number + " (" + description + ") to 3DEXPERIENCE and checked it in, but it couldn't be put in " +
                         FolderLabel(row) + ":\n\n" + refused + PlatformSave.BookmarkAdvice(refused);
                     icon = swMessageBoxIcon_e.swMbWarning;
                 }
                 else
-                    done = "Saved " + row.Number + " (" + row.Name + ") to 3DEXPERIENCE" + where + " and checked it in.";
+                    done = "Saved " + row.Number + " (" + description + ") to 3DEXPERIENCE" + where + " and checked it in.";
             }
 
             if (!platform.Unlock(doc.GetPathName()))
@@ -390,7 +397,7 @@ namespace BDAT.Commands
         }
 
         /// <summary>Description in the file and every configuration (3DEXPERIENCE reads both); Part Number in the file.</summary>
-        private static void SetProperties(IModelDoc2 doc, EbomRow row)
+        private static void SetProperties(IModelDoc2 doc, EbomRow row, string description)
         {
             var targets = new List<string> { "" };
             string[] configs = doc.GetConfigurationNames() as string[];
@@ -400,7 +407,7 @@ namespace BDAT.Commands
             {
                 CustomPropertyManager props = doc.Extension.get_CustomPropertyManager(config);
                 if (props == null) continue;
-                props.Add3(DescriptionProperty, (int)swCustomInfoType_e.swCustomInfoText, row.Name,
+                props.Add3(DescriptionProperty, (int)swCustomInfoType_e.swCustomInfoText, description,
                     (int)swCustomPropertyAddOption_e.swCustomPropertyReplaceValue);
                 if (config.Length == 0)
                     props.Add3(NumberProperty, (int)swCustomInfoType_e.swCustomInfoText, row.Number,

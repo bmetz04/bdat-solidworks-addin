@@ -317,6 +317,8 @@ namespace BdatTests
                 Equal("FR-40202-AA", Ebom.Search(rows, "a0402", false)[0].Number, "searches the assembly number");
                 Equal("BR-10101-AA.SLDPRT", NewFromEbomCommand.FileName(rows[1]), "saved under the combined part number");
                 Equal("BR-A0101-AA.SLDASM", NewFromEbomCommand.FileName(rows[0]), "assemblies save as .SLDASM");
+                Equal("Front Bellcrank Plate, 6061", NewFromEbomDetailsForm.Clean("  Front Bellcrank Plate,\r\n6061 "),
+                    "an edited description is one trimmed line");
 
                 // The pop-up's tree: each assembly number with its current parts under it, obsolete rows left out.
                 List<NewFromEbomForm.EbomGroup> groups = NewFromEbomForm.BuildGroups(rows);

@@ -14,22 +14,14 @@ namespace BDAT.Commands
 
         public CreateOriginForm(CreateOriginCommand.LengthUnit documentUnit)
         {
-            Text = "Create Origin";
-            FormBorderStyle = FormBorderStyle.FixedDialog;
-            MaximizeBox = false;
-            MinimizeBox = false;
-            ShowInTaskbar = false;
-            StartPosition = FormStartPosition.CenterParent;
-            AutoScaleMode = AutoScaleMode.Dpi;
-            AutoScaleDimensions = new SizeF(96f, 96f);
-            Font = SystemFonts.MessageBoxFont;
+            ModernUi.Setup(this, "Create Origin", false);
             AutoSize = true;
             AutoSizeMode = AutoSizeMode.GrowAndShrink;
 
             var layout = new TableLayoutPanel
             {
                 AutoSize = true,
-                Padding = new Padding(12),
+                Padding = new Padding(20, 16, 20, 14),
                 ColumnCount = 3,
                 RowCount = 7,
             };
@@ -38,50 +30,46 @@ namespace BDAT.Commands
             layout.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
             Controls.Add(layout);
 
-            var intro = new Label
-            {
-                Text = "Makes a new origin here, for origin mates in the top level:\nthe Origin' coordinate system, with X', Y' and Z' planes built on it.\nX, Y and Z are the part's own, the same as a 3D sketch point's.\nTo move it later, edit Origin'.",
-                AutoSize = true,
-                Margin = new Padding(3, 0, 3, 10),
-            };
-            layout.Controls.Add(intro, 0, 0);
-            layout.SetColumnSpan(intro, 3);
+            Control header = ModernUi.Header("Create Origin",
+                "Makes a new origin here, for origin mates in the top level: the Origin' coordinate\n" +
+                "system, with X', Y' and Z' planes built on it. X, Y and Z are the part's own, the same\n" +
+                "as a 3D sketch point's. To move it later, edit Origin'.");
+            layout.Controls.Add(header, 0, 0);
+            layout.SetColumnSpan(header, 3);
 
-            layout.Controls.Add(new Label { Text = "Units:", AutoSize = true, Margin = new Padding(3, 6, 8, 6) }, 0, 1);
-            _units = new ComboBox { DropDownStyle = ComboBoxStyle.DropDownList, Width = 140 };
+            layout.Controls.Add(FieldName("Units"), 0, 1);
+            _units = new ComboBox { DropDownStyle = ComboBoxStyle.DropDownList, Width = 160, Margin = new Padding(0, 4, 10, 4) };
             foreach (CreateOriginCommand.LengthUnit unit in CreateOriginCommand.Choices) _units.Items.Add(unit.Name);
             _units.SelectedIndex = 0; // mm
             _units.SelectedIndexChanged += delegate { ShowUnit(); };
             layout.Controls.Add(_units, 1, 1);
-            layout.Controls.Add(new Label
-            {
-                Text = "This document is in " + CreateOriginCommand.LongName(documentUnit) + ".",
-                AutoSize = true,
-                ForeColor = SystemColors.GrayText,
-                Margin = new Padding(3, 6, 3, 6),
-            }, 2, 1);
+            layout.Controls.Add(ModernUi.Note("This document is in " + CreateOriginCommand.LongName(documentUnit) + ".", new Padding(0, 8, 0, 4)), 2, 1);
 
-            string[] axes = { "X:", "Y:", "Z:" };
+            string[] axes = { "X", "Y", "Z" };
             for (int i = 0; i < 3; i++)
             {
-                layout.Controls.Add(new Label { Text = axes[i], AutoSize = true, Margin = new Padding(3, 6, 8, 6) }, 0, i + 2);
-                _boxes[i] = new TextBox { Text = "0", Width = 140 };
-                layout.Controls.Add(_boxes[i], 1, i + 2);
-                _unitLabels[i] = new Label { AutoSize = true, Margin = new Padding(3, 6, 3, 6) };
+                layout.Controls.Add(FieldName(axes[i]), 0, i + 2);
+                _boxes[i] = new TextBox { Text = "0" };
+                Panel frame = ModernUi.Framed(_boxes[i], 32);
+                frame.Dock = DockStyle.None;
+                frame.Width = 160;
+                frame.Margin = new Padding(0, 4, 10, 4);
+                layout.Controls.Add(frame, 1, i + 2);
+                _unitLabels[i] = ModernUi.Note("", new Padding(0, 10, 0, 4));
                 layout.Controls.Add(_unitLabels[i], 2, i + 2);
             }
             ShowUnit();
 
-            _error = new Label { AutoSize = true, ForeColor = Color.Firebrick, Margin = new Padding(3, 6, 3, 0), MaximumSize = new Size(300, 0) };
+            _error = ModernUi.ErrorLabel();
+            _error.MaximumSize = new Size(420, 0);
             layout.Controls.Add(_error, 0, 5);
             layout.SetColumnSpan(_error, 3);
 
-            var buttons = new FlowLayoutPanel { FlowDirection = FlowDirection.RightToLeft, Dock = DockStyle.Fill, AutoSize = true, Margin = new Padding(0, 8, 0, 0) };
-            var cancel = new Button { Text = "Cancel", DialogResult = DialogResult.Cancel, AutoSize = true };
-            var ok = new Button { Text = "Create origin", AutoSize = true };
+            var cancel = ModernUi.Secondary("Cancel");
+            cancel.DialogResult = DialogResult.Cancel;
+            var ok = ModernUi.Primary("Create origin");
             ok.Click += OnOk;
-            buttons.Controls.Add(cancel);
-            buttons.Controls.Add(ok);
+            FlowLayoutPanel buttons = ModernUi.ButtonRow(cancel, ok);
             layout.Controls.Add(buttons, 0, 6);
             layout.SetColumnSpan(buttons, 3);
 
@@ -103,6 +91,11 @@ namespace BDAT.Commands
             base.OnShown(e);
             _boxes[0].SelectAll();
             _boxes[0].Focus();
+        }
+
+        private static Label FieldName(string text)
+        {
+            return new Label { Text = text, AutoSize = true, Margin = new Padding(0, 10, 14, 4), UseMnemonic = false };
         }
 
         private void ShowUnit()

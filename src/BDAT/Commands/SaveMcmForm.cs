@@ -14,66 +14,44 @@ namespace BDAT.Commands
 
         public SaveMcmForm(string sourceFile, string defaultName, string defaultDescription, string destination)
         {
-            Text = "Save MCM to 3DEXPERIENCE";
-            FormBorderStyle = FormBorderStyle.FixedDialog;
-            MaximizeBox = false;
-            MinimizeBox = false;
-            ShowInTaskbar = false;
-            StartPosition = FormStartPosition.CenterParent;
-            AutoScaleMode = AutoScaleMode.Dpi;
-            AutoScaleDimensions = new SizeF(96f, 96f);
-            Font = SystemFonts.MessageBoxFont;
-            ClientSize = new Size(520, 360);
+            ModernUi.Setup(this, "Save MCM to 3DEXPERIENCE", false);
+            ClientSize = new Size(560, 440);
 
-            var layout = new TableLayoutPanel
-            {
-                Dock = DockStyle.Fill,
-                Padding = new Padding(12),
-                ColumnCount = 2,
-                RowCount = 6,
-            };
-            layout.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
-            layout.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100f));
+            var layout = new TableLayoutPanel { Dock = DockStyle.Fill, Padding = new Padding(20, 16, 20, 14), ColumnCount = 1, RowCount = 7 };
+            layout.RowStyles.Add(new RowStyle(SizeType.AutoSize));       // title
+            layout.RowStyles.Add(new RowStyle(SizeType.AutoSize));       // name caption
+            layout.RowStyles.Add(new RowStyle(SizeType.AutoSize));       // name
+            layout.RowStyles.Add(new RowStyle(SizeType.AutoSize));       // description caption
+            layout.RowStyles.Add(new RowStyle(SizeType.Percent, 100f));  // description
+            layout.RowStyles.Add(new RowStyle(SizeType.AutoSize));       // error
+            layout.RowStyles.Add(new RowStyle(SizeType.AutoSize));       // buttons
             Controls.Add(layout);
 
-            layout.Controls.Add(Caption("Save to:"), 0, 0);
-            var destinationLabel = new Label { Text = destination, AutoSize = true, Font = new Font(Font, FontStyle.Bold), Margin = new Padding(3, 6, 3, 6) };
-            layout.Controls.Add(destinationLabel, 1, 0);
+            layout.Controls.Add(ModernUi.Header("Save to 3DEXPERIENCE",
+                "From " + sourceFile + "\nInto " + destination), 0, 0);
 
-            layout.Controls.Add(Caption("McMaster file:"), 0, 1);
-            layout.Controls.Add(new Label { Text = sourceFile, AutoSize = true, Margin = new Padding(3, 6, 3, 6) }, 1, 1);
+            layout.Controls.Add(ModernUi.Caption("Name (the McMaster part number)"), 0, 1);
+            _name = new TextBox { Text = defaultName };
+            layout.Controls.Add(ModernUi.Framed(_name, 34), 0, 2);
 
-            layout.Controls.Add(Caption("Name:"), 0, 2);
-            _name = new TextBox { Text = defaultName, Dock = DockStyle.Fill };
-            layout.Controls.Add(_name, 1, 2);
-
-            layout.Controls.Add(Caption("Description:"), 0, 3);
+            layout.Controls.Add(ModernUi.Caption("Description"), 0, 3);
             _description = new TextBox
             {
                 Text = defaultDescription,
                 Multiline = true,
                 AcceptsReturn = true,
                 ScrollBars = ScrollBars.Vertical,
-                Dock = DockStyle.Fill,
-                Height = 140,
             };
-            layout.Controls.Add(_description, 1, 3);
-            layout.RowStyles.Add(new RowStyle(SizeType.AutoSize));
-            layout.RowStyles.Add(new RowStyle(SizeType.AutoSize));
-            layout.RowStyles.Add(new RowStyle(SizeType.AutoSize));
-            layout.RowStyles.Add(new RowStyle(SizeType.Percent, 100f));
+            layout.Controls.Add(ModernUi.Framed(_description, 140), 0, 4);
 
-            _error = new Label { AutoSize = true, ForeColor = Color.Firebrick, Margin = new Padding(3, 6, 3, 0) };
-            layout.Controls.Add(_error, 1, 4);
+            _error = ModernUi.ErrorLabel();
+            layout.Controls.Add(_error, 0, 5);
 
-            var buttons = new FlowLayoutPanel { FlowDirection = FlowDirection.RightToLeft, Dock = DockStyle.Fill, AutoSize = true };
-            var cancel = new Button { Text = "Cancel", DialogResult = DialogResult.Cancel, AutoSize = true };
-            var save = new Button { Text = "Save", AutoSize = true };
+            var cancel = ModernUi.Secondary("Cancel");
+            cancel.DialogResult = DialogResult.Cancel;
+            var save = ModernUi.Primary("Save");
             save.Click += OnSave;
-            buttons.Controls.Add(cancel);
-            buttons.Controls.Add(save);
-            layout.Controls.Add(buttons, 0, 5);
-            layout.SetColumnSpan(buttons, 2);
+            layout.Controls.Add(ModernUi.ButtonRow(cancel, save), 0, 6);
 
             AcceptButton = save;
             CancelButton = cancel;
@@ -100,7 +78,7 @@ namespace BDAT.Commands
                 return;
             }
             if (Description.Length == 0 &&
-                MessageBox.Show(this, EmptyDescriptionQuestion, Text,
+                Ui.Show(this, EmptyDescriptionQuestion, Text,
                     MessageBoxButtons.YesNo, MessageBoxIcon.Question) != DialogResult.Yes)
             {
                 _description.Focus();
@@ -118,11 +96,6 @@ namespace BDAT.Commands
             if (name.IndexOfAny(Path.GetInvalidFileNameChars()) >= 0)
                 return "The name can't contain any of these: \\ / : * ? \" < > |";
             return null;
-        }
-
-        private static Label Caption(string text)
-        {
-            return new Label { Text = text, AutoSize = true, Margin = new Padding(3, 6, 8, 6) };
         }
     }
 }

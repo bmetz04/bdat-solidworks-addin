@@ -89,7 +89,7 @@ namespace BDAT.Commands
 
             if (!string.IsNullOrEmpty(originalPath) && !string.IsNullOrEmpty(platform.PhysicalId(originalPath)))
             {
-                DialogResult again = MessageBox.Show(owner,
+                DialogResult again = Ui.Show(owner,
                     "\"" + sourceFile + "\" is already in 3DEXPERIENCE.\n\nSave it as a new part anyway?",
                     Title, MessageBoxButtons.YesNo, MessageBoxIcon.Question);
                 if (again != DialogResult.Yes) return;
@@ -422,7 +422,7 @@ namespace BDAT.Commands
 
         private static void Tell(ISldWorks swApp, string message, swMessageBoxIcon_e icon)
         {
-            swApp.SendMsgToUser2(message, (int)icon, (int)swMessageBoxBtn_e.swMbOk);
+            Ui.Tell(swApp, message, icon);
         }
     }
 }

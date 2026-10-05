@@ -58,6 +58,7 @@ namespace BDAT.Testing
             LastCreateOrigin = null;
             EbomCsvPath = null;
             EbomPick = null;
+            EbomDescription = null;
             LastNewFromEbom = null;
         }
 
@@ -87,6 +88,9 @@ namespace BDAT.Testing
 
         /// <summary>The combined part number to pick in the New from EBOM pop-up. Null (or not in the EBOM) means Cancel.</summary>
         public static string EbomPick;
+
+        /// <summary>What to type as the description in New from EBOM's second pop-up. Null keeps the EBOM name.</summary>
+        public static string EbomDescription;
 
         /// <summary>What New from EBOM made on its last run, or null if it made nothing.</summary>
         public static NewFromEbomTestResult LastNewFromEbom;
