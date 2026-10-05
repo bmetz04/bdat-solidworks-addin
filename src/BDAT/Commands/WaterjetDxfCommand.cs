@@ -27,8 +27,11 @@ namespace BDAT.Commands
     ///   1. Sort the open part's visible solid bodies into the two kinds above, or skipped.
     ///   2. Pop-up: tick the bodies to export and pick the folder (remembered for next time).
     ///   3. Save a copy of the part as it is right now to %TEMP%\BDAT\waterjet and open it invisibly.
-    ///   4. On the copy, export each ticked body to "&lt;folder&gt;\&lt;part&gt;\&lt;part&gt; - &lt;body&gt;.dxf",
+    ///   4. On the copy, export each ticked body to "&lt;folder&gt;\&lt;part&gt;\&lt;part&gt; - &lt;name&gt;.dxf",
     ///      then close the copy without saving and delete it.
+    /// Bodies are named after their cut list item when the part has cut lists (sheet metal and weldments always do),
+    /// otherwise after the body. Identical bodies in one cut list item give one DXF, with the quantity shown.
+    /// Each run is logged to %TEMP%\BDAT\waterjet.log.
     /// </summary>
     public sealed class WaterjetDxfCommand : IBdatCommand
     {
@@ -80,7 +83,9 @@ namespace BDAT.Commands
             string partName = BaseName(doc);
 
             // 1. Sort the bodies. Read-only.
+            Log("---- " + partName);
             List<BodyPlan> plans = Classify(doc);
+            foreach (BodyPlan p in plans) Log("body " + p.BodyName + " -> " + p.Label);
             List<BodyPlan> exportable = plans.FindAll(p => p.Kind != BodyKind.Skipped);
             if (exportable.Count == 0)
             {
@@ -163,7 +168,14 @@ namespace BDAT.Commands
 
         internal sealed class BodyPlan
         {
+            /// <summary>The cut list item's name, or the body's when it isn't in a cut list.</summary>
             public string Name;
+            /// <summary>The body exported (the first one, when a cut list item holds several).</summary>
+            public string BodyName;
+            /// <summary>The cut list item, or null.</summary>
+            public string CutList;
+            /// <summary>How many bodies the cut list item holds.</summary>
+            public int Count = 1;
             public BodyKind Kind;
             /// <summary>Plate thickness in metres (0 for sheet metal).</summary>
             public double Thickness;
@@ -177,9 +189,10 @@ namespace BDAT.Commands
             {
                 get
                 {
-                    if (Kind == BodyKind.SheetMetal) return Name + "  (sheet metal, flat pattern)";
-                    if (Kind == BodyKind.Plate) return Name + "  (" + Millimetres(Thickness) + " plate)";
-                    return Name + ": " + Reason;
+                    string name = Count > 1 ? Name + " x" + Count : Name;
+                    if (Kind == BodyKind.SheetMetal) return name + "  (sheet metal, flat pattern)";
+                    if (Kind == BodyKind.Plate) return name + "  (" + Millimetres(Thickness) + " plate)";
+                    return name + ": " + Reason;
                 }
             }
         }
@@ -187,9 +200,21 @@ namespace BDAT.Commands
         private static List<BodyPlan> Classify(IModelDoc2 doc)
         {
             var plans = new List<BodyPlan>();
+            Dictionary<string, string> cutLists = CutListNames(doc);
             foreach (IBody2 body in SolidBodies(doc))
             {
-                var plan = new BodyPlan { Name = body.Name };
+                string cutList;
+                cutLists.TryGetValue(body.Name, out cutList);
+
+                // A second body in the same cut list item is a copy of the first: count it instead of exporting it again.
+                BodyPlan same = cutList == null ? null : plans.Find(p => p.CutList == cutList);
+                if (same != null)
+                {
+                    same.Count++;
+                    continue;
+                }
+
+                var plan = new BodyPlan { Name = cutList ?? body.Name, BodyName = body.Name, CutList = cutList };
                 if (body.IsSheetMetal())
                 {
                     plan.Kind = BodyKind.SheetMetal;
@@ -213,6 +238,53 @@ namespace BDAT.Commands
                 plans.Add(plan);
             }
             return plans;
+        }
+
+        /// <summary>
+        /// Body name to cut list item name, for every body in a cut list. Cut list items live in folders under the
+        /// Solid Bodies folder (and sub-weldment folders), so this walks folders only.
+        /// </summary>
+        private static Dictionary<string, string> CutListNames(IModelDoc2 doc)
+        {
+            var names = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+            try
+            {
+                IFeature feat = doc.FirstFeature() as IFeature;
+                while (feat != null)
+                {
+                    CollectCutLists(feat, names);
+                    feat = feat.GetNextFeature() as IFeature;
+                }
+            }
+            catch (Exception ex)
+            {
+                Log("couldn't read the cut lists: " + ex.Message);
+            }
+            return names;
+        }
+
+        private static void CollectCutLists(IFeature feat, Dictionary<string, string> names)
+        {
+            string type = feat.GetTypeName2() ?? "";
+            if (type.Equals("CutListFolder", StringComparison.OrdinalIgnoreCase))
+            {
+                IBodyFolder folder = feat.GetSpecificFeature2() as IBodyFolder;
+                object[] bodies = folder == null ? null : folder.GetBodies() as object[];
+                if (bodies != null)
+                    foreach (object o in bodies)
+                    {
+                        IBody2 body = o as IBody2;
+                        if (body != null && !names.ContainsKey(body.Name)) names.Add(body.Name, feat.Name);
+                    }
+            }
+            if (!type.EndsWith("Folder", StringComparison.OrdinalIgnoreCase)) return;
+
+            IFeature sub = feat.GetFirstSubFeature() as IFeature;
+            while (sub != null)
+            {
+                CollectCutLists(sub, names);
+                sub = sub.GetNextSubFeature() as IFeature;
+            }
         }
 
         private static List<IBody2> SolidBodies(IModelDoc2 doc)
@@ -460,9 +532,10 @@ namespace BDAT.Commands
             {
                 string dxf = Path.Combine(outDir, UniqueName(partName + " - " + plan.Name, usedNames) + ".dxf");
                 IBody2 body;
-                if (!bodies.TryGetValue(plan.Name, out body))
+                if (!bodies.TryGetValue(plan.BodyName, out body))
                 {
                     failed.Add(plan.Name + ": not found in the working copy");
+                    Log(plan.BodyName + ": not in the copy's bodies (" + string.Join(", ", new List<string>(bodies.Keys).ToArray()) + ")");
                     continue;
                 }
 
@@ -471,19 +544,23 @@ namespace BDAT.Commands
                 if (plan.Kind == BodyKind.SheetMetal)
                 {
                     IFeature flat;
-                    if (!flatPatterns.TryGetValue(plan.Name, out flat))
+                    if (!flatPatterns.TryGetValue(plan.BodyName, out flat))
                     {
+                        Log(plan.BodyName + ": no flat pattern matched (found " + flatPatterns.Count + ")");
                         failed.Add(plan.Name + ": couldn't find its flat pattern");
                         continue;
                     }
-                    ok = flat.Select2(false, -1) && part.ExportToDWG2(dxf, workPath,
+                    bool selected = flat.Select2(false, -1);
+                    ok = selected && part.ExportToDWG2(dxf, workPath,
                         (int)swExportToDWG_e.swExportToDWG_ExportSheetMetal, true, null, false, false, SheetMetalOptions, null);
+                    Log(plan.BodyName + ": sheet metal, flat pattern " + flat.Name + ", selected " + selected + ", exported " + ok + " -> " + dxf);
                 }
                 else
                 {
                     PlateCheck check = CheckPlate(body);
                     if (check.Reason != null || check.TopFaces.Count == 0)
                     {
+                        Log(plan.BodyName + ": plate check on the copy said " + (check.Reason ?? "no top faces"));
                         failed.Add(plan.Name + ": couldn't find its top face");
                         continue;
                     }
@@ -492,11 +569,12 @@ namespace BDAT.Commands
                         selected &= ((IEntity)check.TopFaces[i]).Select4(i > 0, null);
                     ok = selected && part.ExportToDWG2(dxf, workPath,
                         (int)swExportToDWG_e.swExportToDWG_ExportSelectedFacesOrLoops, true, null, false, false, 0, null);
+                    Log(plan.BodyName + ": plate, " + check.TopFaces.Count + " top face(s), selected " + selected + ", exported " + ok + " -> " + dxf);
                 }
                 work.ClearSelection2(true);
 
                 if (ok && File.Exists(dxf)) written.Add(Path.GetFileName(dxf));
-                else failed.Add(plan.Name + ": SolidWorks couldn't export it");
+                else failed.Add(plan.Name + ": SolidWorks couldn't export it" + (ok ? " (no file was written)" : ""));
             }
         }
 
@@ -643,6 +721,11 @@ namespace BDAT.Commands
             if (name.EndsWith(".sldprt", StringComparison.OrdinalIgnoreCase)) name = name.Substring(0, name.Length - 7);
             foreach (char c in Path.GetInvalidFileNameChars()) name = name.Replace(c, '_');
             return name.Trim();
+        }
+
+        private static void Log(string message)
+        {
+            PlatformSave.Log("waterjet", message);
         }
 
         private static void CleanTempDir()
