@@ -10,7 +10,8 @@ namespace BDAT.Commands
     /// Names the open part's cut list items 001, 002, 003... in the order they appear in the cut list. Items that
     /// already have a number keep it; the rest get the numbers after the highest one in use. A part with no cut list
     /// is made a weldment first, so SolidWorks makes one.
-    /// Everything it changes is one undo step where SolidWorks allows it.
+    /// SolidWorks doesn't put renames made by an add-in on its undo list (Ctrl+Z skips them and undoes earlier
+    /// features instead), so nothing here is grouped for undo and the message doesn't offer it.
     /// </summary>
     public sealed class NameCutListCommand : IBdatCommand
     {
@@ -40,33 +41,24 @@ namespace BDAT.Commands
                 return;
             }
 
-            bool recording = StartUndo(doc);
             bool madeWeldment = false;
-            Result result;
-            try
+            List<IFeature> items = CutListItems(doc);
+            if (items.Count == 0)
             {
-                List<IFeature> items = CutListItems(doc);
-                if (items.Count == 0)
-                {
-                    madeWeldment = MakeWeldment(doc);
-                    items = CutListItems(doc);
-                }
-                if (items.Count == 0)
-                {
-                    Ui.Tell(swApp, madeWeldment
-                        ? "BDAT made this part a weldment, but SolidWorks didn't make a cut list for it. Nothing was renamed."
-                        : HasFeature(doc, "WeldmentFeature")
-                            ? "This part is a weldment, but SolidWorks has no cut list items for it. Nothing was renamed."
-                            : "This part has no cut list and BDAT couldn't make it a weldment. Nothing was renamed.",
-                        swMessageBoxIcon_e.swMbWarning);
-                    return;
-                }
-                result = Rename(doc, items);
+                madeWeldment = MakeWeldment(doc);
+                items = CutListItems(doc);
             }
-            finally
+            if (items.Count == 0)
             {
-                if (recording) recording = FinishUndo(doc);
+                Ui.Tell(swApp, madeWeldment
+                    ? "BDAT made this part a weldment, but SolidWorks didn't make a cut list for it. Nothing was renamed."
+                    : HasFeature(doc, "WeldmentFeature")
+                        ? "This part is a weldment, but SolidWorks has no cut list items for it. Nothing was renamed."
+                        : "This part has no cut list and BDAT couldn't make it a weldment. Nothing was renamed.",
+                    swMessageBoxIcon_e.swMbWarning);
+                return;
             }
+            Result result = Rename(doc, items);
 
             if (TestMode.Enabled) TestMode.LastNameCutList = result.Names;
 
@@ -87,7 +79,6 @@ namespace BDAT.Commands
             if (result.Failed.Count > 0)
                 message += "\n\nSolidWorks wouldn't use " + string.Join(", ", result.Failed.ToArray()) +
                     ". Another feature in the part probably already has that name.";
-            if (recording && (result.Names.Count > 0 || madeWeldment)) message += "\n\nUndo (Ctrl+Z) puts everything back.";
             Ui.Tell(swApp, message, result.Failed.Count > 0 ? swMessageBoxIcon_e.swMbWarning : swMessageBoxIcon_e.swMbInformation);
         }
 
@@ -225,31 +216,6 @@ namespace BDAT.Commands
                 feat = feat.GetNextFeature() as IFeature;
             }
             return false;
-        }
-
-        private static bool StartUndo(IModelDoc2 doc)
-        {
-            try
-            {
-                doc.Extension.StartRecordingUndoObject();
-                return true;
-            }
-            catch
-            {
-                return false;
-            }
-        }
-
-        private static bool FinishUndo(IModelDoc2 doc)
-        {
-            try
-            {
-                return doc.Extension.FinishRecordingUndoObject2("Name Cut List", false);
-            }
-            catch
-            {
-                return false;
-            }
         }
     }
 }
