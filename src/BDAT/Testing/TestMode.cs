@@ -97,7 +97,7 @@ namespace BDAT.Testing
         /// <summary>What New from EBOM made on its last run, or null if it made nothing.</summary>
         public static NewFromEbomTestResult LastNewFromEbom;
 
-        /// <summary>The names Name Cut List gave on its last run, in cut list order, or null if it renamed nothing.</summary>
+        /// <summary>The names Name Cut List gave on its last run, in cut list order (empty if every item already had a number), or null if it stopped early.</summary>
         public static List<string> LastNameCutList;
 
         /// <summary>How many times something tried to use the 3DEXPERIENCE connector. Must stay 0.</summary>

@@ -533,6 +533,16 @@ namespace BdatTests
                 Check(candidates[0].All(v => v == 0), "no rotation should be tried first: Origin' has SolidWorks' own axes");
             });
 
+            Test("Name Cut List keeps only names in the 001 format", delegate
+            {
+                int n;
+                Check(NameCutListCommand.IsNumbered("001", out n) && n == 1, "001 is numbered");
+                Check(NameCutListCommand.IsNumbered("012", out n) && n == 12, "012 is numbered");
+                Check(NameCutListCommand.IsNumbered("1234", out n) && n == 1234, "1234 is numbered");
+                foreach (string name in new[] { "1", "01", "Cut-List-Item1", "001a", " 001", "0-1", "", null })
+                    Check(!NameCutListCommand.IsNumbered(name, out n), "\"" + name + "\" shouldn't count as numbered");
+            });
+
             Test("Every toolbar callback exists on SwAddin", delegate
             {
                 foreach (string callback in CommandCallbacks(new SwAddin()))
@@ -990,7 +1000,8 @@ namespace BdatTests
 
         /// <summary>
         /// The two-body sample has no cut list, so Name Cut List must make it a weldment and name its two items
-        /// 001 and 002. A second run must give the same names (the items already hold them). Nothing is saved.
+        /// 001 and 002. A second run must rename nothing (both already have numbers). Then one item is given another
+        /// name, and a third run must number only that one, as 003. Nothing is saved.
         /// </summary>
         private static void NameCutListTest(ISldWorks swApp, string partPath)
         {
@@ -1002,24 +1013,32 @@ namespace BdatTests
                 var command = new NameCutListCommand();
                 Check(command.IsEnabled(swApp), "Name Cut List should be clickable with a part open");
 
-                for (int run = 1; run <= 2; run++)
-                {
-                    TestMode.LastNameCutList = null;
-                    TestMode.Messages.Clear();
-                    command.Run(swApp);
-                    string said = string.Join(" | ", TestMode.Messages.ToArray());
-                    Check(TestMode.LastNameCutList != null, "run " + run + " renamed nothing: " + said);
-                    Equal("001,002", string.Join(",", TestMode.LastNameCutList.ToArray()), "run " + run + " names");
-                    Check(FeatureTypes(doc).Contains("WeldmentFeature"), "the part wasn't made a weldment");
-                    List<string> names = Features(doc).Where(f => f.GetTypeName2() == "CutListFolder").Select(f => f.Name).ToList();
-                    Equal("001,002", string.Join(",", names.ToArray()), "run " + run + " cut list items in the tree");
-                }
+                RunNameCutList(swApp, command, "001,002", "001,002", "run 1");
+                Check(FeatureTypes(doc).Contains("WeldmentFeature"), "the part wasn't made a weldment");
+                RunNameCutList(swApp, command, "", "001,002", "run 2");
+
+                IFeature first = Features(doc).First(f => f.GetTypeName2() == "CutListFolder");
+                first.Name = "Plate";
+                RunNameCutList(swApp, command, "003", "003,002", "run 3");
             }
             finally
             {
                 swApp.CloseDoc(doc.GetTitle());
             }
             Equal(before, Snapshot(partPath), "sample file (Name Cut List must not save)");
+        }
+
+        private static void RunNameCutList(ISldWorks swApp, NameCutListCommand command, string expectNamed, string expectTree, string run)
+        {
+            IModelDoc2 doc = (IModelDoc2)swApp.ActiveDoc;
+            TestMode.LastNameCutList = null;
+            TestMode.Messages.Clear();
+            command.Run(swApp);
+            string said = string.Join(" | ", TestMode.Messages.ToArray());
+            Check(TestMode.LastNameCutList != null, run + " stopped early: " + said);
+            Equal(expectNamed, string.Join(",", TestMode.LastNameCutList.ToArray()), run + " names given");
+            List<string> names = Features(doc).Where(f => f.GetTypeName2() == "CutListFolder").Select(f => f.Name).ToList();
+            Equal(expectTree, string.Join(",", names.ToArray()), run + " cut list items in the tree");
         }
 
         // ---- Save MCM

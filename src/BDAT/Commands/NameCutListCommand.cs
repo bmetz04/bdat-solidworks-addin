@@ -7,15 +7,16 @@ using BDAT.Testing;
 namespace BDAT.Commands
 {
     /// <summary>
-    /// Names the open part's cut list items 001, 002, 003... in the order they appear in the cut list, replacing
-    /// whatever names they had. A part with no cut list is made a weldment first, so SolidWorks makes one.
+    /// Names the open part's cut list items 001, 002, 003... in the order they appear in the cut list. Items that
+    /// already have a number keep it; the rest get the numbers after the highest one in use. A part with no cut list
+    /// is made a weldment first, so SolidWorks makes one.
     /// Everything it changes is one undo step where SolidWorks allows it.
     /// </summary>
     public sealed class NameCutListCommand : IBdatCommand
     {
         public string Title { get { return "Name Cut List"; } }
 
-        public string Hint { get { return "Name the cut list items 001, 002, 003... (makes the part a weldment if it has no cut list)"; } }
+        public string Hint { get { return "Number the cut list items 001, 002, 003... that don't have a number yet (makes the part a weldment if it has no cut list)"; } }
 
         public bool IsEnabled(ISldWorks swApp)
         {
@@ -69,14 +70,24 @@ namespace BDAT.Commands
 
             if (TestMode.Enabled) TestMode.LastNameCutList = result.Names;
 
-            string message = result.Names.Count == 1
-                ? "Named the cut list item " + result.Names[0] + "."
-                : "Named " + result.Names.Count + " cut list items " + result.Names[0] + " to " + result.Names[result.Names.Count - 1] + ".";
+            string message;
+            if (result.Names.Count == 0 && result.Failed.Count == 0)
+                message = "All " + result.Kept + " cut list items already have numbers, so nothing was renamed.";
+            else if (result.Names.Count == 0)
+                message = "No cut list items were renamed.";
+            else
+            {
+                message = result.Names.Count == 1
+                    ? "Named a cut list item " + result.Names[0] + "."
+                    : "Named " + result.Names.Count + " cut list items " + result.Names[0] + " to " + result.Names[result.Names.Count - 1] + ".";
+                if (result.Kept > 0)
+                    message += "\n" + result.Kept + (result.Kept == 1 ? " item already had a number and was" : " items already had numbers and were") + " left as is.";
+            }
             if (madeWeldment) message = "Made the part a weldment so it has a cut list.\n" + message;
             if (result.Failed.Count > 0)
-                message += "\n\nSolidWorks wouldn't rename " + string.Join(", ", result.Failed.ToArray()) +
+                message += "\n\nSolidWorks wouldn't use " + string.Join(", ", result.Failed.ToArray()) +
                     ". Another feature in the part probably already has that name.";
-            if (recording) message += "\n\nUndo (Ctrl+Z) puts everything back.";
+            if (recording && (result.Names.Count > 0 || madeWeldment)) message += "\n\nUndo (Ctrl+Z) puts everything back.";
             Ui.Tell(swApp, message, result.Failed.Count > 0 ? swMessageBoxIcon_e.swMbWarning : swMessageBoxIcon_e.swMbInformation);
         }
 
@@ -84,36 +95,55 @@ namespace BDAT.Commands
         {
             public readonly List<string> Names = new List<string>();
             public readonly List<string> Failed = new List<string>();
+            public int Kept;
         }
 
         /// <summary>
-        /// Renames the items in two passes, first to temporary names and then to 001, 002..., so an item already
-        /// called "002" doesn't block another from taking that name.
+        /// Items already named with a number (001, 002, ... or longer, digits only) keep their names. The rest get
+        /// the numbers after the highest one in use, in cut list order, so new items go on the end of the list.
         /// </summary>
         private static Result Rename(IModelDoc2 doc, List<IFeature> items)
         {
-            string tag = "BDAT-" + Guid.NewGuid().ToString("N").Substring(0, 8) + "-";
-            for (int i = 0; i < items.Count; i++)
-                items[i].Name = tag + i;
-
             var result = new Result();
-            for (int i = 0; i < items.Count; i++)
+            int highest = 0;
+            var toName = new List<IFeature>();
+            foreach (IFeature item in items)
             {
-                string name = (i + 1).ToString("000");
-                items[i].Name = name;
-                if (items[i].Name == name) result.Names.Add(name);
+                int number;
+                if (IsNumbered(item.Name, out number))
+                {
+                    result.Kept++;
+                    highest = Math.Max(highest, number);
+                }
+                else toName.Add(item);
+            }
+
+            int next = highest + 1;
+            foreach (IFeature item in toName)
+            {
+                string name = next.ToString("000");
+                next++;
+                item.Name = name;
+                if (item.Name == name) result.Names.Add(name);
                 else result.Failed.Add(name);
             }
 
-            // Anything that couldn't take its number keeps a name rather than the temporary one.
-            for (int i = 0; i < items.Count; i++)
+            if (toName.Count > 0)
             {
-                if (!items[i].Name.StartsWith(tag, StringComparison.Ordinal)) continue;
-                items[i].Name = "Cut-List-Item" + (i + 1);
+                try { doc.FeatureManager.UpdateFeatureTree(); } catch { }
             }
-
-            try { doc.FeatureManager.UpdateFeatureTree(); } catch { }
             return result;
+        }
+
+        /// <summary>True for a name in the 001, 002, ... format: three or more digits and nothing else.</summary>
+        internal static bool IsNumbered(string name, out int number)
+        {
+            number = 0;
+            if (name == null || name.Length < 3 || name.Length > 9) return false;
+            foreach (char c in name)
+                if (c < '0' || c > '9') return false;
+            number = int.Parse(name);
+            return true;
         }
 
         /// <summary>Adds a Weldment feature, which turns the Solid Bodies folder into a cut list. True if it worked.</summary>
