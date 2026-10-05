@@ -4,23 +4,14 @@ Newest first. Publish BDAT adds an entry here every time a new version goes out.
 
 ## v6 (2026-10-04 23:11)
 
-- New from EBOM: Check in toggle; drop Open another EBOM file and Set up folders
-- Folder search: walk all the way up to the top folder before reading the tree
-- New from EBOM: offer to make the assembly's folder when there isn't one
-- New from EBOM: when no folder is found, offer Search again (after making it), Pick a folder, or Save without folder
-- New from EBOM: find 3DEXPERIENCE folders by name
-- Set up folders: log each step and show any error instead of failing silently
-- Pop-up headers show the FUBC logo
-- One modern look for every BDAT pop-up, and a description step in New from EBOM
-- Add the FUBC logo to BDAT.dll, with a Brand helper for pop-up headers
-- New from EBOM: modern, friendlier pop-up
-- New from EBOM: read the EBOM straight from the published Google Sheet
-- Show the same BDAT buttons in parts and assemblies
-- Report a refused Add to Bookmark instead of claiming success; read picked folders from the picked list too
-- New from EBOM: count a git worktree as the publishing PC too
-- New from EBOM: count a git worktree as the publishing PC too
-- Save MCM: confirm the McMaster Carr folder before saving, like New from EBOM
-- New from EBOM: Set up folders only on the PC BDAT is published from
+- New **New from EBOM** button: pick any part or assembly from the team EBOM (read live from the Google Sheet), check the description, and it's created with its EBOM number, ready to model.
+- New from EBOM can save straight to 3DEXPERIENCE: it finds the assembly's folder by name, or offers to make it, pick another, or save without a folder. A Check in toggle chooses whether the part is checked in afterwards.
+- New **Create Origin** button: adds an offset origin with its own X, Y and Z planes, in parts and assemblies.
+- Every BDAT pop-up has a new, cleaner look with the FUBC logo.
+- Save MCM asks you to confirm the McMaster Carr folder before saving.
+- The BDAT tab shows the same buttons in parts and assemblies, two rows high.
+- New drawings can use the FUBC continuation sheet format.
+- BDAT now tells you when 3DEXPERIENCE refuses to add a part to a folder, instead of saying it worked.
 
 ## v5 (2026-10-01 12:15)
 
