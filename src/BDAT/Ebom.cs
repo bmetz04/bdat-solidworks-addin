@@ -232,8 +232,11 @@ namespace BDAT
 
         // ---------------------------------------------------------------- the team copy
 
-        /// <summary>The team's EBOM in the repo (release/ebom.csv on main). Replace that file to update it for everyone.</summary>
-        public const string TeamUrl = BuildInfo.ReleaseUrl + "ebom.csv";
+        /// <summary>
+        /// The team's EBOM: the Master eBOM Google Sheet, published to the web as CSV (File > Share > Publish to web), so
+        /// BDAT always reads the sheet as it is now. Edit the sheet to update it for everyone.
+        /// </summary>
+        public const string TeamUrl = "https://docs.google.com/spreadsheets/d/e/2PACX-1vS6L_KGdhIySeBUVFsFV_NWwzb1DOxEfJSEEjMqJgy06Ff9ySYTK379K49K0tdw6m_n3IR5RYPiPZRE/pub?gid=0&single=true&output=csv";
 
         /// <summary>Where the last downloaded team copy is kept, so it still works offline.</summary>
         public static string TeamCachePath
@@ -245,7 +248,7 @@ namespace BDAT
         }
 
         /// <summary>
-        /// Downloads the team EBOM to TeamCachePath and returns that path. Offline (or if GitHub is slow), returns the copy
+        /// Downloads the team EBOM to TeamCachePath and returns that path. Offline (or if Google is slow), returns the copy
         /// downloaded last time, with fresh false. Null if there's neither.
         /// </summary>
         public static string TeamCopy(out bool fresh)
@@ -266,8 +269,8 @@ namespace BDAT
                 using (var web = new QuickWebClient())
                 {
                     web.Headers.Add("Cache-Control", "no-cache");
-                    // The query string stops GitHub's download cache from handing back an older copy.
-                    byte[] data = web.DownloadData(url + "?t=" + DateTime.UtcNow.Ticks);
+                    // The extra query parameter stops a download cache (GitHub's, Google's) from handing back an older copy.
+                    byte[] data = web.DownloadData(url + (url.IndexOf('?') < 0 ? "?" : "&") + "t=" + DateTime.UtcNow.Ticks);
                     validate(Encoding.UTF8.GetString(data)); // only keep it if it's the right kind of file
                     Directory.CreateDirectory(Path.GetDirectoryName(cache));
                     string temp = cache + ".download";
