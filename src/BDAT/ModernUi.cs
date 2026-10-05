@@ -34,15 +34,28 @@ namespace BDAT
             form.BackColor = Page;
         }
 
-        /// <summary>The big title and a grey one-line hint under it.</summary>
+        /// <summary>The big title and a grey hint under it, with the FUBC logo on the right.</summary>
         public static Control Header(string title, string hint)
         {
-            var header = new FlowLayoutPanel { FlowDirection = FlowDirection.TopDown, AutoSize = true, WrapContents = false, Margin = new Padding(0, 0, 0, 14) };
+            var header = new TableLayoutPanel { Dock = DockStyle.Fill, AutoSize = true, ColumnCount = 2, RowCount = 1, Margin = new Padding(0, 0, 0, 14) };
+            header.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100f));
+            header.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
+
+            var text = new FlowLayoutPanel { FlowDirection = FlowDirection.TopDown, AutoSize = true, WrapContents = false, Margin = new Padding(0) };
             var titleFont = new Font("Segoe UI Semibold", 15f);
             var titleLabel = new Label { Text = title, Font = titleFont, AutoSize = true, Margin = new Padding(0), UseMnemonic = false };
             titleLabel.Disposed += delegate { titleFont.Dispose(); };
-            header.Controls.Add(titleLabel);
-            if (!string.IsNullOrEmpty(hint)) header.Controls.Add(Note(hint, new Padding(1, 2, 0, 0)));
+            text.Controls.Add(titleLabel);
+            if (!string.IsNullOrEmpty(hint)) text.Controls.Add(Note(hint, new Padding(1, 2, 0, 0)));
+            header.Controls.Add(text, 0, 0);
+
+            PictureBox logo = Brand.LogoBox(40, false);
+            if (logo.Image != null)
+            {
+                logo.Margin = new Padding(16, 2, 0, 0);
+                logo.Anchor = AnchorStyles.Top | AnchorStyles.Right;
+                header.Controls.Add(logo, 1, 0);
+            }
             return header;
         }
 
