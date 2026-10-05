@@ -80,6 +80,37 @@ namespace BDAT
             CancelButton = cancel;
         }
 
+        /// <summary>
+        /// A message with buttons of your own, first one blue (the main choice), the last one also answering Esc.
+        /// Returns the index of the button clicked, or the last index if the window is closed.
+        /// </summary>
+        public static int Choose(IWin32Window owner, string message, string caption, MessageBoxIcon icon, params string[] choices)
+        {
+            using (var box = new ModernMessage(message, caption, MessageBoxButtons.OK, icon))
+            {
+                Control row = box.AcceptButton is Control ? ((Control)box.AcceptButton).Parent : null;
+                row.Controls.Clear();
+                int picked = choices.Length - 1;
+                for (int i = choices.Length - 1; i >= 0; i--)
+                {
+                    int index = i;
+                    Button b = i == 0 ? ModernUi.Primary(choices[i]) : ModernUi.Secondary(choices[i]);
+                    b.MinimumSize = new Size(96, 34);
+                    b.Click += delegate { picked = index; box.DialogResult = DialogResult.OK; };
+                    row.Controls.Add(b);
+                    if (i == 0) box.AcceptButton = b;
+                    if (i == choices.Length - 1) box.CancelButton = b;
+                }
+                if (owner == null || owner.Handle == IntPtr.Zero)
+                {
+                    box.StartPosition = FormStartPosition.CenterScreen;
+                    box.ShowDialog();
+                }
+                else box.ShowDialog(owner);
+                return picked;
+            }
+        }
+
         /// <summary>Shows a message the way MessageBox.Show does, centred on owner (or the screen if owner is null).</summary>
         public static DialogResult Show(IWin32Window owner, string message, string caption, MessageBoxButtons buttons, MessageBoxIcon icon)
         {

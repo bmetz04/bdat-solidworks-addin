@@ -269,29 +269,42 @@ namespace BDAT.Commands
             }
             else
             {
-                // Not known yet: look for a folder named after it in 3DEXPERIENCE.
-                List<FoundBookmark> hits = BookmarkSearch.Find(number, SearchStartIds());
-                if (hits.Count > 0)
+                // Not known yet: look for a folder named after it in 3DEXPERIENCE. If there isn't one, you can make it
+                // and search again, pick another folder, or save without one.
+                while (true)
                 {
-                    FoundBookmark best = hits[0];
-                    string others = hits.Count > 1 ? "\n\n" + (hits.Count - 1) + " other folder" + (hits.Count == 2 ? " is" : "s are") + " named like it. No lets you pick." : "";
-                    DialogResult use = Ui.Show(owner, "Found the folder for " + label + ":\n\n" + best.Path + "\n\nSave " + row.Number + " there?" + others,
-                        Title, MessageBoxButtons.YesNoCancel, MessageBoxIcon.Question);
-                    if (use == DialogResult.Yes)
+                    List<FoundBookmark> hits = BookmarkSearch.Find(number, SearchStartIds());
+                    if (hits.Count > 0)
                     {
-                        var folder = new Bookmark { Id = best.Id, Title = best.Title };
-                        EbomFolders.Remember(number, folder);
-                        PlatformSave.Log(LogName, "folder for " + number + " found by name = " + best.Id + " (" + best.Path + ")");
-                        return folder;
+                        FoundBookmark best = hits[0];
+                        string others = hits.Count > 1 ? "\n\n" + (hits.Count - 1) + " other folder" + (hits.Count == 2 ? " is" : "s are") + " named like it. No lets you pick." : "";
+                        DialogResult use = Ui.Show(owner, "Found the folder for " + label + ":\n\n" + best.Path + "\n\nSave " + row.Number + " there?" + others,
+                            Title, MessageBoxButtons.YesNoCancel, MessageBoxIcon.Question);
+                        if (use == DialogResult.Yes)
+                        {
+                            var folder = new Bookmark { Id = best.Id, Title = best.Title };
+                            EbomFolders.Remember(number, folder);
+                            PlatformSave.Log(LogName, "folder for " + number + " found by name = " + best.Id + " (" + best.Path + ")");
+                            return folder;
+                        }
+                        if (use != DialogResult.No) { cancelled = true; return null; }
+                        break; // No: pick a different one
                     }
-                    if (use != DialogResult.No) { cancelled = true; return null; }
+
+                    string why = BookmarkSearch.Available
+                        ? "There's no folder named " + number + " in 3DEXPERIENCE yet."
+                        : "BDAT couldn't search the 3DEXPERIENCE folders just now.";
+                    int choice = Ui.Choose(owner,
+                        "Where should " + row.Number + " go? It belongs in " + label + ".\n\n" + why + "\n\n" +
+                        "Make a folder named " + number + " in 3DEXPERIENCE (in Bookmarks, where the other assembly folders are), " +
+                        "then click Search again. Or pick an existing folder, or save it without a folder for now.",
+                        Title, MessageBoxIcon.Warning, "Search again", "Pick a folder...", "Save without folder", "Cancel");
+                    if (choice == 0) { BookmarkSearch.Refresh(); continue; }
+                    if (choice == 1) break;
+                    if (choice == 2) return null; // save without a folder
+                    cancelled = true;
+                    return null;
                 }
-                DialogResult go = Ui.Show(owner,
-                    "Which 3DEXPERIENCE folder is " + label + "? In the next window, pick the bookmark named " + number +
-                    ". BDAT remembers it, and once it's published, nobody on the team has to pick it again.\n\n" +
-                    "If there's no folder for it yet, cancel that window to save without one.",
-                    Title, MessageBoxButtons.OKCancel, MessageBoxIcon.Information);
-                if (go != DialogResult.OK) { cancelled = true; return null; }
             }
 
             Bookmark picked = PlatformSave.ChooseBookmark(connector, owner, "Pick " + label);

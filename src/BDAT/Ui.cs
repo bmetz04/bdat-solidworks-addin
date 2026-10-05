@@ -50,6 +50,20 @@ namespace BDAT
             return ModernMessage.Show(owner, message, caption, buttons, icon);
         }
 
+        /// <summary>
+        /// A question with buttons of your own; returns the index clicked (the last button also means Esc / close).
+        /// In test mode: the first choice for a "yes" answer, the last for a "no".
+        /// </summary>
+        public static int Choose(IWin32Window owner, string message, string caption, MessageBoxIcon icon, params string[] choices)
+        {
+            if (TestMode.Enabled)
+            {
+                TestMode.Record(caption, message);
+                return TestMode.NextAnswer() ? 0 : choices.Length - 1;
+            }
+            return ModernMessage.Choose(owner, message, caption, icon, choices);
+        }
+
         private static MessageBoxIcon IconFor(swMessageBoxIcon_e icon)
         {
             switch (icon)

@@ -46,6 +46,7 @@ namespace BDAT
             var found = new List<FoundBookmark>();
             if (string.IsNullOrEmpty(assemblyNumber)) return found;
             List<FoundBookmark> tree = Tree(knownBookmarkIds);
+            Available = tree != null;
             if (tree == null) return found;
             foreach (FoundBookmark b in tree)
                 if (TitleIsFor(b.Title, assemblyNumber)) found.Add(b);
@@ -74,6 +75,9 @@ namespace BDAT
             char next = t[assemblyNumber.Length];
             return char.IsWhiteSpace(next) || next == '-' || next == '_' || next == ':' || next == '(' || next == '.';
         }
+
+        /// <summary>False if the last attempt to read the folders failed (so "not found" may just mean "couldn't look").</summary>
+        public static bool Available { get; private set; }
 
         /// <summary>Forget the folder tree, e.g. after Ben adds folders in 3DEXPERIENCE.</summary>
         public static void Refresh()
