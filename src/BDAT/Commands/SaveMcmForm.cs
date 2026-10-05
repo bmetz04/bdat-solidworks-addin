@@ -15,7 +15,7 @@ namespace BDAT.Commands
         public SaveMcmForm(string sourceFile, string defaultName, string defaultDescription, string destination)
         {
             ModernUi.Setup(this, "Save MCM to 3DEXPERIENCE", false);
-            ClientSize = new Size(560, 440);
+            ClientSize = new Size(560, 460);
 
             var layout = new TableLayoutPanel { Dock = DockStyle.Fill, Padding = new Padding(20, 16, 20, 14), ColumnCount = 1, RowCount = 7 };
             layout.RowStyles.Add(new RowStyle(SizeType.AutoSize));       // title
@@ -28,7 +28,7 @@ namespace BDAT.Commands
             Controls.Add(layout);
 
             layout.Controls.Add(ModernUi.Header("Save to 3DEXPERIENCE",
-                "From " + sourceFile + "\nInto " + destination), 0, 0);
+                "From " + sourceFile + "\nInto " + destination, 440), 0, 0);
 
             layout.Controls.Add(ModernUi.Caption("Name (the McMaster part number)"), 0, 1);
             _name = new TextBox { Text = defaultName };

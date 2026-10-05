@@ -37,6 +37,27 @@ namespace BDAT
         /// <summary>The big title and a grey hint under it, with the FUBC logo on the right.</summary>
         public static Control Header(string title, string hint)
         {
+            return Header(title, hint, 0);
+        }
+
+        /// <summary>
+        /// The same, with the title and hint wrapped to wrapWidth pixels (the room left of the logo), so long hints don't
+        /// run off the edge of a fixed-size pop-up. 0 means don't wrap.
+        /// </summary>
+        public static Control Header(string title, string hint, int wrapWidth)
+        {
+            Control header = BuildHeader(title, hint);
+            if (wrapWidth > 0)
+            {
+                foreach (Control text in header.Controls)
+                    foreach (Control label in text.Controls)
+                        label.MaximumSize = new Size(wrapWidth, 0);
+            }
+            return header;
+        }
+
+        private static Control BuildHeader(string title, string hint)
+        {
             var header = new TableLayoutPanel { Dock = DockStyle.Fill, AutoSize = true, ColumnCount = 2, RowCount = 1, Margin = new Padding(0, 0, 0, 14) };
             header.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100f));
             header.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));

@@ -18,7 +18,7 @@ namespace BDAT.Commands
         {
             string kind = row.IsAssembly ? "assembly" : "part";
             ModernUi.Setup(this, "New from EBOM", false);
-            ClientSize = new Size(560, 400);
+            ClientSize = new Size(560, 430);
 
             var layout = new TableLayoutPanel { Dock = DockStyle.Fill, Padding = new Padding(20, 16, 20, 14), ColumnCount = 1, RowCount = 7 };
             layout.RowStyles.Add(new RowStyle(SizeType.AutoSize));       // title
@@ -31,7 +31,7 @@ namespace BDAT.Commands
             Controls.Add(layout);
 
             string context = row.Area + (row.IsAssembly ? "" : row.Parent.Length > 0 ? ", in " + row.AssemblyNumber + " " + row.Parent : "");
-            layout.Controls.Add(ModernUi.Header("New " + kind, context + ". " + where), 0, 0);
+            layout.Controls.Add(ModernUi.Header("New " + kind, context + ". " + where, 440), 0, 0);
 
             layout.Controls.Add(ModernUi.Caption("Part number (file name)"), 0, 1);
             var numberFont = new Font("Segoe UI Semibold", 12f);
