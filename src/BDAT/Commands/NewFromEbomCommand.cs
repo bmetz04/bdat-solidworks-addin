@@ -327,10 +327,27 @@ namespace BDAT.Commands
         /// </summary>
         internal static void SetUpFolders(IWin32Window owner, List<EbomRow> rows)
         {
+            // It runs from a link in the pop-up, where an error would otherwise vanish without a word.
+            PlatformSave.Log(LogName, "set up folders: started");
+            try
+            {
+                SetUpFoldersSteps(owner, rows);
+            }
+            catch (Exception ex)
+            {
+                PlatformSave.Log(LogName, "set up folders failed: " + ex);
+                Ui.Show(owner, "Set up folders stopped with an error:\n\n" + ex.Message + "\n\nThe details are in %TEMP%\\BDAT\\new-from-ebom.log.",
+                    "Set up folders", MessageBoxButtons.OK, MessageBoxIcon.Error);
+            }
+        }
+
+        private static void SetUpFoldersSteps(IWin32Window owner, List<EbomRow> rows)
+        {
             const string caption = "Set up folders";
             if (TestMode.Enabled) { Ui.Show(owner, "Set up folders needs 3DEXPERIENCE, so it doesn't run in test mode.", caption, MessageBoxButtons.OK, MessageBoxIcon.Information); return; }
 
             Connector connector = Connector.Find();
+            PlatformSave.Log(LogName, "set up folders: connector " + (connector == null ? "not found" : connector.IsConnected ? "connected" : "not logged in"));
             if (connector == null || !connector.IsConnected)
             {
                 Ui.Show(owner, connector == null ? "Couldn't find the 3DEXPERIENCE connector (is the \"3DEXPERIENCE PLM Services\" add-in on?)."
@@ -349,6 +366,7 @@ namespace BDAT.Commands
                 labels[group.Number] = group.Number + (group.Assembly != null && group.Assembly.Name.Length > 0 ? " (" + group.Assembly.Name + ")" : "");
             }
             List<string> needed = EbomFolders.StillNeeded(numbers, EbomFolders.All());
+            PlatformSave.Log(LogName, "set up folders: " + needed.Count + " of " + numbers.Count + " assemblies need a folder");
             if (needed.Count == 0)
             {
                 Ui.Show(owner, "Every assembly in the EBOM already has its folder.", caption, MessageBoxButtons.OK, MessageBoxIcon.Information);
