@@ -135,7 +135,9 @@ namespace BDAT.Commands
 
             var written = new List<string>();
             var failed = new List<string>();
+            // Hide the copy, and the temporary drawing SolidWorks makes while exporting a DXF, so no window flashes up.
             swApp.DocumentVisible(false, (int)swDocumentTypes_e.swDocPART);
+            swApp.DocumentVisible(false, (int)swDocumentTypes_e.swDocDRAWING);
             IModelDoc2 work = null;
             try
             {
@@ -156,6 +158,7 @@ namespace BDAT.Commands
             {
                 if (work != null) swApp.CloseDoc(work.GetTitle());
                 swApp.DocumentVisible(true, (int)swDocumentTypes_e.swDocPART);
+                swApp.DocumentVisible(true, (int)swDocumentTypes_e.swDocDRAWING);
                 TryDelete(workPath);
             }
 
