@@ -111,21 +111,6 @@ namespace BDAT
             }
         }
 
-        /// <summary>
-        /// The assembly numbers, in the order given, that have no known folder yet: what "Set up folders..." goes through.
-        /// </summary>
-        public static List<string> StillNeeded(IEnumerable<string> assemblyNumbers, IDictionary<string, Bookmark> known)
-        {
-            var needed = new List<string>();
-            var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-            foreach (string number in assemblyNumbers)
-            {
-                if (string.IsNullOrEmpty(number) || !seen.Add(number)) continue;
-                if (!known.ContainsKey(number)) needed.Add(number);
-            }
-            return needed;
-        }
-
         /// <summary>Remembers a picked folder on this PC and adds it to the picked list for the team.</summary>
         public static void Remember(string assemblyNumber, Bookmark folder)
         {

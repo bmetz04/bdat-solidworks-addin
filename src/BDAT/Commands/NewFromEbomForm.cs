@@ -29,6 +29,7 @@ namespace BDAT.Commands
         private readonly Label _pickedDetails;
         private readonly Button _create;
         private readonly CheckBox _save;
+        private readonly CheckBox _checkIn;
         private readonly Font _bold;
         private readonly Font _big;
         private List<EbomRow> _rows;
@@ -120,12 +121,6 @@ namespace BDAT.Commands
             bottom.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100f));
             bottom.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
             var left = new FlowLayoutPanel { AutoSize = true, Dock = DockStyle.Fill, WrapContents = false, Margin = new Padding(0) };
-            left.Controls.Add(ModernUi.Link("Open another EBOM file...", OnChangeFile, new Padding(0, 10, 14, 0)));
-            if (NewFromEbomCommand.IsPublishingPc)
-            {
-                // Only on the PC BDAT is published from: Publish BDAT shares the folders picked there with the team.
-                left.Controls.Add(ModernUi.Link("Set up folders...", delegate { NewFromEbomCommand.SetUpFolders(this, _rows); }, new Padding(0, 10, 14, 0)));
-            }
             _source = new Label { UseMnemonic = false, AutoSize = true, ForeColor = Muted, Margin = new Padding(0, 10, 0, 0) };
             left.Controls.Add(_source);
             bottom.Controls.Add(left, 0, 0);
@@ -137,9 +132,13 @@ namespace BDAT.Commands
             _create.Enabled = false;
             _create.Click += delegate { Confirm(); };
             _save = new CheckBox { Text = "Save to 3DEXPERIENCE", AutoSize = true, Checked = true, Margin = new Padding(0, 10, 16, 0) };
-            _save.CheckedChanged += delegate { ShowPicked(); };
+            _checkIn = new CheckBox { Text = "Check in", AutoSize = true, Checked = NewFromEbomCommand.CheckInPreference, Margin = new Padding(0, 10, 18, 0) };
+            new ToolTip().SetToolTip(_checkIn, "Ticked: check it in after saving, so it isn't left reserved by you.\nUnticked: keep it checked out to you, to carry on modelling it.");
+            _save.CheckedChanged += delegate { _checkIn.Enabled = _save.Checked; ShowPicked(); };
+            _checkIn.CheckedChanged += delegate { NewFromEbomCommand.CheckInPreference = _checkIn.Checked; ShowPicked(); };
             buttons.Controls.Add(cancel);
             buttons.Controls.Add(_create);
+            buttons.Controls.Add(_checkIn);
             buttons.Controls.Add(_save);
             bottom.Controls.Add(buttons, 1, 0);
             layout.Controls.Add(bottom, 0, 5);
@@ -162,6 +161,12 @@ namespace BDAT.Commands
             get { return _save.Checked; }
         }
 
+        /// <summary>Whether to check it in after saving (otherwise it stays checked out to you).</summary>
+        public bool CheckIn
+        {
+            get { return _checkIn.Checked; }
+        }
+
         /// <summary>The description confirmed (and maybe changed) in the second pop-up.</summary>
         public string Description { get; private set; }
 
@@ -181,7 +186,8 @@ namespace BDAT.Commands
         private string SaveText(EbomRow row)
         {
             if (!_save.Checked) return "Left open and unsaved.";
-            return row.AssemblyNumber.Length > 0 ? "Saved to 3DEXPERIENCE in folder " + row.AssemblyNumber + "." : "Saved to 3DEXPERIENCE.";
+            string where = row.AssemblyNumber.Length > 0 ? "Saved to 3DEXPERIENCE in folder " + row.AssemblyNumber : "Saved to 3DEXPERIENCE";
+            return where + (_checkIn.Checked ? " and checked in." : ", kept checked out to you.");
         }
 
         protected override void Dispose(bool disposing)
@@ -489,14 +495,6 @@ namespace BDAT.Commands
             e.Handled = true;
         }
 
-        private void OnChangeFile(object sender, EventArgs e)
-        {
-            string path = NewFromEbomCommand.PickCsv(this, _csvPath);
-            if (path == null) return;
-            List<EbomRow> rows = NewFromEbomCommand.TryLoad(this, path);
-            if (rows == null) return;
-            SetSource(path, null, rows);
-        }
 
         // ---------------------------------------------------------------- looks
 

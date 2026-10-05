@@ -372,8 +372,6 @@ namespace BdatTests
                 Check(!EbomFolders.TitleMatches("A07041", "A0704"), "a longer number isn't a match");
                 Check(!EbomFolders.TitleMatches("Bellcranks", "A0704"), "no number, no match");
 
-                List<string> needed = EbomFolders.StillNeeded(new[] { "A0101", "A0102", "a0704", "A0102", "", "A0705" }, merged);
-                Equal("A0102", string.Join(",", needed.ToArray()), "only numbers with no folder, once each, in order");
 
                 bool refused = false;
                 try { EbomFolders.Parse("Name,Id\r\nx,1"); }
@@ -390,7 +388,6 @@ namespace BdatTests
                     "a refused AddToBookmark is reported, with 3DEXPERIENCE's reason");
                 Check(PlatformSave.BookmarkError(null) != null, "no reply is an error");
                 Check(PlatformSave.BookmarkAdvice("You do not have security context to change it").Contains("collaborative space"), "security context advice");
-                Check(NewFromEbomCommand.IsPublishingPc, "BDAT running from the repo counts as the publishing PC (Set up folders shows)");
             });
 
             Test("Save MCM folder: confirm question and name check", delegate

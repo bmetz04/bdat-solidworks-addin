@@ -254,6 +254,30 @@ namespace BDAT
             }
         }
 
+        /// <summary>Keeps the saved file checked out (reserved) to you. True if it's reserved by you afterwards.</summary>
+        public bool Reserve(string path)
+        {
+            if (string.IsNullOrEmpty(path)) { Log("reserve: the document has no file path"); return false; }
+            try
+            {
+                object cache = _connector.Manager("FileCache");
+                object before = _connector.Call(cache, "IEnoSwFileCache7", "GetLockStatus", path);
+                Log("reserve: lock status before " + before);
+                if (before != null && before.ToString() == "lockedByMe") return true;
+
+                object commands = _connector.Manager("UiCommands");
+                bool ok = (bool)_connector.Call(commands, "IEnoSwUiCommands", "ReserveFiles", (object)new[] { path });
+                object after = _connector.Call(cache, "IEnoSwFileCache7", "GetLockStatus", path);
+                Log("reserve: ReserveFiles returned " + ok + ", lock status after " + after);
+                return ok && after != null && after.ToString() == "lockedByMe";
+            }
+            catch (Exception ex)
+            {
+                Log("reserve failed: " + ex.Message);
+                return false;
+            }
+        }
+
         /// <summary>Shows the connector's bookmark picker. Null if cancelled.</summary>
         public static Bookmark ChooseBookmark(Connector connector, IWin32Window owner, string dialogTitle)
         {
