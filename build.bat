@@ -17,6 +17,7 @@ if not exist "%OUT%" mkdir "%OUT%"
 "%CSC%" /nologo /target:library /platform:x64 /optimize+ /out:"%OUT%\BDAT.dll" ^
   /r:System.dll /r:System.Core.dll /r:System.Drawing.dll /r:System.Windows.Forms.dll ^
   /r:"%API%\SolidWorks.Interop.sldworks.dll" /r:"%API%\SolidWorks.Interop.swconst.dll" /r:"%API%\SolidWorks.Interop.swpublished.dll" ^
+  /resource:"%SRC%\Resources\fubc-logo.png",BDAT.fubc-logo.png /resource:"%SRC%\Resources\fubc-logo-white.png",BDAT.fubc-logo-white.png ^
   /recurse:"%SRC%\*.cs" "%~dp0build\AssemblyInfo.cs"
 if errorlevel 1 (
   echo Build failed. If it says the file is in use, close SolidWorks and try again.

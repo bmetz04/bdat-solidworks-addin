@@ -36,4 +36,9 @@
     </Reference>
   </ItemGroup>
 
+  <ItemGroup>
+    <EmbeddedResource Include="Resources\fubc-logo.png" LogicalName="BDAT.fubc-logo.png" />
+    <EmbeddedResource Include="Resources\fubc-logo-white.png" LogicalName="BDAT.fubc-logo-white.png" />
+  </ItemGroup>
+
 </Project>
