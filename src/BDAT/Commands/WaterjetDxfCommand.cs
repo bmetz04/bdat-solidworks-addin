@@ -307,6 +307,8 @@ namespace BDAT.Commands
             public double Thickness;
             /// <summary>The faces on the top side, to export.</summary>
             public readonly List<IFace2> TopFaces = new List<IFace2>();
+            /// <summary>The faces on the bottom side: the same outline, mirrored. Used if the top won't export.</summary>
+            public readonly List<IFace2> BottomFaces = new List<IFace2>();
         }
 
         /// <summary>
@@ -399,7 +401,7 @@ namespace BDAT.Commands
 
             check.Thickness = Math.Abs(capHeights[0] - capHeights[1]);
             for (int i = 0; i < caps.Count; i++)
-                if (Math.Abs(capHeightOf[i] - topHeight) <= HeightTolerance) check.TopFaces.Add(caps[i]);
+                (Math.Abs(capHeightOf[i] - topHeight) <= HeightTolerance ? check.TopFaces : check.BottomFaces).Add(caps[i]);
             return check;
         }
 
@@ -550,10 +552,16 @@ namespace BDAT.Commands
                         failed.Add(plan.Name + ": couldn't find its flat pattern");
                         continue;
                     }
-                    bool selected = flat.Select2(false, -1);
-                    ok = selected && part.ExportToDWG2(dxf, workPath,
-                        (int)swExportToDWG_e.swExportToDWG_ExportSheetMetal, true, null, false, false, SheetMetalOptions, null);
-                    Log(plan.BodyName + ": sheet metal, flat pattern " + flat.Name + ", selected " + selected + ", exported " + ok + " -> " + dxf);
+                    ok = false;
+                    // SolidWorks sometimes refuses the first export from a freshly opened copy, so try twice.
+                    for (int attempt = 1; attempt <= 2 && !ok; attempt++)
+                    {
+                        work.ClearSelection2(true);
+                        bool selected = flat.Select2(false, -1);
+                        ok = selected && part.ExportToDWG2(dxf, workPath,
+                            (int)swExportToDWG_e.swExportToDWG_ExportSheetMetal, true, null, false, false, SheetMetalOptions, null);
+                        Log(plan.BodyName + ": sheet metal, flat pattern " + flat.Name + ", attempt " + attempt + ", selected " + selected + ", exported " + ok + " -> " + dxf);
+                    }
                 }
                 else
                 {
@@ -564,18 +572,31 @@ namespace BDAT.Commands
                         failed.Add(plan.Name + ": couldn't find its top face");
                         continue;
                     }
-                    bool selected = true;
-                    for (int i = 0; i < check.TopFaces.Count; i++)
-                        selected &= ((IEntity)check.TopFaces[i]).Select4(i > 0, null);
-                    ok = selected && part.ExportToDWG2(dxf, workPath,
-                        (int)swExportToDWG_e.swExportToDWG_ExportSelectedFacesOrLoops, true, null, false, false, 0, null);
-                    Log(plan.BodyName + ": plate, " + check.TopFaces.Count + " top face(s), selected " + selected + ", exported " + ok + " -> " + dxf);
+                    // SolidWorks sometimes refuses the first export from a freshly opened copy: try the top again, then
+                    // the bottom, which on a plate whose sides go straight through is the same outline.
+                    ok = ExportFaces(work, part, check.TopFaces, dxf, workPath, plan.BodyName + ": plate, top")
+                        || ExportFaces(work, part, check.TopFaces, dxf, workPath, plan.BodyName + ": plate, top again")
+                        || ExportFaces(work, part, check.BottomFaces, dxf, workPath, plan.BodyName + ": plate, bottom");
                 }
                 work.ClearSelection2(true);
 
                 if (ok && File.Exists(dxf)) written.Add(Path.GetFileName(dxf));
                 else failed.Add(plan.Name + ": SolidWorks couldn't export it" + (ok ? " (no file was written)" : ""));
             }
+        }
+
+        /// <summary>Selects the faces and exports them to one DXF. Logs the outcome under what.</summary>
+        private static bool ExportFaces(IModelDoc2 work, IPartDoc part, List<IFace2> faces, string dxf, string workPath, string what)
+        {
+            if (faces.Count == 0) return false;
+            work.ClearSelection2(true);
+            bool selected = true;
+            for (int i = 0; i < faces.Count; i++)
+                selected &= ((IEntity)faces[i]).Select4(i > 0, null);
+            bool ok = selected && part.ExportToDWG2(dxf, workPath,
+                (int)swExportToDWG_e.swExportToDWG_ExportSelectedFacesOrLoops, true, null, false, false, 0, null);
+            Log(what + ", " + faces.Count + " face(s), selected " + selected + ", exported " + ok + " -> " + dxf);
+            return ok;
         }
 
         /// <summary>
