@@ -462,6 +462,8 @@ namespace BdatTests
                 Check(ExistingParts.Check(new[] { "BR-10101-AA", "BR-10102-AA" }, TimeSpan.FromMinutes(5)).Contains("BR-10101-AA"),
                     "existing numbers match whatever case 3DEXPERIENCE answers in");
                 ExistingParts.SetForTests(null);
+                Equal("br-10101-aa", ExistingParts.Number(" br-10101-aa.SLDPRT "), "a found model name with its extension is the number");
+                Equal("BR-A0101-AA", ExistingParts.Number("BR-A0101-AA.sldasm"), "assemblies too");
                 TestMode.ConnectorAttempts = 0;
 
                 bool refused = false;

@@ -101,24 +101,49 @@ namespace BDAT
                 return false;
             }
 
-            var names = new string[numbers.Count];
-            numbers.CopyTo(names, 0);
+            // The model name may be stored with or without the file extension, so ask for both.
+            string extension = kind == "3DPart" ? ".SLDPRT" : ".SLDASM";
+            var names = new List<string>();
+            foreach (string n in numbers) { names.Add(n); names.Add(n + extension); }
+
             object serverLock = lockField.GetValue(null) ?? new object();
-            object answer;
-            lock (serverLock)
+            bool anyAnswer = false;
+            // Two ways in: by model name (type "VPMReference"), and by title (any other type string makes searchTitles
+            // query ds6w:label instead; "VPMReference " with a space still means the same type to the search).
+            foreach (string type in new[] { "VPMReference", "VPMReference " })
             {
-                object server = getServer.Invoke(null, null);
-                if (server == null) { PlatformSave.Log(LogName, "existing check: not connected"); return false; }
-                // A fresh cookie container makes searchTitles sign in to 3DSpace itself with the current session.
-                answer = search.Invoke(null, new object[] { server, new CookieContainer(), "VPMReference", kind, names });
+                object answer;
+                lock (serverLock)
+                {
+                    object server = getServer.Invoke(null, null);
+                    if (server == null) { PlatformSave.Log(LogName, "existing check: not connected"); return false; }
+                    // A fresh cookie container makes searchTitles sign in to 3DSpace itself with the current session.
+                    answer = search.Invoke(null, new object[] { server, new CookieContainer(), type, kind, names.ToArray() });
+                }
+                if (answer == null) { PlatformSave.Log(LogName, "existing check: " + kind + " search by " + (type.EndsWith(" ") ? "title" : "model name") + " failed"); continue; }
+                anyAnswer = true;
+                int before = found.Count;
+                var sample = new List<string>();
+                foreach (object title in (IEnumerable)answer)
+                {
+                    string t = Number(title as string);
+                    if (t.Length == 0) continue;
+                    found.Add(t);
+                    if (sample.Count < 3) sample.Add(t);
+                }
+                PlatformSave.Log(LogName, "existing check: " + kind + " search by " + (type.EndsWith(" ") ? "title" : "model name") +
+                    " found " + (found.Count - before) + " new" + (sample.Count > 0 ? ", e.g. " + string.Join(", ", sample.ToArray()) : ""));
             }
-            if (answer == null) { PlatformSave.Log(LogName, "existing check: the " + kind + " search failed"); return false; }
-            foreach (object title in (IEnumerable)answer)
-            {
-                string t = title as string;
-                if (!string.IsNullOrEmpty(t)) found.Add(t.Trim());
-            }
-            return true;
+            return anyAnswer;
+        }
+
+        /// <summary>"br-10101-aa.sldprt" or "BR-10101-AA" -> "BR-10101-AA" (case is ignored when comparing anyway).</summary>
+        internal static string Number(string title)
+        {
+            string t = (title ?? "").Trim();
+            foreach (string ext in new[] { ".SLDPRT", ".SLDASM" })
+                if (t.EndsWith(ext, StringComparison.OrdinalIgnoreCase)) t = t.Substring(0, t.Length - ext.Length);
+            return t;
         }
 
         /// <summary>For tests: what Check would answer if the platform said these exist.</summary>
