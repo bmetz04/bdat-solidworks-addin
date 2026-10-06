@@ -10,7 +10,8 @@ namespace BDAT.Commands
     /// Names the open part's cut list items 001, 002, 003... Items that already have a number keep it; the rest get
     /// the numbers after the highest one in use, sheet metal items first and then the others, each in cut list order.
     /// A part with no cut list is made a weldment first, so SolidWorks makes one. SolidWorks can't undo renames, so it
-    /// asks before changing anything and shows exactly which names will change.
+    /// asks before changing anything and shows exactly which names will change. Afterwards the cut list is sorted by
+    /// number.
     /// </summary>
     public sealed class NameCutListCommand : IBdatCommand
     {
@@ -75,6 +76,7 @@ namespace BDAT.Commands
             }
             Result result = Apply(doc, plan);
             result.Kept = kept;
+            bool sorted = SortByNumber(doc);
 
             if (TestMode.Enabled) TestMode.LastNameCutList = result.Names;
 
@@ -97,6 +99,9 @@ namespace BDAT.Commands
                     ". Another feature in the part probably already has that name.";
             if (result.Names.Count > 0)
                 message += "\n\nCtrl+Z can't undo a rename in SolidWorks. To change a name back, rename it in the cut list.";
+            message += sorted
+                ? "\n\nThe cut list is sorted by number."
+                : "\n\nSolidWorks wouldn't reorder the cut list, so it's still in its old order.";
             Ui.Tell(swApp, message, result.Failed.Count > 0 ? swMessageBoxIcon_e.swMbWarning : swMessageBoxIcon_e.swMbInformation);
         }
 
@@ -194,6 +199,91 @@ namespace BDAT.Commands
             {
                 try { doc.FeatureManager.UpdateFeatureTree(); } catch { }
             }
+            return result;
+        }
+
+        /// <summary>
+        /// Puts the cut list items in each folder (the cut list and any sub-weldment folders) in number order, with
+        /// unnumbered items after them in their current order. SolidWorks has no sort-by-name option for cut lists,
+        /// so the items are moved one at a time. True if every folder ended up in order.
+        /// </summary>
+        private static bool SortByNumber(IModelDoc2 doc)
+        {
+            bool ok = true;
+            IFeature feat = doc.FirstFeature() as IFeature;
+            while (feat != null)
+            {
+                if (string.Equals(feat.GetTypeName2(), "SolidBodyFolder", StringComparison.OrdinalIgnoreCase))
+                    ok &= SortFolder(doc, feat);
+                feat = feat.GetNextFeature() as IFeature;
+            }
+            try { doc.FeatureManager.UpdateFeatureTree(); } catch { }
+            return ok;
+        }
+
+        private static bool SortFolder(IModelDoc2 doc, IFeature folder)
+        {
+            bool ok = true;
+            var items = new List<IFeature>();
+            IFeature sub = folder.GetFirstSubFeature() as IFeature;
+            while (sub != null)
+            {
+                string type = sub.GetTypeName2() ?? "";
+                if (type.Equals("CutListFolder", StringComparison.OrdinalIgnoreCase)) items.Add(sub);
+                else if (type.Equals("SubWeldFolder", StringComparison.OrdinalIgnoreCase)) ok &= SortFolder(doc, sub);
+                sub = sub.GetNextSubFeature() as IFeature;
+            }
+            if (items.Count < 2) return ok;
+
+            List<string> wanted = SortedNames(items);
+            List<string> current = items.ConvertAll(f => f.Name);
+            if (string.Join("|", current.ToArray()) == string.Join("|", wanted.ToArray())) return ok;
+
+            try
+            {
+                // First item before whatever is first now, then each one after the one before it.
+                if (current[0] != wanted[0])
+                    doc.Extension.ReorderFeature(wanted[0], current[0], (int)swMoveLocation_e.swMoveBefore);
+                for (int i = 1; i < wanted.Count; i++)
+                    doc.Extension.ReorderFeature(wanted[i], wanted[i - 1], (int)swMoveLocation_e.swMoveAfter);
+            }
+            catch
+            {
+                return false;
+            }
+
+            var after = new List<string>();
+            sub = folder.GetFirstSubFeature() as IFeature;
+            while (sub != null)
+            {
+                if (string.Equals(sub.GetTypeName2(), "CutListFolder", StringComparison.OrdinalIgnoreCase)) after.Add(sub.Name);
+                sub = sub.GetNextSubFeature() as IFeature;
+            }
+            return ok && string.Join("|", after.ToArray()) == string.Join("|", wanted.ToArray());
+        }
+
+        /// <summary>Numbered names in number order, then the rest in the order given.</summary>
+        internal static List<string> SortedNames(List<IFeature> items)
+        {
+            return SortedNames(items.ConvertAll(f => f.Name));
+        }
+
+        internal static List<string> SortedNames(List<string> names)
+        {
+            var numbered = new List<KeyValuePair<int, string>>();
+            var rest = new List<string>();
+            foreach (string name in names)
+            {
+                int n;
+                if (IsNumbered(name, out n)) numbered.Add(new KeyValuePair<int, string>(n, name));
+                else rest.Add(name);
+            }
+            // Stable sort by number (List.Sort isn't stable, so break ties on the original position).
+            var indexed = new List<KeyValuePair<int, KeyValuePair<int, string>>>();
+            for (int i = 0; i < numbered.Count; i++) indexed.Add(new KeyValuePair<int, KeyValuePair<int, string>>(i, numbered[i]));
+            indexed.Sort((a, b) => a.Value.Key != b.Value.Key ? a.Value.Key.CompareTo(b.Value.Key) : a.Key.CompareTo(b.Key));
+            var result = indexed.ConvertAll(x => x.Value.Value);
+            result.AddRange(rest);
             return result;
         }
 

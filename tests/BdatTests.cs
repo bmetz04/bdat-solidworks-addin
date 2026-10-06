@@ -544,6 +544,12 @@ namespace BdatTests
                     Check(!NameCutListCommand.IsNumbered(name, out n), "\"" + name + "\" shouldn't count as numbered");
             });
 
+            Test("Name Cut List sorts numbered items first, by number", delegate
+            {
+                List<string> sorted = NameCutListCommand.SortedNames(new List<string> { "003", "Plate", "001", "010", "002", "Tube" });
+                Equal("001,002,003,010,Plate,Tube", string.Join(",", sorted.ToArray()), "sorted order");
+            });
+
             Test("Every toolbar callback exists on SwAddin", delegate
             {
                 foreach (string callback in CommandCallbacks(new SwAddin()))
