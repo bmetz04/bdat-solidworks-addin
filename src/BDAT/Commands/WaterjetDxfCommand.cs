@@ -565,6 +565,9 @@ namespace BDAT.Commands
                             (int)swExportToDWG_e.swExportToDWG_ExportSheetMetal, true, null, false, false, SheetMetalOptions, null);
                         Log(plan.BodyName + ": sheet metal, flat pattern " + flat.Name + ", attempt " + attempt + ", selected " + selected + ", exported " + ok + " -> " + dxf);
                     }
+                    // SolidWorks refuses the sheet metal export for some multi-body parts (bodies made as separate
+                    // base flanges). Flatten the body on the copy instead and export its flat face like a plate.
+                    if (!ok) ok = ExportFlattened(work, part, flat, plan.BodyName, dxf, workPath);
                 }
                 else
                 {
@@ -585,6 +588,59 @@ namespace BDAT.Commands
 
                 if (ok && File.Exists(dxf)) written.Add(Path.GetFileName(dxf));
                 else failed.Add(plan.Name + ": SolidWorks couldn't export it" + (ok ? " (no file was written)" : ""));
+            }
+        }
+
+        /// <summary>
+        /// Unsuppresses the body's flat pattern on the copy, which flattens it into a plate, and exports its top (or
+        /// bottom) face. The outline is the same as the flat pattern export's; only the bend lines are missing.
+        /// </summary>
+        private static bool ExportFlattened(IModelDoc2 work, IPartDoc part, IFeature flat, string bodyName, string dxf, string workPath)
+        {
+            bool unsuppressed = false;
+            try
+            {
+                unsuppressed = flat.SetSuppression2((int)swFeatureSuppressionAction_e.swUnSuppressFeature,
+                    (int)swInConfigurationOpts_e.swThisConfiguration, null);
+                work.ForceRebuild3(false);
+
+                IBody2 body = SolidBodies(work).Find(b => string.Equals(b.Name, bodyName, StringComparison.OrdinalIgnoreCase));
+                if (body == null)
+                {
+                    Log(bodyName + ": flattened (unsuppressed " + unsuppressed + "), but the body wasn't found afterwards");
+                    return false;
+                }
+                PlateCheck check = CheckPlate(body);
+                if (check.Reason != null || check.TopFaces.Count == 0)
+                {
+                    Log(bodyName + ": flattened (unsuppressed " + unsuppressed + "), but it isn't flat: " + (check.Reason ?? "no top faces"));
+                    return false;
+                }
+                return ExportFaces(work, part, check.TopFaces, dxf, workPath, bodyName + ": flattened, top")
+                    || ExportFaces(work, part, check.TopFaces, dxf, workPath, bodyName + ": flattened, top again")
+                    || ExportFaces(work, part, check.BottomFaces, dxf, workPath, bodyName + ": flattened, bottom");
+            }
+            catch (Exception ex)
+            {
+                Log(bodyName + ": flattening failed: " + ex.Message);
+                return false;
+            }
+            finally
+            {
+                // Fold it back so the next body's export sees the copy as it was.
+                if (unsuppressed)
+                {
+                    try
+                    {
+                        flat.SetSuppression2((int)swFeatureSuppressionAction_e.swSuppressFeature,
+                            (int)swInConfigurationOpts_e.swThisConfiguration, null);
+                        work.ForceRebuild3(false);
+                    }
+                    catch (Exception)
+                    {
+                        // Only the hidden copy, which is deleted afterwards.
+                    }
+                }
             }
         }
 
