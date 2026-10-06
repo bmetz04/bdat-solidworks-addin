@@ -7,10 +7,10 @@ using BDAT.Testing;
 namespace BDAT.Commands
 {
     /// <summary>
-    /// Names the open part's cut list items 001, 002, 003... in the order they appear in the cut list. Items that
-    /// already have a number keep it; the rest get the numbers after the highest one in use. A part with no cut list
-    /// is made a weldment first, so SolidWorks makes one. SolidWorks can't undo renames, so it asks before changing
-    /// anything and shows exactly which names will change.
+    /// Names the open part's cut list items 001, 002, 003... Items that already have a number keep it; the rest get
+    /// the numbers after the highest one in use, sheet metal items first and then the others, each in cut list order.
+    /// A part with no cut list is made a weldment first, so SolidWorks makes one. SolidWorks can't undo renames, so it
+    /// asks before changing anything and shows exactly which names will change.
     /// </summary>
     public sealed class NameCutListCommand : IBdatCommand
     {
@@ -116,7 +116,7 @@ namespace BDAT.Commands
 
         /// <summary>
         /// Items already named with a number (001, 002, ... or longer, digits only) keep their names. The rest get
-        /// the numbers after the highest one in use, in cut list order, so new items go on the end of the list.
+        /// the numbers after the highest one in use, sheet metal items first and then the rest, each in cut list order.
         /// </summary>
         private static List<Rename> Plan(List<IFeature> items, out int kept)
         {
@@ -134,11 +134,37 @@ namespace BDAT.Commands
                 else toName.Add(item);
             }
 
+            // Sheet metal items take the first new numbers (Ben, 2026-10-06), then everything else, each in cut list order.
+            var ordered = new List<IFeature>();
+            foreach (IFeature item in toName) if (IsSheetMetal(item)) ordered.Add(item);
+            foreach (IFeature item in toName) if (!ordered.Contains(item)) ordered.Add(item);
+
             var plan = new List<Rename>();
             int next = highest + 1;
-            foreach (IFeature item in toName)
+            foreach (IFeature item in ordered)
                 plan.Add(new Rename { Item = item, From = item.Name, To = (next++).ToString("000") });
             return plan;
+        }
+
+        /// <summary>True when the cut list item holds sheet metal bodies.</summary>
+        private static bool IsSheetMetal(IFeature item)
+        {
+            try
+            {
+                IBodyFolder folder = item.GetSpecificFeature2() as IBodyFolder;
+                object[] bodies = folder == null ? null : folder.GetBodies() as object[];
+                if (bodies == null) return false;
+                foreach (object o in bodies)
+                {
+                    IBody2 body = o as IBody2;
+                    if (body != null && body.IsSheetMetal()) return true;
+                }
+            }
+            catch
+            {
+                // Can't tell: number it with the rest.
+            }
+            return false;
         }
 
         private static string ConfirmText(List<Rename> plan, int kept, bool madeWeldment)
