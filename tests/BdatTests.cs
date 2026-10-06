@@ -1001,7 +1001,8 @@ namespace BdatTests
         /// <summary>
         /// The two-body sample has no cut list, so Name Cut List must make it a weldment and name its two items
         /// 001 and 002. A second run must rename nothing (both already have numbers). Then one item is given another
-        /// name, and a third run must number only that one, as 003. Nothing is saved.
+        /// name, and a third run must number only that one, as 003. Answering No to the rename list changes nothing.
+        /// Nothing is saved.
         /// </summary>
         private static void NameCutListTest(ISldWorks swApp, string partPath)
         {
@@ -1020,6 +1021,17 @@ namespace BdatTests
                 IFeature first = Features(doc).First(f => f.GetTypeName2() == "CutListFolder");
                 first.Name = "Plate";
                 RunNameCutList(swApp, command, "003", "003,002", "run 3");
+
+                // Renames can't be undone with Ctrl+Z, so answering No to the list must change nothing.
+                first.Name = "Plate";
+                TestMode.LastNameCutList = null;
+                TestMode.Messages.Clear();
+                TestMode.Answers.Enqueue(false);
+                command.Run(swApp);
+                Check(TestMode.LastNameCutList == null, "answering No still renamed: " + string.Join(" | ", TestMode.Messages.ToArray()));
+                Check(TestMode.Messages.Any(m => m.Contains("Plate") && m.Contains("003")), "the question didn't list Plate → 003");
+                List<string> after = Features(doc).Where(f => f.GetTypeName2() == "CutListFolder").Select(f => f.Name).ToList();
+                Equal("Plate,002", string.Join(",", after.ToArray()), "cut list items after answering No");
             }
             finally
             {
