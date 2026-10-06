@@ -43,7 +43,6 @@ namespace BDAT
             new CommandEntry(new CreateOriginCommand(), "OnCreateOrigin", "CanCreateOrigin"),
             new CommandEntry(new NewFromEbomCommand(), "OnNewFromEbom", "CanNewFromEbom"),
             new CommandEntry(new NameCutListCommand(), "OnNameCutList", "CanNameCutList"),
-            new CommandEntry(new FreeCutListNumbersCommand(), "OnFreeCutListNumbers", "CanFreeCutListNumbers"),
             new CommandEntry(new UpdateCommand(), "OnUpdate", "CanUpdate"),
             new CommandEntry(new VersionCommand(), "OnVersion", "CanVersion"),
         };
@@ -306,14 +305,11 @@ namespace BDAT
         public void OnNameCutList() { Run(_commands[4].Command); }
         public int CanNameCutList() { return CanRun(_commands[4].Command); }
 
-        public void OnFreeCutListNumbers() { Run(_commands[5].Command); }
-        public int CanFreeCutListNumbers() { return CanRun(_commands[5].Command); }
+        public void OnUpdate() { Run(_commands[5].Command); }
+        public int CanUpdate() { return CanRun(_commands[5].Command); }
 
-        public void OnUpdate() { Run(_commands[6].Command); }
-        public int CanUpdate() { return CanRun(_commands[6].Command); }
-
-        public void OnVersion() { Run(_commands[7].Command); }
-        public int CanVersion() { return CanRun(_commands[7].Command); }
+        public void OnVersion() { Run(_commands[6].Command); }
+        public int CanVersion() { return CanRun(_commands[6].Command); }
 
         #endregion
 
