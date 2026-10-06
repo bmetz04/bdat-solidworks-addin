@@ -9,9 +9,8 @@ namespace BDAT.Commands
     /// <summary>
     /// Names the open part's cut list items 001, 002, 003... in the order they appear in the cut list. Items that
     /// already have a number keep it; the rest get the numbers after the highest one in use. A part with no cut list
-    /// is made a weldment first, so SolidWorks makes one.
-    /// SolidWorks doesn't put renames made by an add-in on its undo list (Ctrl+Z skips them and undoes earlier
-    /// features instead), so nothing here is grouped for undo and the message doesn't offer it.
+    /// is made a weldment first, so SolidWorks makes one. SolidWorks can't undo renames, so it asks before changing
+    /// anything and shows exactly which names will change.
     /// </summary>
     public sealed class NameCutListCommand : IBdatCommand
     {
@@ -41,10 +40,16 @@ namespace BDAT.Commands
                 return;
             }
 
+            // SolidWorks keeps feature renames off its undo list, so Ctrl+Z can't take them back (it undoes whatever
+            // came before instead). Everything is shown and confirmed before it's changed.
             bool madeWeldment = false;
             List<IFeature> items = CutListItems(doc);
             if (items.Count == 0)
             {
+                if (!HasFeature(doc, "WeldmentFeature") && !Ui.AskYesNo(swApp,
+                        "This part has no cut list. BDAT will add a Weldment feature so SolidWorks makes one, " +
+                        "then number the cut list items 001, 002, 003...\n\nGo ahead?"))
+                    return;
                 madeWeldment = MakeWeldment(doc);
                 items = CutListItems(doc);
             }
@@ -58,7 +63,18 @@ namespace BDAT.Commands
                     swMessageBoxIcon_e.swMbWarning);
                 return;
             }
-            Result result = Rename(doc, items);
+
+            int kept;
+            List<Rename> plan = Plan(items, out kept);
+            if (plan.Count > 0 && !Ui.AskYesNo(swApp, ConfirmText(plan, kept, madeWeldment)))
+            {
+                if (madeWeldment)
+                    Ui.Tell(swApp, "Nothing was renamed. The Weldment feature BDAT added is still in the tree; " +
+                        "delete it if you don't want it.", swMessageBoxIcon_e.swMbInformation);
+                return;
+            }
+            Result result = Apply(doc, plan);
+            result.Kept = kept;
 
             if (TestMode.Enabled) TestMode.LastNameCutList = result.Names;
 
@@ -79,6 +95,8 @@ namespace BDAT.Commands
             if (result.Failed.Count > 0)
                 message += "\n\nSolidWorks wouldn't use " + string.Join(", ", result.Failed.ToArray()) +
                     ". Another feature in the part probably already has that name.";
+            if (result.Names.Count > 0)
+                message += "\n\nCtrl+Z can't undo a rename in SolidWorks. To change a name back, rename it in the cut list.";
             Ui.Tell(swApp, message, result.Failed.Count > 0 ? swMessageBoxIcon_e.swMbWarning : swMessageBoxIcon_e.swMbInformation);
         }
 
@@ -89,13 +107,20 @@ namespace BDAT.Commands
             public int Kept;
         }
 
+        private sealed class Rename
+        {
+            public IFeature Item;
+            public string From;
+            public string To;
+        }
+
         /// <summary>
         /// Items already named with a number (001, 002, ... or longer, digits only) keep their names. The rest get
         /// the numbers after the highest one in use, in cut list order, so new items go on the end of the list.
         /// </summary>
-        private static Result Rename(IModelDoc2 doc, List<IFeature> items)
+        private static List<Rename> Plan(List<IFeature> items, out int kept)
         {
-            var result = new Result();
+            kept = 0;
             int highest = 0;
             var toName = new List<IFeature>();
             foreach (IFeature item in items)
@@ -103,23 +128,43 @@ namespace BDAT.Commands
                 int number;
                 if (IsNumbered(item.Name, out number))
                 {
-                    result.Kept++;
+                    kept++;
                     highest = Math.Max(highest, number);
                 }
                 else toName.Add(item);
             }
 
+            var plan = new List<Rename>();
             int next = highest + 1;
             foreach (IFeature item in toName)
-            {
-                string name = next.ToString("000");
-                next++;
-                item.Name = name;
-                if (item.Name == name) result.Names.Add(name);
-                else result.Failed.Add(name);
-            }
+                plan.Add(new Rename { Item = item, From = item.Name, To = (next++).ToString("000") });
+            return plan;
+        }
 
-            if (toName.Count > 0)
+        private static string ConfirmText(List<Rename> plan, int kept, bool madeWeldment)
+        {
+            const int shown = 15;
+            var lines = new List<string>();
+            if (madeWeldment) lines.Add("BDAT made the part a weldment, so it now has a cut list.\n");
+            lines.Add("Rename " + (plan.Count == 1 ? "this cut list item" : "these " + plan.Count + " cut list items") + "?\n");
+            for (int i = 0; i < plan.Count && i < shown; i++)
+                lines.Add("    " + plan[i].From + "  →  " + plan[i].To);
+            if (plan.Count > shown) lines.Add("    ... and " + (plan.Count - shown) + " more");
+            if (kept > 0) lines.Add("\n" + kept + (kept == 1 ? " item already has a number and stays" : " items already have numbers and stay") + " as is.");
+            lines.Add("\nCtrl+Z can't undo a rename in SolidWorks, so check the list first.");
+            return string.Join("\n", lines.ToArray());
+        }
+
+        private static Result Apply(IModelDoc2 doc, List<Rename> plan)
+        {
+            var result = new Result();
+            foreach (Rename r in plan)
+            {
+                r.Item.Name = r.To;
+                if (r.Item.Name == r.To) result.Names.Add(r.To);
+                else result.Failed.Add(r.To);
+            }
+            if (plan.Count > 0)
             {
                 try { doc.FeatureManager.UpdateFeatureTree(); } catch { }
             }
