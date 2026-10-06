@@ -89,10 +89,13 @@ namespace BDAT
                 case 5: // Name Cut List: brown circle with "01"
                     DrawBadge(g, cell, Color.FromArgb(150, 85, 30), "01", 0.36f);
                     break;
-                case 6: // Update: green circle with a white down arrow
+                case 6: // Free Cut List Numbers: light brown circle with "0?"
+                    DrawBadge(g, cell, Color.FromArgb(190, 130, 60), "0?", 0.36f);
+                    break;
+                case 7: // Update: green circle with a white down arrow
                     DrawArrowIcon(g, cell, Color.FromArgb(30, 140, 60), false);
                     break;
-                case 7: // Version: blue circle with an "i"
+                case 8: // Version: blue circle with an "i"
                     DrawBadge(g, cell, Color.FromArgb(30, 90, 170), "i");
                     break;
                 default:

@@ -41,8 +41,6 @@ namespace BDAT.Commands
                 return;
             }
 
-            // SolidWorks keeps feature renames off its undo list, so Ctrl+Z can't take them back (it undoes whatever
-            // came before instead). Everything is shown and confirmed before it's changed.
             bool madeWeldment = false;
             List<IFeature> items = CutListItems(doc);
             if (items.Count == 0)
@@ -66,64 +64,37 @@ namespace BDAT.Commands
             }
 
             int kept;
-            List<Rename> plan = Plan(items, out kept);
-            if (plan.Count > 0 && !Ui.AskYesNo(swApp, ConfirmText(plan, kept, madeWeldment)))
-            {
-                if (madeWeldment)
-                    Ui.Tell(swApp, "Nothing was renamed. The Weldment feature BDAT added is still in the tree; " +
-                        "delete it if you don't want it.", swMessageBoxIcon_e.swMbInformation);
-                return;
-            }
-            Result result = Apply(doc, plan);
-            result.Kept = kept;
+            Result result = Name(doc, items, out kept);
             bool sorted = SortByNumber(doc);
+            Log("named " + string.Join(", ", result.Names.ToArray()) + (result.Skipped.Count > 0 ? "; skipped " + string.Join(", ", result.Skipped.ToArray()) : ""));
 
             if (TestMode.Enabled) TestMode.LastNameCutList = result.Names;
 
-            string message;
-            if (result.Names.Count == 0 && result.Failed.Count == 0)
-                message = "All " + result.Kept + " cut list items already have numbers, so nothing was renamed.";
-            else if (result.Names.Count == 0)
-                message = "No cut list items were renamed.";
-            else
-            {
-                message = result.Names.Count == 1
-                    ? "Named a cut list item " + result.Names[0] + "."
-                    : "Named " + result.Names.Count + " cut list items " + result.Names[0] + " to " + result.Names[result.Names.Count - 1] + ".";
-                if (result.Kept > 0)
-                    message += "\n" + result.Kept + (result.Kept == 1 ? " item already had a number and was" : " items already had numbers and were") + " left as is.";
-            }
-            if (madeWeldment) message = "Made the part a weldment so it has a cut list.\n" + message;
+            // No pop-up when it all worked (Ben, 2026-10-06): the cut list shows the new names.
+            var problems = new List<string>();
             if (result.Failed.Count > 0)
-                message += "\n\nSolidWorks wouldn't use " + string.Join(", ", result.Failed.ToArray()) +
-                    ". Another feature in the part probably already has that name.";
-            if (result.Names.Count > 0)
-                message += "\n\nCtrl+Z can't undo a rename in SolidWorks. To change a name back, rename it in the cut list.";
-            message += sorted
-                ? "\n\nThe cut list is sorted by number."
-                : "\n\nSolidWorks wouldn't reorder the cut list, so it's still in its old order.";
-            Ui.Tell(swApp, message, result.Failed.Count > 0 ? swMessageBoxIcon_e.swMbWarning : swMessageBoxIcon_e.swMbInformation);
+                problems.Add("SolidWorks wouldn't rename " + string.Join(", ", result.Failed.ToArray()) + ", so " +
+                    (result.Failed.Count == 1 ? "it keeps its" : "they keep their") + " old name.");
+            if (!sorted)
+                problems.Add("SolidWorks wouldn't reorder the cut list, so it's still in its old order.");
+            if (problems.Count > 0)
+                Ui.Tell(swApp, string.Join("\n\n", problems.ToArray()), swMessageBoxIcon_e.swMbWarning);
         }
 
-        private sealed class Result
+        internal sealed class Result
         {
             public readonly List<string> Names = new List<string>();
+            public readonly List<string> Skipped = new List<string>();
             public readonly List<string> Failed = new List<string>();
-            public int Kept;
-        }
-
-        private sealed class Rename
-        {
-            public IFeature Item;
-            public string From;
-            public string To;
         }
 
         /// <summary>
         /// Items already named with a number (001, 002, ... or longer, digits only) keep their names. The rest get
         /// the numbers after the highest one in use, sheet metal items first and then the rest, each in cut list order.
+        /// A number another feature already has (a sketch called 005, say) is skipped, and so is any number SolidWorks
+        /// won't take for some other reason.
         /// </summary>
-        private static List<Rename> Plan(List<IFeature> items, out int kept)
+        private static Result Name(IModelDoc2 doc, List<IFeature> items, out int kept)
         {
             kept = 0;
             int highest = 0;
@@ -139,16 +110,44 @@ namespace BDAT.Commands
                 else toName.Add(item);
             }
 
-            // Sheet metal items take the first new numbers (Ben, 2026-10-06), then everything else, each in cut list order.
-            var ordered = new List<IFeature>();
-            foreach (IFeature item in toName) if (IsSheetMetal(item)) ordered.Add(item);
-            foreach (IFeature item in toName) if (!ordered.Contains(item)) ordered.Add(item);
-
-            var plan = new List<Rename>();
+            var result = new Result();
+            HashSet<string> taken = OtherFeatureNames(doc);
             int next = highest + 1;
-            foreach (IFeature item in ordered)
-                plan.Add(new Rename { Item = item, From = item.Name, To = (next++).ToString("000") });
-            return plan;
+            foreach (IFeature item in SheetMetalFirst(toName))
+            {
+                string from = item.Name;
+                for (int tries = 0; tries < 50; tries++)
+                {
+                    string to = (next++).ToString("000");
+                    if (taken.Contains(to))
+                    {
+                        result.Skipped.Add(to);
+                        continue;
+                    }
+                    item.Name = to;
+                    if (item.Name == to)
+                    {
+                        result.Names.Add(to);
+                        break;
+                    }
+                    result.Skipped.Add(to);
+                }
+                if (item.Name == from) result.Failed.Add(from);
+            }
+            if (toName.Count > 0)
+            {
+                try { doc.FeatureManager.UpdateFeatureTree(); } catch { }
+            }
+            return result;
+        }
+
+        /// <summary>Sheet metal items first (Ben, 2026-10-06), then everything else, each in the order given.</summary>
+        internal static List<IFeature> SheetMetalFirst(List<IFeature> items)
+        {
+            var ordered = new List<IFeature>();
+            foreach (IFeature item in items) if (IsSheetMetal(item)) ordered.Add(item);
+            foreach (IFeature item in items) if (!ordered.Contains(item)) ordered.Add(item);
+            return ordered;
         }
 
         /// <summary>True when the cut list item holds sheet metal bodies.</summary>
@@ -172,34 +171,37 @@ namespace BDAT.Commands
             return false;
         }
 
-        private static string ConfirmText(List<Rename> plan, int kept, bool madeWeldment)
+        /// <summary>The names of every feature in the part except the cut list items, nested ones included.</summary>
+        internal static HashSet<string> OtherFeatureNames(IModelDoc2 doc)
         {
-            const int shown = 15;
-            var lines = new List<string>();
-            if (madeWeldment) lines.Add("BDAT made the part a weldment, so it now has a cut list.\n");
-            lines.Add("Rename " + (plan.Count == 1 ? "this cut list item" : "these " + plan.Count + " cut list items") + "?\n");
-            for (int i = 0; i < plan.Count && i < shown; i++)
-                lines.Add("    " + plan[i].From + "  →  " + plan[i].To);
-            if (plan.Count > shown) lines.Add("    ... and " + (plan.Count - shown) + " more");
-            if (kept > 0) lines.Add("\n" + kept + (kept == 1 ? " item already has a number and stays" : " items already have numbers and stay") + " as is.");
-            lines.Add("\nCtrl+Z can't undo a rename in SolidWorks, so check the list first.");
-            return string.Join("\n", lines.ToArray());
+            var names = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            foreach (IFeature feat in OtherFeatures(doc)) names.Add(feat.Name);
+            return names;
         }
 
-        private static Result Apply(IModelDoc2 doc, List<Rename> plan)
+        /// <summary>Every feature in the part except the cut list items, nested ones (sketches under extrudes...) included.</summary>
+        internal static List<IFeature> OtherFeatures(IModelDoc2 doc)
         {
-            var result = new Result();
-            foreach (Rename r in plan)
+            var found = new List<IFeature>();
+            IFeature feat = doc.FirstFeature() as IFeature;
+            while (feat != null)
             {
-                r.Item.Name = r.To;
-                if (r.Item.Name == r.To) result.Names.Add(r.To);
-                else result.Failed.Add(r.To);
+                AddOther(feat, found, 0);
+                feat = feat.GetNextFeature() as IFeature;
             }
-            if (plan.Count > 0)
+            return found;
+        }
+
+        private static void AddOther(IFeature feat, List<IFeature> found, int depth)
+        {
+            if (!string.Equals(feat.GetTypeName2(), "CutListFolder", StringComparison.OrdinalIgnoreCase)) found.Add(feat);
+            if (depth > 8) return;
+            IFeature sub = feat.GetFirstSubFeature() as IFeature;
+            while (sub != null)
             {
-                try { doc.FeatureManager.UpdateFeatureTree(); } catch { }
+                AddOther(sub, found, depth + 1);
+                sub = sub.GetNextSubFeature() as IFeature;
             }
-            return result;
         }
 
         /// <summary>
@@ -207,7 +209,7 @@ namespace BDAT.Commands
         /// unnumbered items after them in their current order. SolidWorks has no sort-by-name option for cut lists,
         /// so the items are moved one at a time. True if every folder ended up in order.
         /// </summary>
-        private static bool SortByNumber(IModelDoc2 doc)
+        internal static bool SortByNumber(IModelDoc2 doc)
         {
             bool ok = true;
             IFeature feat = doc.FirstFeature() as IFeature;
@@ -289,7 +291,7 @@ namespace BDAT.Commands
             return string.Join("|", a.ToArray()) == string.Join("|", b.ToArray());
         }
 
-        private static void Log(string message)
+        internal static void Log(string message)
         {
             PlatformSave.Log("namecutlist", message);
         }
@@ -344,7 +346,7 @@ namespace BDAT.Commands
         /// The cut list items (including those in sub-weldment folders) in the order the cut list shows them.
         /// The cut list is brought up to date first, and turned on if the part has it switched off.
         /// </summary>
-        private static List<IFeature> CutListItems(IModelDoc2 doc)
+        internal static List<IFeature> CutListItems(IModelDoc2 doc)
         {
             var items = new List<IFeature>();
             IFeature feat = doc.FirstFeature() as IFeature;
@@ -400,7 +402,7 @@ namespace BDAT.Commands
             return false;
         }
 
-        private static bool HasFeature(IModelDoc2 doc, string type)
+        internal static bool HasFeature(IModelDoc2 doc, string type)
         {
             IFeature feat = doc.FirstFeature() as IFeature;
             while (feat != null)

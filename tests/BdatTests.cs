@@ -265,15 +265,16 @@ namespace BdatTests
             Test("Toolbar has the expected BDAT buttons, in order", delegate
             {
                 List<string> titles = CommandTitles(new SwAddin());
-                Check(titles.Count == 8, "expected 8 buttons, got " + titles.Count + ": " + string.Join(", ", titles.ToArray()));
+                Check(titles.Count == 9, "expected 9 buttons, got " + titles.Count + ": " + string.Join(", ", titles.ToArray()));
                 Equal("Murder Part", titles[0], "button 1");
                 Equal("Save MCM", titles[1], "button 2");
                 Equal("Create Origin", titles[2], "button 3");
                 Equal("New from EBOM", titles[3], "button 4");
                 Equal("Waterjet DXF", titles[4], "button 5");
                 Equal("Name Cut List", titles[5], "button 6");
-                Equal("Update BDAT", titles[6], "button 7");
-                Check(Regex.IsMatch(titles[7], @"^BDAT (v\d+|dev build)$"), "button 8 should be the version (BDAT vN), got \"" + titles[7] + "\"");
+                Equal("Free Cut List Numbers", titles[6], "button 7");
+                Equal("Update BDAT", titles[7], "button 8");
+                Check(Regex.IsMatch(titles[8], @"^BDAT (v\d+|dev build)$"), "button 9 should be the version (BDAT vN), got \"" + titles[8] + "\"");
             });
 
             Test("EBOM CSV is read by column heading", delegate
@@ -1008,8 +1009,8 @@ namespace BdatTests
         /// <summary>
         /// The two-body sample has no cut list, so Name Cut List must make it a weldment and name its two items
         /// 001 and 002. A second run must rename nothing (both already have numbers). Then one item is given another
-        /// name, and a third run must number only that one, as 003. Answering No to the rename list changes nothing.
-        /// Nothing is saved.
+        /// name, and a third run must number only that one, as 003. With another feature called 003 the next number
+        /// skips to 004. Free Cut List Numbers then frees 003 and keeps the items' numbers. Nothing is saved.
         /// </summary>
         private static void NameCutListTest(ISldWorks swApp, string partPath)
         {
@@ -1029,16 +1030,23 @@ namespace BdatTests
                 first.Name = "Plate";
                 RunNameCutList(swApp, command, "003", "003,002", "run 3");
 
-                // Renames can't be undone with Ctrl+Z, so answering No to the list must change nothing.
+                // A number another feature holds is skipped: with the Weldment feature called 003, Plate gets 004.
+                IFeature weldment = Features(doc).First(f => f.GetTypeName2() == "WeldmentFeature");
+                weldment.Name = "003";
                 first.Name = "Plate";
+                RunNameCutList(swApp, command, "004", "004,002", "run 4");
+                Check(!TestMode.Messages.Any(), "Name Cut List shouldn't pop anything up when it works: " + string.Join(" | ", TestMode.Messages.ToArray()));
+
+                // Free Cut List Numbers renames the Weldment feature (no bodies) and leaves both items alone.
+                var free = new FreeCutListNumbersCommand();
                 TestMode.LastNameCutList = null;
                 TestMode.Messages.Clear();
-                TestMode.Answers.Enqueue(false);
-                command.Run(swApp);
-                Check(TestMode.LastNameCutList == null, "answering No still renamed: " + string.Join(" | ", TestMode.Messages.ToArray()));
-                Check(TestMode.Messages.Any(m => m.Contains("Plate") && m.Contains("003")), "the question didn't list Plate → 003");
-                List<string> after = Features(doc).Where(f => f.GetTypeName2() == "CutListFolder").Select(f => f.Name).ToList();
-                Equal("Plate,002", string.Join(",", after.ToArray()), "cut list items after answering No");
+                free.Run(swApp);
+                Check(TestMode.LastNameCutList != null && TestMode.LastNameCutList.Count == 1 && TestMode.LastNameCutList[0].StartsWith("003"),
+                    "Free Cut List Numbers should free 003 only: " + string.Join(" | ", TestMode.Messages.ToArray()));
+                Equal("Weldment 003", weldment.Name, "the Weldment feature's new name");
+                List<string> items = Features(doc).Where(f => f.GetTypeName2() == "CutListFolder").Select(f => f.Name).ToList();
+                Equal("002,004", string.Join(",", items.ToArray()), "cut list items after freeing (sorted, numbers kept)");
             }
             finally
             {
