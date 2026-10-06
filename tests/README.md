@@ -66,6 +66,14 @@ The SolidWorks tests never close a SolidWorks they didn't start. They won't run 
 - Save MCM on each copy: the name and description come from the file name, nothing is saved, and 3DEXPERIENCE is contacted 0 times.
 - After the run, the library file itself is unchanged.
 - If the folder is missing or empty, these tests are skipped.
+- Parts in its `cut-list` subfolder are left out of these McMaster checks; see below.
+
+**Cut list parts:** every `.SLDPRT` in `test-parts\cut-list` (the weldment and sheet metal parts made for Name Cut List and Waterjet DXF, such as CutListTest and TrickyTest) gets its own checks, each on a fresh copy:
+- Name Cut List: every item ends up with a number, no number is used twice, the cut list is in number order, nothing pops up, and a second run renames nothing. Nothing is saved.
+- Waterjet DXF: at least one DXF is saved, no body is reported as "couldn't export", the files written match the ones it lists, and the part is unchanged. It uses the part's "Waterjet" configuration if it has one.
+- The library file itself is unchanged afterwards.
+
+**Sample parts are saved:** the small parts the tests build (threaded screw, two-body part) are built once and kept in `%LOCALAPPDATA%\BDAT\test-samples`. Later runs copy them instead of building them again. Use `-FreshSamples` to build them again.
 
 ## Publishing
 

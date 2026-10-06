@@ -691,7 +691,7 @@ namespace BdatTests
 
                 Directory.CreateDirectory(work);
                 Samples samples = null;
-                Test("Make sample parts", delegate { samples = Samples.Create(swApp, work); });
+                Test("Make sample parts", delegate { samples = Samples.Get(swApp, work, options.FreshSamples); });
                 if (samples == null)
                 {
                     Skip("Murder Part / Save MCM", "the sample parts couldn't be made");
@@ -753,6 +753,7 @@ namespace BdatTests
                 Test("Create Origin: a bad number makes nothing", delegate { CreateOriginNothingTest(swApp, new[] { "1", "abc", "3" }); });
 
                 RealPartTests(swApp, options, work);
+                CutListPartTests(swApp, options, work);
             }
             finally
             {
@@ -1216,8 +1217,11 @@ namespace BdatTests
                 Skip("Real parts", "no test-parts folder" + (options.PartsDir == null ? "" : " at " + options.PartsDir));
                 return;
             }
+            string cutListDir = Path.GetFullPath(Path.Combine(options.PartsDir, CutListPartsFolder)) + Path.DirectorySeparatorChar;
             string[] parts = Directory.GetFiles(options.PartsDir, "*.sldprt", SearchOption.AllDirectories)
-                .Where(f => !Path.GetFileName(f).StartsWith("~$")).OrderBy(f => f).ToArray();
+                .Where(f => !Path.GetFileName(f).StartsWith("~$"))
+                .Where(f => !Path.GetFullPath(f).StartsWith(cutListDir, StringComparison.OrdinalIgnoreCase))
+                .OrderBy(f => f).ToArray();
             if (parts.Length == 0)
             {
                 Skip("Real parts", options.PartsDir + " has no .SLDPRT files yet");
@@ -1244,6 +1248,124 @@ namespace BdatTests
                 });
                 Test("Real part " + name + ": library file untouched", delegate { Equal(libraryBefore, Snapshot(original), "library file"); });
             }
+        }
+
+        // ---- Cut list parts from the user's test-parts library
+
+        /// <summary>Weldment and sheet metal test parts live in this subfolder of test-parts, apart from the McMaster parts.</summary>
+        private const string CutListPartsFolder = "cut-list";
+
+        /// <summary>
+        /// Runs Name Cut List and Waterjet DXF on every .SLDPRT in test-parts\cut-list (the tricky parts made for these
+        /// buttons). Each runs on its own fresh copy; the saved part is never opened. Nothing is saved.
+        /// </summary>
+        private static void CutListPartTests(ISldWorks swApp, Options options, string work)
+        {
+            string dir = string.IsNullOrEmpty(options.PartsDir) ? null : Path.Combine(options.PartsDir, CutListPartsFolder);
+            if (dir == null || !Directory.Exists(dir))
+            {
+                Skip("Cut list parts", "no " + CutListPartsFolder + " folder in test-parts");
+                return;
+            }
+            string[] parts = Directory.GetFiles(dir, "*.sldprt").Where(f => !Path.GetFileName(f).StartsWith("~$")).OrderBy(f => f).ToArray();
+            if (parts.Length == 0)
+            {
+                Skip("Cut list parts", dir + " has no .SLDPRT files yet");
+                return;
+            }
+
+            foreach (string original in parts)
+            {
+                string name = Path.GetFileName(original);
+                string libraryBefore = Snapshot(original);
+                Test("Cut list part " + name + ": Name Cut List", delegate { NameCutListPartTest(swApp, CopyForTest(original, work, "namecutlist")); });
+                Test("Cut list part " + name + ": Waterjet DXF", delegate { WaterjetPartTest(swApp, CopyForTest(original, work, "waterjet"), work); });
+                Test("Cut list part " + name + ": library file untouched", delegate { Equal(libraryBefore, Snapshot(original), "library file"); });
+            }
+        }
+
+        private static string CopyForTest(string original, string work, string purpose)
+        {
+            string dir = Path.Combine(work, "cut-list", Path.GetFileNameWithoutExtension(original) + "-" + purpose);
+            Directory.CreateDirectory(dir);
+            string copy = Path.Combine(dir, Path.GetFileName(original));
+            File.Copy(original, copy, true);
+            File.SetAttributes(copy, FileAttributes.Normal);
+            return copy;
+        }
+
+        /// <summary>
+        /// After Name Cut List every cut list item has a number, no number is used twice, and the cut list is in number
+        /// order. It must say nothing when it all worked. A second run must change nothing.
+        /// </summary>
+        private static void NameCutListPartTest(ISldWorks swApp, string partPath)
+        {
+            string before = Snapshot(partPath);
+            IModelDoc2 doc = Open(swApp, partPath);
+            try
+            {
+                var command = new NameCutListCommand();
+                TestMode.LastNameCutList = null;
+                TestMode.Messages.Clear();
+                command.Run(swApp);
+                string said = string.Join(" | ", TestMode.Messages.ToArray());
+                Check(TestMode.LastNameCutList != null, "Name Cut List stopped early: " + said);
+                Check(TestMode.Messages.Count == 0, "Name Cut List said something, so part of it didn't work: " + said);
+
+                List<string> names = CutListItems(doc).Select(f => f.Name).ToList();
+                Check(names.Count > 0, "the part has no cut list items after Name Cut List");
+                int n;
+                List<string> unnumbered = names.Where(x => !NameCutListCommand.IsNumbered(x, out n)).ToList();
+                Check(unnumbered.Count == 0, "items left without a number: " + string.Join(", ", unnumbered.ToArray()));
+                List<string> twice = names.GroupBy(x => x).Where(g => g.Count() > 1).Select(g => g.Key).ToList();
+                Check(twice.Count == 0, "numbers used twice: " + string.Join(", ", twice.ToArray()));
+                Equal(string.Join(",", NameCutListCommand.SortedNames(names).ToArray()), string.Join(",", names.ToArray()), "cut list order");
+
+                TestMode.LastNameCutList = null;
+                command.Run(swApp);
+                Check(TestMode.LastNameCutList != null && TestMode.LastNameCutList.Count == 0,
+                    "a second run renamed " + (TestMode.LastNameCutList == null ? "(stopped early)" : string.Join(", ", TestMode.LastNameCutList.ToArray())));
+                Equal(string.Join(",", names.ToArray()), string.Join(",", CutListItems(doc).Select(f => f.Name).ToArray()), "cut list after a second run");
+            }
+            finally
+            {
+                swApp.CloseDoc(doc.GetTitle());
+            }
+            Equal(before, Snapshot(partPath), "part file (Name Cut List must not save)");
+        }
+
+        /// <summary>
+        /// Waterjet DXF must save at least one DXF, report no body it couldn't export, write only the files it lists,
+        /// and leave the part unchanged.
+        /// </summary>
+        private static void WaterjetPartTest(ISldWorks swApp, string partPath, string work)
+        {
+            string before = Snapshot(partPath);
+            string outDir = Path.Combine(Path.GetDirectoryName(partPath), "dxf");
+            Directory.CreateDirectory(outDir);
+            IModelDoc2 doc = Open(swApp, partPath);
+            try
+            {
+                TestMode.LastWaterjet = null;
+                TestMode.Messages.Clear();
+                TestMode.WaterjetFolder = outDir;
+                new WaterjetDxfCommand().Run(swApp);
+                string said = string.Join(" | ", TestMode.Messages.ToArray());
+                Console.WriteLine("     " + said.Replace("\r", "").Replace("\n", " / "));
+                Check(TestMode.LastWaterjet != null, "Waterjet DXF stopped early: " + said);
+                Check(TestMode.LastWaterjet.Count > 0, "no DXFs were saved: " + said);
+                Check(!said.Contains("Couldn't export"), "some bodies couldn't be exported: " + said);
+                string[] files = Directory.GetFiles(outDir, "*.dxf", SearchOption.AllDirectories);
+                Check(files.Length == TestMode.LastWaterjet.Count,
+                    "it reported " + TestMode.LastWaterjet.Count + " DXFs but wrote " + files.Length);
+                foreach (string f in files) Check(new FileInfo(f).Length > 0, Path.GetFileName(f) + " is empty");
+            }
+            finally
+            {
+                TestMode.WaterjetFolder = null;
+                swApp.CloseDoc(doc.GetTitle());
+            }
+            Equal(before, Snapshot(partPath), "part file (Waterjet DXF must not save)");
         }
 
         private static void SaveMcmTest(ISldWorks swApp, string partPath, string typedName, string typedDescription,
@@ -1507,12 +1629,57 @@ namespace BdatTests
         public double ThreadedSolidVolume { get { return Math.PI * Radius * Radius * Length; } }
         public double TwoBodyVolume { get { return Math.PI * Radius * Radius * (Length + StubLength); } }
 
-        public static Samples Create(ISldWorks swApp, string folder)
+        /// <summary>Bump when Create makes different parts, so the saved copies are built again.</summary>
+        private const int SampleVersion = 1;
+
+        private static Samples At(string folder)
         {
             var s = new Samples();
             s.Threaded = Path.Combine(folder, "91251A540_Socket Head Screw.SLDPRT");
             s.Murdered = Path.Combine(folder, "91251A540_Socket Head Screw_murdered.SLDPRT");
             s.TwoBody = Path.Combine(folder, "TwoBody.SLDPRT");
+            return s;
+        }
+
+        private string[] Files { get { return new[] { Threaded, Murdered, TwoBody }; } }
+
+        /// <summary>
+        /// The sample parts, copied into this run's folder from the saved set in %LOCALAPPDATA%\BDAT\test-samples.
+        /// The saved set is built the first time (or again with fresh), so later runs skip building them.
+        /// </summary>
+        public static Samples Get(ISldWorks swApp, string work, bool fresh)
+        {
+            string saved = Path.Combine(System.Environment.GetFolderPath(System.Environment.SpecialFolder.LocalApplicationData),
+                "BDAT", "test-samples", "v" + SampleVersion);
+            Samples cached = At(saved);
+            if (fresh || !cached.Files.All(File.Exists))
+            {
+                if (Directory.Exists(saved)) Directory.Delete(saved, true);
+                Directory.CreateDirectory(saved);
+                Console.WriteLine("     building the sample parts in " + saved);
+                try { Create(swApp, saved); }
+                catch
+                {
+                    try { Directory.Delete(saved, true); } catch { }
+                    throw;
+                }
+            }
+            else Console.WriteLine("     reusing the sample parts saved in " + saved + " (--fresh-samples builds them again)");
+
+            Directory.CreateDirectory(work);
+            Samples s = At(work);
+            string[] from = cached.Files, to = s.Files;
+            for (int i = 0; i < from.Length; i++)
+            {
+                File.Copy(from[i], to[i], true);
+                File.SetAttributes(to[i], FileAttributes.Normal);
+            }
+            return s;
+        }
+
+        public static Samples Create(ISldWorks swApp, string folder)
+        {
+            Samples s = At(folder);
 
             IModelDoc2 doc = NewPart(swApp);
             try
@@ -1705,6 +1872,7 @@ namespace BdatTests
         public bool AllowOpenDocuments;
         public bool Launch;
         public bool Keep;
+        public bool FreshSamples;
         public string PartsDir;
         public string SolidWorksExe;
         public string ExpectLoadedDll;
@@ -1712,12 +1880,13 @@ namespace BdatTests
 
         public const string Usage =
             "BdatTests.exe [--solidworks [--launch] [--attach [--allow-open-docs]] [--sw-exe PATH]\n" +
-            "              [--expect-loaded-dll PATH] [--start-timeout SECONDS] [--keep]]\n" +
+            "              [--expect-loaded-dll PATH] [--start-timeout SECONDS] [--keep] [--fresh-samples]]\n" +
             "  (no options)   unit tests only, no SolidWorks\n" +
             "  --solidworks   also run the SolidWorks tests\n" +
             "  --launch       start a SolidWorks for the tests when none is running, and close it afterwards\n" +
             "  --attach       use an already running SolidWorks (refused if it has documents open)\n" +
             "  --keep         keep the sample parts folder\n" +
+            "  --fresh-samples  build the sample parts again instead of reusing the saved ones\n" +
             "Exit codes: 0 passed, 1 failed, 2 bad arguments, 3 SolidWorks not available.";
 
         public static Options Parse(string[] args)
@@ -1732,6 +1901,7 @@ namespace BdatTests
                     case "--attach": o.Attach = true; break;
                     case "--allow-open-docs": o.AllowOpenDocuments = true; break;
                     case "--keep": o.Keep = true; break;
+                    case "--fresh-samples": o.FreshSamples = true; break;
                     case "--parts-dir": if (++i >= args.Length) return null; o.PartsDir = args[i]; break;
                     case "--sw-exe": if (++i >= args.Length) return null; o.SolidWorksExe = args[i]; break;
                     case "--expect-loaded-dll": if (++i >= args.Length) return null; o.ExpectLoadedDll = args[i]; break;

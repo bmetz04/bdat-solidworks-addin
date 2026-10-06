@@ -4,6 +4,7 @@
 #   .\tests\run-tests.ps1 -SolidWorks          also the SolidWorks tests, using a SolidWorks that's already
 #                                              open with no documents (it never closes or touches your work)
 #   .\tests\run-tests.ps1 -SolidWorks -Launch  start a SolidWorks for the tests if none is running, close it after
+#   ... -FreshSamples                         build the sample parts again (they're saved after the first run)
 #   ... -Launch -UseTestBuild                  make that SolidWorks load the BDAT under test instead of the
 #                                              installed one, so the BDAT tab check covers this build
 #
@@ -16,6 +17,8 @@ param(
     [switch]$NoBuild,
     [switch]$Keep,
     [switch]$UseTestBuild,
+    # Build the sample parts again instead of reusing the ones saved in %LOCALAPPDATA%\BDAT\test-samples.
+    [switch]$FreshSamples,
     # Real McMaster parts to test against (outside the repo: McMaster's CAD files shouldn't go on GitHub).
     # Only copies are opened. Skipped if the folder is missing or empty.
     [string]$PartsDir = (Join-Path (Split-Path -Parent (Split-Path -Parent $PSScriptRoot)) 'test-parts'),
@@ -51,6 +54,7 @@ $harnessArgs = @()
 if ($SolidWorks) { $harnessArgs += '--solidworks', '--attach' }
 if ($Launch) { $harnessArgs += '--launch' }
 if ($Keep) { $harnessArgs += '--keep' }
+if ($FreshSamples) { $harnessArgs += '--fresh-samples' }
 if ($PartsDir) { $harnessArgs += '--parts-dir', $PartsDir }
 
 # -UseTestBuild: for this run only, register the build under test for this Windows user (HKCU, no admin).
