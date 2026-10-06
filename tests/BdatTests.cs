@@ -1037,7 +1037,7 @@ namespace BdatTests
                 Check(FeatureTypes(doc).Contains("WeldmentFeature"), "the part wasn't made a weldment");
                 RunNameCutList(swApp, command, "", "001,002", "run 2");
 
-                IFeature first = Features(doc).First(f => f.GetTypeName2() == "CutListFolder");
+                IFeature first = CutListItems(doc).First();
                 first.Name = "Plate";
                 RunNameCutList(swApp, command, "003", "003,002", "run 3");
 
@@ -1065,7 +1065,7 @@ namespace BdatTests
             string said = string.Join(" | ", TestMode.Messages.ToArray());
             Check(TestMode.LastNameCutList != null, run + " stopped early: " + said);
             Equal(expectNamed, string.Join(",", TestMode.LastNameCutList.ToArray()), run + " names given");
-            List<string> names = Features(doc).Where(f => f.GetTypeName2() == "CutListFolder").Select(f => f.Name).ToList();
+            List<string> names = CutListItems(doc).Select(f => f.Name).ToList();
             Equal(expectTree, string.Join(",", names.ToArray()), run + " cut list items in the tree");
         }
 
@@ -1407,6 +1407,25 @@ namespace BdatTests
         internal static List<string> FeatureTypes(IModelDoc2 doc)
         {
             return Features(doc).Select(f => f.GetTypeName2()).ToList();
+        }
+
+        /// <summary>
+        /// The cut list items, read from the Solid Bodies (cut list) folder. SolidWorks also lists each item as a
+        /// top-level feature in a weldment, so Features() sees every item twice.
+        /// </summary>
+        private static List<IFeature> CutListItems(IModelDoc2 doc)
+        {
+            var items = new List<IFeature>();
+            foreach (IFeature folder in Features(doc).Where(f => f.GetTypeName2() == "SolidBodyFolder"))
+            {
+                IFeature sub = folder.GetFirstSubFeature() as IFeature;
+                while (sub != null)
+                {
+                    if (sub.GetTypeName2() == "CutListFolder") items.Add(sub);
+                    sub = sub.GetNextSubFeature() as IFeature;
+                }
+            }
+            return items;
         }
 
         private static List<IFeature> Features(IModelDoc2 doc)
