@@ -240,38 +240,36 @@ namespace BDAT.Commands
             Log(folder.Name + ": order " + string.Join(", ", current.ToArray()) + ", wanted " + string.Join(", ", wanted.ToArray()));
             if (SameOrder(current, wanted)) return ok;
 
-            // Way 1: like dragging in the tree, first item before the current first, then each after the one before.
+            // Last wanted item first: put each one before whatever is first now, so the list builds up from the top.
+            // Only ReorderFeature2 moves cut list items; ReorderFeature returns False, or True without moving them.
             try
             {
-                if (current[0] != wanted[0])
-                    Log("move " + wanted[0] + " before " + current[0] + ": " +
-                        doc.Extension.ReorderFeature(wanted[0], current[0], (int)swMoveLocation_e.swMoveBefore));
-                for (int i = 1; i < wanted.Count; i++)
-                    Log("move " + wanted[i] + " after " + wanted[i - 1] + ": " +
-                        doc.Extension.ReorderFeature(wanted[i], wanted[i - 1], (int)swMoveLocation_e.swMoveAfter));
+                for (int i = wanted.Count - 1; i >= 0; i--)
+                {
+                    string first = ItemNames(folder)[0];
+                    if (first == wanted[i]) continue;
+                    Log("move " + wanted[i] + " before " + first + ": " + Reorder2(doc, wanted[i], first, (int)swMoveLocation_e.swMoveBefore));
+                }
             }
             catch (Exception ex)
             {
                 Log("moving failed: " + ex.Message);
             }
             current = ItemNames(folder);
-            Log("after way 1: " + string.Join(", ", current.ToArray()));
-            if (SameOrder(current, wanted)) return ok;
-
-            // Way 2: move each item, in order, into the folder (which puts it at the end of it).
-            try
-            {
-                foreach (string name in wanted)
-                    Log("move " + name + " into " + folder.Name + ": " +
-                        doc.Extension.ReorderFeature(name, folder.Name, (int)swMoveLocation_e.swMoveToFolder));
-            }
-            catch (Exception ex)
-            {
-                Log("moving into the folder failed: " + ex.Message);
-            }
-            current = ItemNames(folder);
-            Log("after way 2: " + string.Join(", ", current.ToArray()));
+            Log("after: " + string.Join(", ", current.ToArray()));
             return ok && SameOrder(current, wanted);
+        }
+
+        /// <summary>
+        /// IModelDocExtension.ReorderFeature2, called late-bound so BDAT still builds against API libraries that
+        /// don't have it.
+        /// </summary>
+        private static bool Reorder2(IModelDoc2 doc, string move, string target, int location)
+        {
+            object extension = doc.Extension;
+            object result = extension.GetType().InvokeMember("ReorderFeature2", System.Reflection.BindingFlags.InvokeMethod,
+                null, extension, new object[] { move, target, location });
+            return result is bool && (bool)result;
         }
 
         private static List<string> ItemNames(IFeature folder)
