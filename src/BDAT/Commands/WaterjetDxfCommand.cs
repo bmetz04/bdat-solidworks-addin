@@ -24,6 +24,9 @@ namespace BDAT.Commands
     /// Anything else (chamfers, fillets on the faces, pockets, steps, threads, ...) is skipped and listed, with why.
     ///
     /// Steps:
+    ///   0. If the part has a configuration called "Waterjet" (any case), everything below uses it instead, on the
+    ///      hidden copy, which is then made first: it can have chamfers and other details suppressed so plates
+    ///      become clean.
     ///   1. Sort the open part's visible solid bodies into the two kinds above, or skipped.
     ///   2. Pop-up: tick the bodies to export and pick the folder (remembered for next time).
     ///   3. Save a copy of the part as it is right now to %TEMP%\BDAT\waterjet and open it invisibly.
@@ -71,6 +74,9 @@ namespace BDAT.Commands
             return doc != null && doc.GetType() == (int)swDocumentTypes_e.swDocPART;
         }
 
+        /// <summary>A configuration with this name (any case) is used for the DXFs when the part has one.</summary>
+        internal const string WaterjetConfiguration = "Waterjet";
+
         public void Run(ISldWorks swApp)
         {
             IModelDoc2 doc = swApp.ActiveDoc as IModelDoc2;
@@ -81,45 +87,115 @@ namespace BDAT.Commands
             }
 
             string partName = BaseName(doc);
-
-            // 1. Sort the bodies. Read-only.
             Log("---- " + partName);
-            List<BodyPlan> plans = Classify(doc);
-            foreach (BodyPlan p in plans) Log("body " + p.BodyName + " -> " + p.Label);
-            List<BodyPlan> exportable = plans.FindAll(p => p.Kind != BodyKind.Skipped);
-            if (exportable.Count == 0)
-            {
-                var none = new StringBuilder();
-                none.AppendLine(plans.Count == 0
-                    ? "\"" + partName + "\" has no solid bodies."
-                    : "None of the bodies in \"" + partName + "\" can be waterjet:");
-                AppendSkipped(none, plans);
-                none.AppendLine();
-                none.Append("BDAT exports sheet metal (as its flat pattern) and flat plates whose sides go straight through.");
-                Ui.Tell(swApp, none.ToString().TrimEnd(), swMessageBoxIcon_e.swMbWarning);
-                return;
-            }
 
-            // 2. Pick bodies and folder.
-            string parentFolder;
-            if (!Ask(swApp, partName, plans, out parentFolder)) return;
-            List<BodyPlan> chosen = exportable.FindAll(p => p.Export);
-            if (chosen.Count == 0) return;
-
-            string outDir = Path.Combine(parentFolder, partName);
+            // A "Waterjet" configuration (chamfers suppressed and so on) is what gets cut, so read and export that one.
+            // Switching configurations would change the open part, so it's done on the hidden copy, made up front.
+            string config = FindWaterjetConfiguration(doc);
+            string workPath = null;
+            IModelDoc2 work = null;
+            bool hidden = false;
             try
             {
-                Directory.CreateDirectory(outDir);
-            }
-            catch (Exception ex)
-            {
-                Ui.Tell(swApp, "Couldn't make the folder " + outDir + ":\n\n" + ex.Message, swMessageBoxIcon_e.swMbStop);
-                return;
-            }
+                if (config != null)
+                {
+                    hidden = true;
+                    work = OpenWorkCopy(swApp, doc, partName, out workPath);
+                    if (work == null) return;
+                    bool shown = work.ShowConfiguration2(config);
+                    work.ForceRebuild3(false);
+                    Log("using configuration " + config + " on the copy: " + shown);
+                    if (!shown)
+                    {
+                        Ui.Tell(swApp, "Couldn't switch to the \"" + config + "\" configuration. No DXFs were made.",
+                            swMessageBoxIcon_e.swMbStop);
+                        return;
+                    }
+                }
 
-            // 3. Copy the part as it is now (the Copy option leaves the open document and its file exactly as they were).
+                // 1. Sort the bodies. Read-only.
+                List<BodyPlan> plans = Classify(work ?? doc);
+                foreach (BodyPlan p in plans) Log("body " + p.BodyName + " -> " + p.Label);
+                List<BodyPlan> exportable = plans.FindAll(p => p.Kind != BodyKind.Skipped);
+                if (exportable.Count == 0)
+                {
+                    var none = new StringBuilder();
+                    none.AppendLine(plans.Count == 0
+                        ? "\"" + partName + "\" has no solid bodies."
+                        : "None of the bodies in \"" + partName + "\"" + InConfig(config) + " can be waterjet:");
+                    AppendSkipped(none, plans);
+                    none.AppendLine();
+                    none.Append("BDAT exports sheet metal (as its flat pattern) and flat plates whose sides go straight through.");
+                    if (config == null)
+                        none.Append(" To cut a part with chamfers or other details left off, add a configuration called \"" +
+                            WaterjetConfiguration + "\" with them suppressed.");
+                    Ui.Tell(swApp, none.ToString().TrimEnd(), swMessageBoxIcon_e.swMbWarning);
+                    return;
+                }
+
+                // 2. Pick bodies and folder.
+                string parentFolder;
+                if (!Ask(swApp, partName, plans, out parentFolder)) return;
+                List<BodyPlan> chosen = exportable.FindAll(p => p.Export);
+                if (chosen.Count == 0) return;
+
+                string outDir = Path.Combine(parentFolder, partName);
+                try
+                {
+                    Directory.CreateDirectory(outDir);
+                }
+                catch (Exception ex)
+                {
+                    Ui.Tell(swApp, "Couldn't make the folder " + outDir + ":\n\n" + ex.Message, swMessageBoxIcon_e.swMbStop);
+                    return;
+                }
+
+                // 3. Copy the part as it is now, unless that's already done.
+                if (work == null)
+                {
+                    hidden = true;
+                    work = OpenWorkCopy(swApp, doc, partName, out workPath);
+                    if (work == null) return;
+                }
+
+                // 4. Export, on the copy only.
+                var written = new List<string>();
+                var failed = new List<string>();
+                ExportAll(work, workPath, partName, outDir, chosen, written, failed);
+
+                CloseWorkCopy(swApp, ref work, workPath, ref hidden);
+                Report(swApp, partName, outDir, plans, written, failed, config);
+            }
+            finally
+            {
+                CloseWorkCopy(swApp, ref work, workPath, ref hidden);
+            }
+        }
+
+        /// <summary>The part's "Waterjet" configuration (any case), or null.</summary>
+        private static string FindWaterjetConfiguration(IModelDoc2 doc)
+        {
+            string[] names = doc.GetConfigurationNames() as string[];
+            if (names == null) return null;
+            foreach (string name in names)
+                if (string.Equals((name ?? "").Trim(), WaterjetConfiguration, StringComparison.OrdinalIgnoreCase)) return name;
+            return null;
+        }
+
+        private static string InConfig(string config)
+        {
+            return config == null ? "" : " (configuration \"" + config + "\")";
+        }
+
+        /// <summary>
+        /// Saves a copy of the part as it is now (the Copy option leaves the open document and its file exactly as they
+        /// were) and opens it invisibly. Hides new part and drawing windows (the temporary drawing SolidWorks makes while
+        /// exporting a DXF too) until CloseWorkCopy. Null, after saying why, if it can't.
+        /// </summary>
+        private static IModelDoc2 OpenWorkCopy(ISldWorks swApp, IModelDoc2 doc, string partName, out string workPath)
+        {
             CleanTempDir();
-            string workPath = Path.Combine(TempDir, partName + WorkCopySuffix + ".SLDPRT");
+            workPath = Path.Combine(TempDir, partName + WorkCopySuffix + ".SLDPRT");
             int errors = 0, warnings = 0;
             bool copied = doc.Extension.SaveAs3(
                 workPath,
@@ -130,39 +206,35 @@ namespace BDAT.Commands
             {
                 Ui.Tell(swApp, "Couldn't make a working copy of the part (error code " + errors + "). No DXFs were made.",
                     swMessageBoxIcon_e.swMbStop);
-                return;
+                return null;
             }
 
-            var written = new List<string>();
-            var failed = new List<string>();
-            // Hide the copy, and the temporary drawing SolidWorks makes while exporting a DXF, so no window flashes up.
             swApp.DocumentVisible(false, (int)swDocumentTypes_e.swDocPART);
             swApp.DocumentVisible(false, (int)swDocumentTypes_e.swDocDRAWING);
-            IModelDoc2 work = null;
-            try
-            {
-                int openErr = 0, openWarn = 0;
-                work = swApp.OpenDoc6(workPath, (int)swDocumentTypes_e.swDocPART,
-                    (int)swOpenDocOptions_e.swOpenDocOptions_Silent, "", ref openErr, ref openWarn) as IModelDoc2;
-                if (work == null)
-                {
-                    Ui.Tell(swApp, "Couldn't open the working copy (error code " + openErr + "). No DXFs were made.",
-                        swMessageBoxIcon_e.swMbStop);
-                    return;
-                }
+            int openErr = 0, openWarn = 0;
+            IModelDoc2 work = swApp.OpenDoc6(workPath, (int)swDocumentTypes_e.swDocPART,
+                (int)swOpenDocOptions_e.swOpenDocOptions_Silent, "", ref openErr, ref openWarn) as IModelDoc2;
+            if (work == null)
+                Ui.Tell(swApp, "Couldn't open the working copy (error code " + openErr + "). No DXFs were made.",
+                    swMessageBoxIcon_e.swMbStop);
+            return work;
+        }
 
-                // 4. Export, on the copy only.
-                ExportAll(work, workPath, partName, outDir, chosen, written, failed);
-            }
-            finally
+        /// <summary>Closes and deletes the copy and shows new windows again. Safe to call twice.</summary>
+        private static void CloseWorkCopy(ISldWorks swApp, ref IModelDoc2 work, string workPath, ref bool hidden)
+        {
+            if (work != null)
             {
-                if (work != null) swApp.CloseDoc(work.GetTitle());
+                try { swApp.CloseDoc(work.GetTitle()); } catch (Exception) { }
+                work = null;
+            }
+            if (hidden)
+            {
                 swApp.DocumentVisible(true, (int)swDocumentTypes_e.swDocPART);
                 swApp.DocumentVisible(true, (int)swDocumentTypes_e.swDocDRAWING);
-                TryDelete(workPath);
+                hidden = false;
             }
-
-            Report(swApp, partName, outDir, plans, written, failed);
+            if (workPath != null) TryDelete(workPath);
         }
 
         #region Sorting the bodies
@@ -750,9 +822,10 @@ namespace BDAT.Commands
         #region Summary
 
         private static void Report(ISldWorks swApp, string partName, string outDir, List<BodyPlan> plans,
-            List<string> written, List<string> failed)
+            List<string> written, List<string> failed, string config)
         {
             var msg = new StringBuilder();
+            if (config != null) msg.AppendLine("Used the \"" + config + "\" configuration.").AppendLine();
             if (written.Count > 0)
             {
                 msg.AppendLine("Saved " + written.Count + " DXF" + (written.Count == 1 ? "" : "s") + " in " + outDir + ":");
