@@ -2,6 +2,13 @@
 
 Newest first. Publish BDAT adds an entry here every time a new version goes out.
 
+## v7 (2026-10-05 18:37)
+
+- New button, **Waterjet DXF**: saves one DXF per cut list item that can be waterjet cut, into a folder named after the part wherever you choose. Bent sheet metal comes out as its flat pattern, and items thicker than 25.4 mm are left out. If the part has a configuration called "Waterjet", the DXFs come from that configuration. Your open part isn't changed.
+- New button, **Name Cut List**: numbers the cut list items 001, 002, 003..., sheet metal first, then sorts the cut list by number. Items that already have a number keep it, and numbers already used by other features are skipped. A part with no cut list gets a Weldment feature first. Ctrl+Z can't undo the renames.
+- New from EBOM greys out part numbers that already exist in 3DEXPERIENCE, so they can't be created twice.
+- Long headings in BDAT pop-ups now wrap instead of running off the edge.
+
 ## v6 (2026-10-04 23:11)
 
 - New button, **New from EBOM**: pick any part or assembly from the team EBOM (read live from the Google Sheet), check the description, and it's created with its EBOM number, ready to model.
