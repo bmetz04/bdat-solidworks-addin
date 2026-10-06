@@ -533,8 +533,18 @@ namespace BDAT.Commands
             Dictionary<string, IFeature> flatPatterns = FlatPatternsByBody(work, bodies);
             var usedNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
+            bool rebuilt = false;
             foreach (BodyPlan plan in chosen)
             {
+                // Flattening a body rebuilds the copy, which leaves the bodies read before it stale: read them again.
+                if (rebuilt)
+                {
+                    bodies.Clear();
+                    foreach (IBody2 b in SolidBodies(work))
+                        if (!bodies.ContainsKey(b.Name)) bodies.Add(b.Name, b);
+                    rebuilt = false;
+                }
+
                 string dxf = Path.Combine(outDir, UniqueName(partName + " - " + plan.Name, usedNames) + ".dxf");
                 IBody2 body;
                 if (!bodies.TryGetValue(plan.BodyName, out body))
@@ -567,7 +577,11 @@ namespace BDAT.Commands
                     }
                     // SolidWorks refuses the sheet metal export for some multi-body parts (bodies made as separate
                     // base flanges). Flatten the body on the copy instead and export its flat face like a plate.
-                    if (!ok) ok = ExportFlattened(work, part, flat, plan.BodyName, dxf, workPath);
+                    if (!ok)
+                    {
+                        ok = ExportFlattened(work, part, flat, plan.BodyName, dxf, workPath);
+                        rebuilt = true;
+                    }
                 }
                 else
                 {
@@ -604,12 +618,26 @@ namespace BDAT.Commands
                     (int)swInConfigurationOpts_e.swThisConfiguration, null);
                 work.ForceRebuild3(false);
 
-                IBody2 body = SolidBodies(work).Find(b => string.Equals(b.Name, bodyName, StringComparison.OrdinalIgnoreCase));
+                // The flattened body can come back under a different name, so take it from the flat pattern's own faces.
+                IBody2 body = null;
+                object[] flatFaces = flat.GetFaces() as object[];
+                if (flatFaces != null)
+                    foreach (object o in flatFaces)
+                    {
+                        IFace2 face = o as IFace2;
+                        body = face == null ? null : face.GetBody() as IBody2;
+                        if (body != null) break;
+                    }
+                if (body == null)
+                    body = SolidBodies(work).Find(b => string.Equals(b.Name, bodyName, StringComparison.OrdinalIgnoreCase));
                 if (body == null)
                 {
-                    Log(bodyName + ": flattened (unsuppressed " + unsuppressed + "), but the body wasn't found afterwards");
+                    var names = SolidBodies(work).ConvertAll(b => b.Name);
+                    Log(bodyName + ": flattened (unsuppressed " + unsuppressed + "), but the body wasn't found afterwards (bodies: " +
+                        string.Join(", ", names.ToArray()) + "; flat pattern faces: " + (flatFaces == null ? 0 : flatFaces.Length) + ")");
                     return false;
                 }
+                Log(bodyName + ": flattened body is " + body.Name);
                 PlateCheck check = CheckPlate(body);
                 if (check.Reason != null || check.TopFaces.Count == 0)
                 {
