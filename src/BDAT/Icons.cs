@@ -83,10 +83,16 @@ namespace BDAT
                 case 3: // New from EBOM: teal circle with a white list
                     DrawListIcon(g, cell, Color.FromArgb(0, 130, 140));
                     break;
-                case 4: // Update: green circle with a white down arrow
+                case 4: // Waterjet DXF: dark blue circle with a white plate outline and a hole
+                    DrawPlateIcon(g, cell, Color.FromArgb(20, 70, 110));
+                    break;
+                case 5: // Name Cut List: brown circle with "01"
+                    DrawBadge(g, cell, Color.FromArgb(150, 85, 30), "01", 0.36f);
+                    break;
+                case 6: // Update: green circle with a white down arrow
                     DrawArrowIcon(g, cell, Color.FromArgb(30, 140, 60), false);
                     break;
-                case 5: // Version: blue circle with an "i"
+                case 7: // Version: blue circle with an "i"
                     DrawBadge(g, cell, Color.FromArgb(30, 90, 170), "i");
                     break;
                 default:
@@ -172,13 +178,44 @@ namespace BDAT
             }
         }
 
+        private static void DrawPlateIcon(Graphics g, Rectangle cell, Color color)
+        {
+            float pad = cell.Width * 0.08f;
+            var circle = new RectangleF(cell.X + pad, cell.Y + pad, cell.Width - 2 * pad, cell.Height - 2 * pad);
+            using (var fill = new SolidBrush(color))
+                g.FillEllipse(fill, circle);
+
+            // A flat plate seen from above, like a DXF: a rectangle with a round hole and a notch.
+            float left = cell.X + cell.Width * 0.27f;
+            float top = cell.Y + cell.Height * 0.3f;
+            float w = cell.Width * 0.46f;
+            float h = cell.Height * 0.4f;
+            float notch = w * 0.3f;
+            float width = Math.Max(1.5f, cell.Width * 0.08f);
+            using (var pen = new Pen(Color.White, width) { LineJoin = LineJoin.Round })
+            {
+                g.DrawLines(pen, new[]
+                {
+                    new PointF(left, top), new PointF(left + w - notch, top), new PointF(left + w - notch, top + notch * 0.8f),
+                    new PointF(left + w, top + notch * 0.8f), new PointF(left + w, top + h), new PointF(left, top + h), new PointF(left, top),
+                });
+                float r = h * 0.2f;
+                g.DrawEllipse(pen, left + w * 0.3f - r, top + h * 0.55f - r, 2 * r, 2 * r);
+            }
+        }
+
         private static void DrawBadge(Graphics g, Rectangle cell, Color color, string text)
+        {
+            DrawBadge(g, cell, color, text, 0.45f);
+        }
+
+        private static void DrawBadge(Graphics g, Rectangle cell, Color color, string text, float textSize)
         {
             float pad = cell.Width * 0.08f;
             var rect = new RectangleF(cell.X + pad, cell.Y + pad, cell.Width - 2 * pad, cell.Height - 2 * pad);
             using (var fill = new SolidBrush(color))
                 g.FillEllipse(fill, rect);
-            using (var font = new Font(FontFamily.GenericSansSerif, cell.Width * 0.45f, FontStyle.Bold, GraphicsUnit.Pixel))
+            using (var font = new Font(FontFamily.GenericSansSerif, cell.Width * textSize, FontStyle.Bold, GraphicsUnit.Pixel))
             using (var format = new StringFormat { Alignment = StringAlignment.Center, LineAlignment = StringAlignment.Center })
                 g.DrawString(text, font, Brushes.White, rect, format);
         }

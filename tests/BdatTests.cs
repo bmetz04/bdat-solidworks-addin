@@ -265,13 +265,15 @@ namespace BdatTests
             Test("Toolbar has the expected BDAT buttons, in order", delegate
             {
                 List<string> titles = CommandTitles(new SwAddin());
-                Check(titles.Count == 6, "expected 6 buttons, got " + titles.Count + ": " + string.Join(", ", titles.ToArray()));
+                Check(titles.Count == 8, "expected 8 buttons, got " + titles.Count + ": " + string.Join(", ", titles.ToArray()));
                 Equal("Murder Part", titles[0], "button 1");
                 Equal("Save MCM", titles[1], "button 2");
                 Equal("Create Origin", titles[2], "button 3");
                 Equal("New from EBOM", titles[3], "button 4");
-                Equal("Update BDAT", titles[4], "button 5");
-                Check(Regex.IsMatch(titles[5], @"^BDAT (v\d+|dev build)$"), "button 6 should be the version (BDAT vN), got \"" + titles[5] + "\"");
+                Equal("Waterjet DXF", titles[4], "button 5");
+                Equal("Name Cut List", titles[5], "button 6");
+                Equal("Update BDAT", titles[6], "button 7");
+                Check(Regex.IsMatch(titles[7], @"^BDAT (v\d+|dev build)$"), "button 8 should be the version (BDAT vN), got \"" + titles[7] + "\"");
             });
 
             Test("EBOM CSV is read by column heading", delegate
@@ -544,6 +546,22 @@ namespace BdatTests
                 Check(candidates[0].All(v => v == 0), "no rotation should be tried first: Origin' has SolidWorks' own axes");
             });
 
+            Test("Name Cut List keeps only names in the 001 format", delegate
+            {
+                int n;
+                Check(NameCutListCommand.IsNumbered("001", out n) && n == 1, "001 is numbered");
+                Check(NameCutListCommand.IsNumbered("012", out n) && n == 12, "012 is numbered");
+                Check(NameCutListCommand.IsNumbered("1234", out n) && n == 1234, "1234 is numbered");
+                foreach (string name in new[] { "1", "01", "Cut-List-Item1", "001a", " 001", "0-1", "", null })
+                    Check(!NameCutListCommand.IsNumbered(name, out n), "\"" + name + "\" shouldn't count as numbered");
+            });
+
+            Test("Name Cut List sorts numbered items first, by number", delegate
+            {
+                List<string> sorted = NameCutListCommand.SortedNames(new List<string> { "003", "Plate", "001", "010", "002", "Tube" });
+                Equal("001,002,003,010,Plate,Tube", string.Join(",", sorted.ToArray()), "sorted order");
+            });
+
             Test("Every toolbar callback exists on SwAddin", delegate
             {
                 foreach (string callback in CommandCallbacks(new SwAddin()))
@@ -685,6 +703,7 @@ namespace BdatTests
                     // particular body count, just that no geometry is lost and the usual guarantees hold.
                     Test("Murder Part: two-body part", delegate { MurderTest(swApp, samples.TwoBody, samples.TwoBodyVolume, 0, work); });
                     Test("Murder Part: answering No changes nothing", delegate { MurderCancelTest(swApp, samples.Threaded); });
+                    Test("Name Cut List: makes a weldment and names the items 001, 002", delegate { NameCutListTest(swApp, samples.TwoBody); });
                     Test("Save MCM: fills in part number and description", delegate
                     {
                         SaveMcmTest(swApp, samples.Threaded, null, null, "91251A540", "Socket Head Screw");
@@ -994,6 +1013,60 @@ namespace BdatTests
             {
                 swApp.CloseDoc(original.GetTitle());
             }
+        }
+
+        // ---- Name Cut List
+
+        /// <summary>
+        /// The two-body sample has no cut list, so Name Cut List must make it a weldment and name its two items
+        /// 001 and 002. A second run must rename nothing (both already have numbers). Then one item is given another
+        /// name, and a third run must number only that one, as 003. With another feature called 003 the next number
+        /// skips to 004. Nothing is saved.
+        /// </summary>
+        private static void NameCutListTest(ISldWorks swApp, string partPath)
+        {
+            string before = Snapshot(partPath);
+            IModelDoc2 doc = Open(swApp, partPath);
+            try
+            {
+                Check(!FeatureTypes(doc).Contains("CutListFolder"), "the sample already has a cut list");
+                var command = new NameCutListCommand();
+                Check(command.IsEnabled(swApp), "Name Cut List should be clickable with a part open");
+
+                RunNameCutList(swApp, command, "001,002", "001,002", "run 1");
+                Check(FeatureTypes(doc).Contains("WeldmentFeature"), "the part wasn't made a weldment");
+                RunNameCutList(swApp, command, "", "001,002", "run 2");
+
+                IFeature first = Features(doc).First(f => f.GetTypeName2() == "CutListFolder");
+                first.Name = "Plate";
+                RunNameCutList(swApp, command, "003", "003,002", "run 3");
+
+                // A number another feature holds is skipped: with the Weldment feature called 003, Plate gets 004.
+                IFeature weldment = Features(doc).First(f => f.GetTypeName2() == "WeldmentFeature");
+                weldment.Name = "003";
+                first.Name = "Plate";
+                RunNameCutList(swApp, command, "004", "004,002", "run 4");
+                Check(!TestMode.Messages.Any(), "Name Cut List shouldn't pop anything up when it works: " + string.Join(" | ", TestMode.Messages.ToArray()));
+
+            }
+            finally
+            {
+                swApp.CloseDoc(doc.GetTitle());
+            }
+            Equal(before, Snapshot(partPath), "sample file (Name Cut List must not save)");
+        }
+
+        private static void RunNameCutList(ISldWorks swApp, NameCutListCommand command, string expectNamed, string expectTree, string run)
+        {
+            IModelDoc2 doc = (IModelDoc2)swApp.ActiveDoc;
+            TestMode.LastNameCutList = null;
+            TestMode.Messages.Clear();
+            command.Run(swApp);
+            string said = string.Join(" | ", TestMode.Messages.ToArray());
+            Check(TestMode.LastNameCutList != null, run + " stopped early: " + said);
+            Equal(expectNamed, string.Join(",", TestMode.LastNameCutList.ToArray()), run + " names given");
+            List<string> names = Features(doc).Where(f => f.GetTypeName2() == "CutListFolder").Select(f => f.Name).ToList();
+            Equal(expectTree, string.Join(",", names.ToArray()), run + " cut list items in the tree");
         }
 
         // ---- Save MCM
