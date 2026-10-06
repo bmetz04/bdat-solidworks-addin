@@ -45,10 +45,7 @@ namespace BDAT.Commands
             List<IFeature> items = CutListItems(doc);
             if (items.Count == 0)
             {
-                if (!HasFeature(doc, "WeldmentFeature") && !Ui.AskYesNo(swApp,
-                        "This part has no cut list. BDAT will add a Weldment feature so SolidWorks makes one, " +
-                        "then number the cut list items 001, 002, 003...\n\nGo ahead?"))
-                    return;
+                // No question first (Ben, 2026-10-06): the Weldment feature can be deleted if it isn't wanted.
                 madeWeldment = MakeWeldment(doc);
                 items = CutListItems(doc);
             }
