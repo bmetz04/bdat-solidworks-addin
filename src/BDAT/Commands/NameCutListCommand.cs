@@ -236,30 +236,64 @@ namespace BDAT.Commands
             if (items.Count < 2) return ok;
 
             List<string> wanted = SortedNames(items);
-            List<string> current = items.ConvertAll(f => f.Name);
-            if (string.Join("|", current.ToArray()) == string.Join("|", wanted.ToArray())) return ok;
+            List<string> current = ItemNames(folder);
+            Log(folder.Name + ": order " + string.Join(", ", current.ToArray()) + ", wanted " + string.Join(", ", wanted.ToArray()));
+            if (SameOrder(current, wanted)) return ok;
 
+            // Way 1: like dragging in the tree, first item before the current first, then each after the one before.
             try
             {
-                // First item before whatever is first now, then each one after the one before it.
                 if (current[0] != wanted[0])
-                    doc.Extension.ReorderFeature(wanted[0], current[0], (int)swMoveLocation_e.swMoveBefore);
+                    Log("move " + wanted[0] + " before " + current[0] + ": " +
+                        doc.Extension.ReorderFeature(wanted[0], current[0], (int)swMoveLocation_e.swMoveBefore));
                 for (int i = 1; i < wanted.Count; i++)
-                    doc.Extension.ReorderFeature(wanted[i], wanted[i - 1], (int)swMoveLocation_e.swMoveAfter);
+                    Log("move " + wanted[i] + " after " + wanted[i - 1] + ": " +
+                        doc.Extension.ReorderFeature(wanted[i], wanted[i - 1], (int)swMoveLocation_e.swMoveAfter));
             }
-            catch
+            catch (Exception ex)
             {
-                return false;
+                Log("moving failed: " + ex.Message);
             }
+            current = ItemNames(folder);
+            Log("after way 1: " + string.Join(", ", current.ToArray()));
+            if (SameOrder(current, wanted)) return ok;
 
-            var after = new List<string>();
-            sub = folder.GetFirstSubFeature() as IFeature;
+            // Way 2: move each item, in order, into the folder (which puts it at the end of it).
+            try
+            {
+                foreach (string name in wanted)
+                    Log("move " + name + " into " + folder.Name + ": " +
+                        doc.Extension.ReorderFeature(name, folder.Name, (int)swMoveLocation_e.swMoveToFolder));
+            }
+            catch (Exception ex)
+            {
+                Log("moving into the folder failed: " + ex.Message);
+            }
+            current = ItemNames(folder);
+            Log("after way 2: " + string.Join(", ", current.ToArray()));
+            return ok && SameOrder(current, wanted);
+        }
+
+        private static List<string> ItemNames(IFeature folder)
+        {
+            var names = new List<string>();
+            IFeature sub = folder.GetFirstSubFeature() as IFeature;
             while (sub != null)
             {
-                if (string.Equals(sub.GetTypeName2(), "CutListFolder", StringComparison.OrdinalIgnoreCase)) after.Add(sub.Name);
+                if (string.Equals(sub.GetTypeName2(), "CutListFolder", StringComparison.OrdinalIgnoreCase)) names.Add(sub.Name);
                 sub = sub.GetNextSubFeature() as IFeature;
             }
-            return ok && string.Join("|", after.ToArray()) == string.Join("|", wanted.ToArray());
+            return names;
+        }
+
+        private static bool SameOrder(List<string> a, List<string> b)
+        {
+            return string.Join("|", a.ToArray()) == string.Join("|", b.ToArray());
+        }
+
+        private static void Log(string message)
+        {
+            PlatformSave.Log("namecutlist", message);
         }
 
         /// <summary>Numbered names in number order, then the rest in the order given.</summary>
