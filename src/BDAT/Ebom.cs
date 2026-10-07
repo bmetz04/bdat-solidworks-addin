@@ -236,6 +236,9 @@ namespace BDAT
         /// The team's EBOM: the Master eBOM Google Sheet, published to the web as CSV (File > Share > Publish to web), so
         /// BDAT always reads the sheet as it is now. Edit the sheet to update it for everyone.
         /// </summary>
+        /// <summary>The Master eBOM Google Sheet itself, for "Open team EBOM".</summary>
+        public const string TeamSheetUrl = "https://docs.google.com/spreadsheets/d/1WHsqBhOEtvIxAcXosweB-NExDUEZ1_N5wWkoTNuOVRk/edit?gid=0#gid=0";
+
         public const string TeamUrl = "https://docs.google.com/spreadsheets/d/e/2PACX-1vS6L_KGdhIySeBUVFsFV_NWwzb1DOxEfJSEEjMqJgy06Ff9ySYTK379K49K0tdw6m_n3IR5RYPiPZRE/pub?gid=0&single=true&output=csv";
 
         /// <summary>Where the last downloaded team copy is kept, so it still works offline.</summary>

@@ -108,9 +108,9 @@ namespace BDAT
 
             object serverLock = lockField.GetValue(null) ?? new object();
             bool anyAnswer = false;
-            // Two ways in: by model name (type "VPMReference"), and by title (any other type string makes searchTitles
-            // query ds6w:label instead; "VPMReference " with a space still means the same type to the search).
-            foreach (string type in new[] { "VPMReference", "VPMReference " })
+            // By model name (type "VPMReference"), which is what finds them on the team's platform. (Searching by title,
+            // type "VPMReference " with a space, never found anything more, so it's left out: it doubled the wait.)
+            foreach (string type in new[] { "VPMReference" })
             {
                 object answer;
                 lock (serverLock)

@@ -121,11 +121,18 @@ namespace BDAT.Commands
             bottom.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100f));
             bottom.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
             var left = new FlowLayoutPanel { AutoSize = true, Dock = DockStyle.Fill, WrapContents = false, Margin = new Padding(0) };
-            _source = new Label { UseMnemonic = false, AutoSize = true, ForeColor = Muted, Margin = new Padding(0, 10, 0, 0) };
-            left.Controls.Add(_source);
+            var openSheet = ModernUi.Secondary("Open team EBOM");
+            openSheet.Margin = new Padding(0, 0, 8, 0);
+            openSheet.Click += delegate { OpenSheet(); };
+            left.Controls.Add(openSheet);
             // Re-ask 3DEXPERIENCE which numbers already exist (e.g. after deleting one there).
-            _refresh = ModernUi.Link("Check 3DEXPERIENCE again", delegate { CheckExisting(); }, new Padding(16, 10, 0, 0));
+            _refresh = ModernUi.Secondary(RefreshText);
+            _refresh.Margin = new Padding(0, 0, 8, 0);
+            _refresh.Click += delegate { CheckExisting(); };
             left.Controls.Add(_refresh);
+            // Only shown when it isn't the live team EBOM (e.g. the offline copy).
+            _source = new Label { UseMnemonic = false, AutoSize = true, ForeColor = Muted, Margin = new Padding(4, 10, 0, 0) };
+            left.Controls.Add(_source);
             bottom.Controls.Add(left, 0, 0);
 
             var buttons = new FlowLayoutPanel { FlowDirection = FlowDirection.RightToLeft, AutoSize = true, WrapContents = false, Margin = new Padding(0) };
@@ -224,6 +231,7 @@ namespace BDAT.Commands
                 source = Path.GetFileName(csvPath) + " (saved " + when + ")";
             }
             _source.Text = source;
+            _source.Visible = source != "Team EBOM"; // the button already says it
 
             // The area filter: every area in the EBOM, in the order they first appear.
             var areas = new List<string>();
@@ -369,8 +377,16 @@ namespace BDAT.Commands
                 _count.Text = shown + (shown == 1 ? " match" : " matches") + " in " + groupsShown + (groupsShown == 1 ? " assembly" : " assemblies") + ".";
             else
                 _count.Text = groupsShown + " assemblies, " + current + " current EBOM rows. Click ▶, double-click or press → to show an assembly's parts.";
-            _count.Text += "  " + ExistingStatus();
+            string status = ExistingStatus();
+            if (status.Length > 0) _count.Text = status + "   \u00B7   " + _count.Text;
             ShowPicked();
+        }
+
+        /// <summary>Opens the Master eBOM Google Sheet in the browser, to look something up or edit it.</summary>
+        private void OpenSheet()
+        {
+            try { System.Diagnostics.Process.Start(Ebom.TeamSheetUrl); }
+            catch (Exception ex) { Ui.Show(this, "Couldn't open the team EBOM: " + ex.Message + "\n\n" + Ebom.TeamSheetUrl, "New from EBOM", MessageBoxButtons.OK, MessageBoxIcon.Warning); }
         }
 
         // ---------------------------------------------------------------- what's already in 3DEXPERIENCE
@@ -378,7 +394,9 @@ namespace BDAT.Commands
         // Numbers already in 3DEXPERIENCE (checked in the background when the pop-up opens). Null until known.
         private HashSet<string> _existing;
         private bool _checking, _checkFailed;
-        private LinkLabel _refresh;
+        private DateTime _checkedAt = DateTime.MinValue;
+        private Button _refresh;
+        private const string RefreshText = "Check 3DEXPERIENCE again";
         private static readonly Color Taken = Color.FromArgb(150, 150, 150);
         private const string InPlatform = "   (in 3DEXPERIENCE)";
 
@@ -392,10 +410,11 @@ namespace BDAT.Commands
             if (_checking) return "Checking 3DEXPERIENCE for numbers that already exist...";
             if (_checkFailed) return "Couldn't check 3DEXPERIENCE for numbers that already exist.";
             if (_existing == null) return "";
+            string at = _checkedAt == DateTime.MinValue ? "" : " (checked " + _checkedAt.ToString("h:mm tt") + ")";
             int n = 0;
             foreach (EbomRow row in _rows)
                 if (!row.IsObsolete && _existing.Contains(row.Number)) n++;
-            return n == 0 ? "None are in 3DEXPERIENCE yet." : n + " already in 3DEXPERIENCE (greyed out).";
+            return (n == 0 ? "None are in 3DEXPERIENCE yet" : n + " already in 3DEXPERIENCE (greyed out)") + at + ".";
         }
 
         /// <summary>Starts the background check of which EBOM numbers are already in 3DEXPERIENCE.</summary>
@@ -407,7 +426,7 @@ namespace BDAT.Commands
                 if (!row.IsObsolete && !numbers.Contains(row.Number)) numbers.Add(row.Number);
             if (_checking) return;
             _checking = true;
-            if (_refresh != null) _refresh.Enabled = false;
+            if (_refresh != null) { _refresh.Enabled = false; _refresh.Text = "Checking 3DEXPERIENCE..."; }
             _checkFailed = false;
             Fill();
             var worker = new System.ComponentModel.BackgroundWorker();
@@ -417,7 +436,8 @@ namespace BDAT.Commands
             {
                 if (IsDisposed) return;
                 _checking = false;
-                if (_refresh != null) _refresh.Enabled = true;
+                if (_refresh != null) { _refresh.Enabled = true; _refresh.Text = RefreshText; }
+                _checkedAt = DateTime.Now;
                 _existing = e.Error == null ? e.Result as HashSet<string> : null;
                 _checkFailed = _existing == null;
                 Fill();
@@ -571,7 +591,7 @@ namespace BDAT.Commands
         {
             if (_list.Columns.Count < 4) return;
             int others = _list.Columns[0].Width + _list.Columns[2].Width + _list.Columns[3].Width;
-            int width = _list.ClientSize.Width - others - 2;
+            int width = _list.ClientSize.Width - others - 6;
             if (width > 200) _list.Columns[1].Width = width;
         }
     }
