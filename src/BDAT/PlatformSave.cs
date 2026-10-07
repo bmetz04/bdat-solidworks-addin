@@ -285,7 +285,13 @@ namespace BDAT
             connector.Set(chooser, "IEnoSwBookmarkChooser", "DialogTitle", dialogTitle);
             connector.Set(chooser, "IEnoSwBookmarkChooser", "ShowCancelButton", true);
             connector.Set(chooser, "IEnoSwBookmarkChooser", "ShowSelectButton", true);
-            connector.Call(chooser, "IEnoSwBookmarkChooser2", "ShowDialog2", owner.Handle);
+            // Read what was selected before the dialog: closing it can leave that (or the folder you were browsing)
+            // as SelectedBookmarkId, which must not count as a pick.
+            string before = connector.Get(chooser, "IEnoSwBookmarkChooser", "SelectedBookmarkId") as string;
+            object shown = connector.Call(chooser, "IEnoSwBookmarkChooser2", "ShowDialog2", owner.Handle);
+            Log("bookmark-chooser", "\"" + dialogTitle + "\" returned " + (shown == null ? "null" : shown.GetType().Name + " " + shown) +
+                ", selected before = " + (before ?? "none"));
+            if (ChooserCancelled(shown)) return null;
 
             var picked = new Bookmark
             {
@@ -293,8 +299,35 @@ namespace BDAT
                 Title = connector.Get(chooser, "IEnoSwBookmarkChooser", "SelectedBookmarkTitle") as string,
             };
             if (string.IsNullOrEmpty(picked.Id)) return null;
+            // Same as before the dialog and the dialog didn't say Select: treat it as closed, not picked.
+            if (picked.Id == before && !ChooserSelected(shown)) return null;
             if (picked.Title == null) picked.Title = "";
             return picked;
+        }
+
+        /// <summary>True when ShowDialog2's result says the chooser was cancelled or closed (false, or Cancel / Abort / No).</summary>
+        private static bool ChooserCancelled(object shown)
+        {
+            if (shown is bool) return !(bool)shown;
+            if (shown is DialogResult) return (DialogResult)shown != DialogResult.OK && (DialogResult)shown != DialogResult.Yes;
+            if (shown is int || shown is Enum)
+            {
+                int code = Convert.ToInt32(shown);
+                return code == (int)DialogResult.Cancel || code == (int)DialogResult.Abort || code == (int)DialogResult.No;
+            }
+            return false;
+        }
+
+        /// <summary>True when ShowDialog2's result clearly says Select was clicked (true, or OK / Yes).</summary>
+        private static bool ChooserSelected(object shown)
+        {
+            if (shown is bool) return (bool)shown;
+            if (shown is int || shown is Enum)
+            {
+                int code = Convert.ToInt32(shown);
+                return code == (int)DialogResult.OK || code == (int)DialogResult.Yes;
+            }
+            return false;
         }
 
         private string WorkFolder()

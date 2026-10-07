@@ -412,6 +412,10 @@ namespace BDAT.Commands
                 if (place == null) return null;
                 parentId = place.Id;
                 parentPath = string.IsNullOrEmpty(place.Title) ? "the folder you picked" : place.Title;
+                // Say exactly where before making anything, so a closed or mistaken pick never makes a folder.
+                if (Ui.Choose(owner, "Make a folder named " + number + " for " + label + " in:\n\n" + parentPath + "?",
+                        Title, MessageBoxIcon.Question, "Make it here", "Back") != 0)
+                    return null;
             }
 
             string error;
