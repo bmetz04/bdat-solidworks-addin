@@ -123,6 +123,9 @@ namespace BDAT.Commands
             var left = new FlowLayoutPanel { AutoSize = true, Dock = DockStyle.Fill, WrapContents = false, Margin = new Padding(0) };
             _source = new Label { UseMnemonic = false, AutoSize = true, ForeColor = Muted, Margin = new Padding(0, 10, 0, 0) };
             left.Controls.Add(_source);
+            // Re-ask 3DEXPERIENCE which numbers already exist (e.g. after deleting one there).
+            _refresh = ModernUi.Link("Check 3DEXPERIENCE again", delegate { CheckExisting(); }, new Padding(16, 10, 0, 0));
+            left.Controls.Add(_refresh);
             bottom.Controls.Add(left, 0, 0);
 
             var buttons = new FlowLayoutPanel { FlowDirection = FlowDirection.RightToLeft, AutoSize = true, WrapContents = false, Margin = new Padding(0) };
@@ -375,6 +378,7 @@ namespace BDAT.Commands
         // Numbers already in 3DEXPERIENCE (checked in the background when the pop-up opens). Null until known.
         private HashSet<string> _existing;
         private bool _checking, _checkFailed;
+        private LinkLabel _refresh;
         private static readonly Color Taken = Color.FromArgb(150, 150, 150);
         private const string InPlatform = "   (in 3DEXPERIENCE)";
 
@@ -401,15 +405,19 @@ namespace BDAT.Commands
             var numbers = new List<string>();
             foreach (EbomRow row in _rows)
                 if (!row.IsObsolete && !numbers.Contains(row.Number)) numbers.Add(row.Number);
+            if (_checking) return;
             _checking = true;
+            if (_refresh != null) _refresh.Enabled = false;
             _checkFailed = false;
             Fill();
             var worker = new System.ComponentModel.BackgroundWorker();
-            worker.DoWork += delegate(object s, System.ComponentModel.DoWorkEventArgs e) { e.Result = ExistingParts.Check(numbers, TimeSpan.FromMinutes(5)); };
+            // Always a fresh answer: it runs in the background, so there's no need to reuse an older one.
+            worker.DoWork += delegate(object s, System.ComponentModel.DoWorkEventArgs e) { e.Result = ExistingParts.Check(numbers, TimeSpan.Zero); };
             worker.RunWorkerCompleted += delegate(object s, System.ComponentModel.RunWorkerCompletedEventArgs e)
             {
                 if (IsDisposed) return;
                 _checking = false;
+                if (_refresh != null) _refresh.Enabled = true;
                 _existing = e.Error == null ? e.Result as HashSet<string> : null;
                 _checkFailed = _existing == null;
                 Fill();
