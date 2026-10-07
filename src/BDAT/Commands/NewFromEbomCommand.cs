@@ -377,7 +377,7 @@ namespace BDAT.Commands
                         Title, MessageBoxIcon.Warning, "Make folder " + number, "Pick a folder...", "Save without folder", "Cancel");
                     if (choice == 0)
                     {
-                        Bookmark made = MakeFolder(connector, owner, number, label);
+                        Bookmark made = MakeFolder(connector, owner, number, label, row.IsAssembly ? row.Name : row.Parent);
                         if (made != null) return made;
                         continue; // back to the choices
                     }
@@ -409,7 +409,7 @@ namespace BDAT.Commands
         /// "Make folder": makes a bookmark named after the assembly number, where the other assembly folders of that system
         /// are (you confirm the place, or choose another), and remembers it. Null if it wasn't made (back to the choices).
         /// </summary>
-        private Bookmark MakeFolder(Connector connector, IWin32Window owner, string number, string label)
+        private Bookmark MakeFolder(Connector connector, IWin32Window owner, string number, string label, string assemblyName)
         {
             string parentId = null, parentPath = null;
             FoundBookmark suggested = BookmarkSearch.SuggestParent(number, SearchStartIds());
@@ -434,7 +434,8 @@ namespace BDAT.Commands
             }
 
             string error;
-            FoundBookmark made = BookmarkSearch.Create(parentId, parentPath, number, out error);
+            // The folder's description is the assembly's name, e.g. "Balance Bar" for A0101.
+            FoundBookmark made = BookmarkSearch.Create(parentId, parentPath, number, string.IsNullOrEmpty(assemblyName) ? null : assemblyName, out error);
             if (made == null)
             {
                 Ui.Show(owner, "Couldn't make the " + number + " folder: " + error + "\n\nYou can make it in 3DEXPERIENCE yourself, or pick a folder instead.",

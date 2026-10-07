@@ -450,6 +450,12 @@ namespace BdatTests
                 Equal("NEWID", BookmarkSearch.CreatedId(created, "A0705"), "the new folder's id from CreateBookmark's answer");
                 Check(BookmarkSearch.CreatedId(new FakeCreateResult(), "A0705") == null, "no item, no folder");
 
+                Equal("{\"parentId\":\"S\",\"items\":[{\"attributes\":{\"title\":\"A0705\",\"description\":\"Bellcrank \\\"Bearings\\\"\"}}]}",
+                    BookmarkSearch.CreatePayload("S", "A0705", "Bellcrank \"Bearings\""), "the make-folder request carries the description, escaped");
+                Equal("NEW", BookmarkSearch.CreatedIdFromJson("{\"status\":200,\"items\":[{\"id\":\"NEW\",\"title\":\"A0705\",\"description\":\"x\"}]}", "A0705"),
+                    "the new folder's id from the reply");
+                Check(BookmarkSearch.CreatedIdFromJson("{\"items\":[]}", "A0705") == null, "no item, no id");
+
                 bool refusedCreate = false;
                 try { string err; BookmarkSearch.Create("S", "Suspension", "A0705", out err); }
                 catch (InvalidOperationException) { refusedCreate = true; }

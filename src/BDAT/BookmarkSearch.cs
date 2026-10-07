@@ -250,6 +250,17 @@ namespace BDAT
         /// </summary>
         public static FoundBookmark Create(string parentId, string parentPath, string title, out string error)
         {
+            return Create(parentId, parentPath, title, null, out error);
+        }
+
+        /// <summary>
+        /// The same, with a description (e.g. the assembly's name). The connector's CreateBookmark always sets the
+        /// description to ".", so this sends the same request itself (POST resources/v1/modeler/dsbks/dsbks:Bookmark through
+        /// the connector's DSHttpWebRequest, with its SecurityContext header and CSRF token) with the description filled in.
+        /// If that fails it falls back to CreateBookmark, so the folder still gets made, just with "." as its description.
+        /// </summary>
+        public static FoundBookmark Create(string parentId, string parentPath, string title, string description, out string error)
+        {
             error = null;
             TestMode.BlockConnector("BookmarkSearch.Create");
             try
@@ -281,8 +292,27 @@ namespace BDAT
                     string csrfValue = Property(session, "Item2") as string;
 
                     PlatformSave.Log(LogName, "making folder \"" + title + "\" in " + parentPath + " (" + parentId + ")");
-                    object result = create.Invoke(null, new object[] { server, cc, csrfName, csrfValue, parentId, title });
-                    string id = CreatedId(result, title);
+                    string id = null;
+                    object result = null;
+                    if (!string.IsNullOrEmpty(description))
+                    {
+                        try
+                        {
+                            string reply = PostCreate(wsapi, create.GetParameters()[0].ParameterType, server, cc, csrfName, csrfValue, parentId, title, description);
+                            id = CreatedIdFromJson(reply, title);
+                            PlatformSave.Log(LogName, "made folder with description: " + (id ?? "no id in reply: " + reply));
+                        }
+                        catch (Exception ex)
+                        {
+                            Exception inner = ex is TargetInvocationException && ex.InnerException != null ? ex.InnerException : ex;
+                            PlatformSave.Log(LogName, "making folder with description failed, using the connector's way: " + inner.Message);
+                        }
+                    }
+                    if (id == null)
+                    {
+                        result = create.Invoke(null, new object[] { server, cc, csrfName, csrfValue, parentId, title });
+                        id = CreatedId(result, title);
+                    }
                     if (id == null)
                     {
                         string message = result == null ? null : Property(result, "message") as string;
@@ -302,6 +332,75 @@ namespace BDAT
                 error = inner.Message;
                 return null;
             }
+        }
+
+        // The connector's CreateBookmark request, with the description filled in. Returns the reply's JSON.
+        private static string PostCreate(Assembly wsapi, Type serverType, object server, CookieContainer cc, string csrfName, string csrfValue,
+            string parentId, string title, string description)
+        {
+            // serverType: interop.ENOAPI.IEnoServer (from CreateBookmark's first parameter), to call it on the COM object.
+            if (serverType == null) throw new InvalidOperationException("no IEnoServer");
+            string url = serverType.GetMethod("GetServiceUrl").Invoke(server, new object[] { 2 }) as string;
+            if (string.IsNullOrEmpty(url)) throw new InvalidOperationException("no 3DSpace address");
+            if (!url.EndsWith("/")) url += "/";
+            url += "resources/v1/modeler/dsbks/dsbks:Bookmark?$mask=dsbks:BksMask.Details";
+
+            Type requestType = wsapi.GetType("WSAPI.DSHttpWebRequest");
+            object request = null;
+            foreach (MethodInfo m in requestType.GetMethods(BindingFlags.Public | BindingFlags.Static))
+                if (m.Name == "Create" && m.GetParameters().Length == 2) request = m.Invoke(null, new object[] { server, url });
+            if (request == null) throw new InvalidOperationException("no DSHttpWebRequest");
+            requestType.GetProperty("CookieContainer").SetValue(request, cc, null);
+            requestType.GetProperty("Method").SetValue(request, "POST", null);
+
+            // SecurityContext: role.organization.collabspace, as the connector sends it.
+            object sc = serverType.GetMethod("GetLoginSC").Invoke(server, null);
+            string context = Field(sc, "mbsRole") + "." + Field(sc, "mbsOrganization") + "." + Field(sc, "mbsCollabSpace");
+            object headers = requestType.GetProperty("Headers").GetValue(request, null);
+            MethodInfo add = headers.GetType().GetMethod("Add", new[] { typeof(string), typeof(string) });
+            add.Invoke(headers, new object[] { "SecurityContext", WebUtility.UrlEncode(context) });
+            add.Invoke(headers, new object[] { csrfName, csrfValue });
+            requestType.GetProperty("ContentType").SetValue(request, "application/json", null);
+            requestType.GetProperty("payload").SetValue(request, CreatePayload(parentId, title, description), null);
+
+            MethodInfo getResponse = null;
+            foreach (MethodInfo m in requestType.GetMethods(BindingFlags.Public | BindingFlags.Instance))
+                if (m.Name == "GetResponse" && !m.IsGenericMethodDefinition && m.GetParameters().Length == 0) getResponse = m;
+            using (var response = (WebResponse)getResponse.Invoke(request, null))
+            using (var reader = new System.IO.StreamReader(response.GetResponseStream()))
+                return reader.ReadToEnd();
+        }
+
+        /// <summary>The create request's JSON, with title and description escaped.</summary>
+        internal static string CreatePayload(string parentId, string title, string description)
+        {
+            return "{\"parentId\":\"" + Json(parentId) + "\",\"items\":[{\"attributes\":{\"title\":\"" + Json(title) +
+                "\",\"description\":\"" + Json(description) + "\"}}]}";
+        }
+
+        private static string Json(string s)
+        {
+            var sb = new System.Text.StringBuilder();
+            foreach (char c in s ?? "")
+            {
+                if (c == '"' || c == '\\') sb.Append('\\').Append(c);
+                else if (c < ' ') sb.Append("\\u").Append(((int)c).ToString("x4"));
+                else sb.Append(c);
+            }
+            return sb.ToString();
+        }
+
+        /// <summary>The id of the item titled title in a create reply like {"items":[{"id":"...","title":"A0101",...}]}.</summary>
+        internal static string CreatedIdFromJson(string json, string title)
+        {
+            if (string.IsNullOrEmpty(json)) return null;
+            foreach (System.Text.RegularExpressions.Match m in System.Text.RegularExpressions.Regex.Matches(json, "\\{[^{}]*\\}"))
+            {
+                var id = System.Text.RegularExpressions.Regex.Match(m.Value, "\"id\"\\s*:\\s*\"([^\"]+)\"");
+                var t = System.Text.RegularExpressions.Regex.Match(m.Value, "\"title\"\\s*:\\s*\"([^\"]*)\"");
+                if (id.Success && t.Success && string.Equals(t.Groups[1].Value, title, StringComparison.OrdinalIgnoreCase)) return id.Groups[1].Value;
+            }
+            return null;
         }
 
         // The new folder's id from CreateBookmark's result: the item whose title matches (as the connector reads it).
