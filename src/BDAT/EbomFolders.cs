@@ -57,6 +57,64 @@ namespace BDAT
             return Mine().TryGetValue(assemblyNumber, out found) ? found : null;
         }
 
+        /// <summary>Every folder remembered for an assembly number, team list first, then this PC's (no repeats).</summary>
+        public static List<Bookmark> Candidates(string assemblyNumber)
+        {
+            var list = new List<Bookmark>();
+            if (string.IsNullOrEmpty(assemblyNumber)) return list;
+            Bookmark found;
+            bool fresh;
+            string team = Ebom.DownloadTeamFile(TeamUrl, TeamCachePath, delegate(string text) { Parse(text); }, out fresh);
+            try
+            {
+                if (team != null && Parse(File.ReadAllText(team, Encoding.UTF8)).TryGetValue(assemblyNumber, out found)) list.Add(found);
+            }
+            catch (Exception)
+            {
+                // A broken team list: just this PC's.
+            }
+            if (Mine().TryGetValue(assemblyNumber, out found) && (list.Count == 0 || list[0].Id != found.Id)) list.Add(found);
+            return list;
+        }
+
+        /// <summary>
+        /// Forgets this PC's folder for an assembly number if it's bookmarkId (e.g. it was deleted in 3DEXPERIENCE).
+        /// The team list can only change through Publish BDAT, so a stale team entry is just skipped each time.
+        /// </summary>
+        public static void Forget(string assemblyNumber, string bookmarkId)
+        {
+            try
+            {
+                using (RegistryKey key = Registry.CurrentUser.OpenSubKey(KeyPath, true))
+                {
+                    if (key != null && string.Equals(key.GetValue(assemblyNumber) as string, bookmarkId, StringComparison.Ordinal))
+                    {
+                        key.DeleteValue(assemblyNumber, false);
+                        key.DeleteValue(assemblyNumber + " title", false);
+                    }
+                }
+            }
+            catch (Exception)
+            {
+                // Nothing in the registry to forget.
+            }
+            try
+            {
+                if (!File.Exists(PickedPath)) return;
+                Dictionary<string, Bookmark> picked = Parse(File.ReadAllText(PickedPath, Encoding.UTF8));
+                Bookmark mine;
+                if (picked.TryGetValue(assemblyNumber, out mine) && mine.Id == bookmarkId)
+                {
+                    picked.Remove(assemblyNumber);
+                    File.WriteAllText(PickedPath, Format(picked), new UTF8Encoding(false));
+                }
+            }
+            catch (Exception)
+            {
+                // The picked list can't be changed: the folder is checked again next time anyway.
+            }
+        }
+
         /// <summary>Folders picked on this PC: the picked list, plus the registry (the registry wins).</summary>
         private static Dictionary<string, Bookmark> Mine()
         {

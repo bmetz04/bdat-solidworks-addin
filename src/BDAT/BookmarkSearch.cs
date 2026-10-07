@@ -81,6 +81,20 @@ namespace BDAT
         /// <summary>False if the last attempt to read the folders failed (so "not found" may just mean "couldn't look").</summary>
         public static bool Available { get; private set; }
 
+        /// <summary>
+        /// Whether a folder BDAT remembered is still in 3DEXPERIENCE: true, false (deleted, or moved out of the team's
+        /// folders), or null if it couldn't look (then carry on as before).
+        /// </summary>
+        public static bool? StillExists(string bookmarkId, IEnumerable<string> knownBookmarkIds)
+        {
+            List<FoundBookmark> tree = Tree(knownBookmarkIds);
+            if (tree == null) return null;
+            foreach (FoundBookmark b in tree)
+                if (string.Equals(b.Id, bookmarkId, StringComparison.Ordinal)) return true;
+            PlatformSave.Log(LogName, "folder " + bookmarkId + " isn't in 3DEXPERIENCE any more");
+            return false;
+        }
+
         /// <summary>Forget the folder tree, e.g. after Ben adds folders in 3DEXPERIENCE.</summary>
         public static void Refresh()
         {
@@ -131,7 +145,14 @@ namespace BDAT
                         var seen = new HashSet<string>(StringComparer.Ordinal);
                         while (id != null && seen.Add(id) && seen.Count < 30)
                         {
-                            object b = info.Invoke(null, new object[] { server, cc, id });
+                            object b;
+                            try { b = info.Invoke(null, new object[] { server, cc, id }); }
+                            catch (TargetInvocationException ex)
+                            {
+                                // e.g. a remembered folder that has since been deleted: just don't start from it.
+                                PlatformSave.Log(LogName, "folder search: no info for " + id + ": " + (ex.InnerException ?? ex).Message);
+                                b = null;
+                            }
                             if (b == null) { id = null; break; }
                             // Use the highest ancestor this answer knows about.
                             object top = b;

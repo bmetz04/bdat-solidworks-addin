@@ -93,6 +93,29 @@ namespace BDAT.Commands
                 return;
             }
 
+            // Decide where it goes in 3DEXPERIENCE before making anything, so cancelling here leaves nothing behind.
+            Connector connector = null;
+            Bookmark folder = null;
+            if (saveToPlatform)
+            {
+                connector = Connector.Find();
+                if (connector == null)
+                {
+                    Ui.Tell(swApp, "Couldn't find the 3DEXPERIENCE connector in this SolidWorks session (is the \"3DEXPERIENCE PLM Services\" " +
+                        "add-in on?), so nothing was made.\n\nUntick Save to 3DEXPERIENCE to make it without saving.", swMessageBoxIcon_e.swMbWarning);
+                    return;
+                }
+                if (!connector.IsConnected)
+                {
+                    Ui.Tell(swApp, "You're not logged in to 3DEXPERIENCE, so nothing was made.\n\nLog in from the 3DEXPERIENCE task pane, " +
+                        "or untick Save to 3DEXPERIENCE to make it without saving.", swMessageBoxIcon_e.swMbWarning);
+                    return;
+                }
+                bool cancelled;
+                folder = ResolveFolder(connector, owner, row, out cancelled);
+                if (cancelled) return; // nothing made
+            }
+
             swDocumentTypes_e type = row.IsAssembly ? swDocumentTypes_e.swDocASSEMBLY : swDocumentTypes_e.swDocPART;
             string template = swApp.GetUserPreferenceStringValue((int)(row.IsAssembly
                 ? swUserPreferenceStringValue_e.swDefaultTemplateAssembly
@@ -131,7 +154,7 @@ namespace BDAT.Commands
                 return;
             }
 
-            if (saveToPlatform) SaveToPlatform(swApp, owner, doc, row, description, checkIn);
+            if (saveToPlatform) SaveToPlatform(swApp, connector, doc, row, description, checkIn, folder);
         }
 
         private static EbomRow Pick(IWin32Window owner, string csv, string source, List<EbomRow> rows, out bool saveToPlatform, out bool checkIn, out string description)
@@ -175,23 +198,10 @@ namespace BDAT.Commands
         /// in its assembly's folder (the bookmark named by the assembly number, e.g. A0101), and checks it in.
         /// If anything stops it, the document stays open and unsaved, and it says why.
         /// </summary>
-        private void SaveToPlatform(ISldWorks swApp, IWin32Window owner, IModelDoc2 doc, EbomRow row, string description, bool checkIn)
+        private void SaveToPlatform(ISldWorks swApp, Connector connector, IModelDoc2 doc, EbomRow row, string description, bool checkIn, Bookmark folder)
         {
             string fileName = FileName(row);
             string notSaved = "\n\n" + row.Number + " is open but not saved. Save it to 3DEXPERIENCE by hand, or close it.";
-
-            Connector connector = Connector.Find();
-            if (connector == null)
-            {
-                Ui.Tell(swApp, "Couldn't find the 3DEXPERIENCE connector in this SolidWorks session " +
-                    "(is the \"3DEXPERIENCE PLM Services\" add-in on?)." + notSaved, swMessageBoxIcon_e.swMbWarning);
-                return;
-            }
-            if (!connector.IsConnected)
-            {
-                Ui.Tell(swApp, "You're not logged in to 3DEXPERIENCE." + notSaved, swMessageBoxIcon_e.swMbWarning);
-                return;
-            }
 
             var platform = new PlatformSave(swApp, connector, LogName);
             string existing = platform.ExistingOnPlatform(doc, fileName);
@@ -199,14 +209,6 @@ namespace BDAT.Commands
             {
                 Ui.Tell(swApp, row.Number + " is already in 3DEXPERIENCE (" + existing + "), so the new one wasn't saved.\n\n" +
                     "Open the existing one instead, and close this new one without saving.", swMessageBoxIcon_e.swMbWarning);
-                return;
-            }
-
-            bool cancelled;
-            Bookmark folder = ResolveFolder(connector, owner, row, out cancelled);
-            if (cancelled)
-            {
-                Ui.Tell(swApp, "Nothing was saved." + notSaved, swMessageBoxIcon_e.swMbInformation);
                 return;
             }
 
@@ -319,7 +321,20 @@ namespace BDAT.Commands
             string label = FolderLabel(row);
             if (number.Length == 0) return AskNoFolder(owner, row, "It has no assembly number in the EBOM.", out cancelled);
 
-            Bookmark known = EbomFolders.Find(number);
+            // A remembered folder is only used if it's still in 3DEXPERIENCE (it may have been deleted or moved).
+            BookmarkSearch.Refresh();
+            Bookmark known = null;
+            foreach (Bookmark candidate in EbomFolders.Candidates(number))
+            {
+                bool? alive = BookmarkSearch.StillExists(candidate.Id, SearchStartIds());
+                if (alive == false)
+                {
+                    EbomFolders.Forget(number, candidate.Id);
+                    continue;
+                }
+                known = candidate; // still there, or couldn't check (carry on as before)
+                break;
+            }
             if (known != null)
             {
                 string title = string.Equals(known.Title, number, StringComparison.OrdinalIgnoreCase) ? label : known.Title + " (" + label + ")";
