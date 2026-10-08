@@ -2,6 +2,16 @@
 
 Newest first. Publish BDAT adds an entry here every time a new version goes out.
 
+## v8 (2026-10-07 20:11)
+
+**New from EBOM**
+- Finds, makes or lets you pick the 3DEXPERIENCE folder before it makes the part, so cancelling at that step makes nothing. It also checks you're logged in to 3DEXPERIENCE first.
+- Closing or cancelling a folder picker never makes a folder.
+- Folders it makes get the assembly's name as their description (for example A0101 is described as "Balance Bar").
+- If a folder it remembered was deleted in 3DEXPERIENCE, it notices, searches for the right one again, and offers to make or pick one if it can't find it.
+- Two new buttons: Open team EBOM opens the team's Google Sheet, and Check 3DEXPERIENCE again re-checks which parts already exist.
+- The existing-part check is about twice as fast, runs fresh every time you open it, shows "Checking 3DEXPERIENCE..." while it runs, and says when it last checked.
+
 ## v7 (2026-10-05 18:37)
 
 - New button, **Waterjet DXF**: saves one DXF per cut list item that can be waterjet cut, into a folder named after the part wherever you choose. Bent sheet metal comes out as its flat pattern, and items thicker than 25.4 mm are left out. If the part has a configuration called "Waterjet", the DXFs come from that configuration. Your open part isn't changed.
