@@ -2,6 +2,8 @@
 REM Builds BDAT.dll with the C# compiler that ships with Windows (no Visual Studio or .NET SDK needed).
 REM The code must stay C# 5 compatible for this to work.
 REM Optional first argument: the SolidWorks api\redist folder.
+REM The SolidWorks interop types are embedded (/link), so BDAT.dll doesn't depend on one exact SolidWorks version or
+REM service pack and installs on PCs with an older SolidWorks than the one it was built with.
 REM Waits for a key at the end only when double-clicked (no arguments, started by cmd /c, BDAT_NO_PAUSE not set),
 REM so the window doesn't vanish before you can read it. Scripts set BDAT_NO_PAUSE=1 or pass the api folder.
 setlocal
@@ -16,7 +18,7 @@ if not exist "%OUT%" mkdir "%OUT%"
 
 "%CSC%" /nologo /target:library /platform:x64 /optimize+ /out:"%OUT%\BDAT.dll" ^
   /r:System.dll /r:System.Core.dll /r:System.Drawing.dll /r:System.Windows.Forms.dll ^
-  /r:"%API%\SolidWorks.Interop.sldworks.dll" /r:"%API%\SolidWorks.Interop.swconst.dll" /r:"%API%\SolidWorks.Interop.swpublished.dll" ^
+  /link:"%API%\SolidWorks.Interop.sldworks.dll" /link:"%API%\SolidWorks.Interop.swconst.dll" /link:"%API%\SolidWorks.Interop.swpublished.dll" ^
   /resource:"%SRC%\Resources\fubc-logo.png",BDAT.fubc-logo.png /resource:"%SRC%\Resources\fubc-logo-white.png",BDAT.fubc-logo-white.png ^
   /recurse:"%SRC%\*.cs" "%~dp0build\AssemblyInfo.cs"
 if errorlevel 1 (
@@ -24,6 +26,7 @@ if errorlevel 1 (
   if "%PAUSE_AT_END%"=="1" pause
   exit /b 1
 )
+REM BDAT itself no longer needs these; the test harness does.
 copy /y "%API%\SolidWorks.Interop.*.dll" "%OUT%\" >nul
 echo Built %OUT%\BDAT.dll
 if "%PAUSE_AT_END%"=="1" pause
