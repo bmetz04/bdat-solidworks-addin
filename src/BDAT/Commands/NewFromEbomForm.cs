@@ -24,12 +24,8 @@ namespace BDAT.Commands
         private readonly ComboBox _area;
         private readonly ListView _list;
         private readonly Label _source;
-        private readonly Label _pickedNumber;
-        private readonly Label _pickedDetails;
         private readonly Button _create;
-        private string _emptyMessage;
         private readonly Font _bold;
-        private readonly Font _big;
         private List<EbomRow> _rows;
         private string _csvPath;
 
@@ -39,7 +35,6 @@ namespace BDAT.Commands
             ClientSize = new Size(980, 640);
             MinimumSize = new Size(700, 460);
             _bold = new Font(Font, FontStyle.Bold);
-            _big = new Font("Segoe UI Semibold", 12f);
 
             var layout = new TableLayoutPanel { Dock = DockStyle.Fill, Padding = new Padding(20, 16, 20, 14), ColumnCount = 1, RowCount = 6, BackColor = Page };
             layout.RowStyles.Add(new RowStyle(SizeType.AutoSize));       // title
@@ -109,13 +104,6 @@ namespace BDAT.Commands
             listFrame.Controls.Add(_list);
             layout.Controls.Add(listFrame, 0, 2);
 
-            // What you picked, and where it goes.
-            var picked = new FlowLayoutPanel { FlowDirection = FlowDirection.TopDown, AutoSize = true, WrapContents = false, Margin = new Padding(0, 12, 0, 0) };
-            _pickedNumber = new Label { UseMnemonic = false, Font = _big, AutoSize = true, Margin = new Padding(0) };
-            _pickedDetails = new Label { UseMnemonic = false, ForeColor = Muted, AutoSize = true, Margin = new Padding(1, 2, 0, 0) };
-            picked.Controls.Add(_pickedNumber);
-            picked.Controls.Add(_pickedDetails);
-            layout.Controls.Add(picked, 0, 4);
 
             // Buttons: file links on the left, Save / Create / Cancel on the right.
             var bottom = new TableLayoutPanel { Dock = DockStyle.Fill, AutoSize = true, ColumnCount = 2, RowCount = 1, Margin = new Padding(0, 14, 0, 0) };
@@ -223,7 +211,6 @@ namespace BDAT.Commands
             if (disposing)
             {
                 _bold.Dispose();
-                _big.Dispose();
             }
             base.Dispose(disposing);
         }
@@ -388,11 +375,14 @@ namespace BDAT.Commands
             _list.EndUpdate();
             if (_list.SelectedItems.Count == 0 && _list.Items.Count == 1) _list.Items[0].Selected = true;
 
-            // No status line under the list (Ben, 2026-10-09): an empty list explains itself in the strip below instead.
-            _emptyMessage = _list.Items.Count > 0 ? null
-                : onlyInPlatform && !searching && area == null
-                    ? (_existing == null ? "Waiting for the 3DEXPERIENCE check." : "Nothing in this EBOM is in 3DEXPERIENCE yet.")
+            // Nothing under the list any more (Ben, 2026-10-09): an empty list says why in a grey row of its own.
+            if (_list.Items.Count == 0)
+            {
+                string why = onlyInPlatform && !searching && area == null
+                    ? (_existing == null ? "Waiting for the 3DEXPERIENCE check..." : "Nothing in this EBOM is in 3DEXPERIENCE yet.")
                     : "Nothing matches. Try fewer words, untick Only in 3DEXPERIENCE, or set the area back to " + AllAreas + ".";
+                _list.Items.Add(new ListViewItem(new[] { "", why, "", "", "" }) { ForeColor = Muted });
+            }
             ShowPicked();
         }
 
@@ -444,10 +434,12 @@ namespace BDAT.Commands
             {
                 if (IsDisposed) return;
                 _checking = false;
-                if (_refresh != null) { _refresh.Enabled = true; _refresh.Text = RefreshText; }
+                if (_refresh != null) _refresh.Enabled = true;
                 _checkedAt = DateTime.Now;
                 _existing = e.Error == null ? e.Result as HashSet<string> : null;
                 _checkFailed = _existing == null;
+                // No status line any more, so a failed check shows on the button itself.
+                if (_refresh != null) _refresh.Text = _checkFailed ? "Couldn't check 3DEXPERIENCE: try again" : RefreshText;
                 Fill();
             };
             worker.RunWorkerAsync();
@@ -473,38 +465,12 @@ namespace BDAT.Commands
             return item;
         }
 
-        /// <summary>The strip under the list: whether Open opens it from 3DEXPERIENCE or offers to create it.</summary>
+        /// <summary>Enables Open for a part or assembly row, and names it ("Open part").</summary>
         private void ShowPicked()
         {
             EbomRow row = Selected;
             _create.Enabled = row != null;
-            if (row == null)
-            {
-                bool header = _list.SelectedItems.Count > 0;
-                _pickedNumber.Text = header ? "Nothing to open here" : _emptyMessage != null ? "Nothing to show" : "Pick a part or assembly";
-                _pickedDetails.Text = header
-                    ? "The EBOM has no row for this assembly, so open it and pick one of its parts."
-                    : _emptyMessage ?? (_checkFailed
-                        ? "Couldn't check which parts are in 3DEXPERIENCE (Check 3DEXPERIENCE again to retry). Open still finds them."
-                        : "Search above, or open an assembly to see its parts.");
-                _create.Text = "Open";
-                return;
-            }
-            string kind = row.IsAssembly ? "assembly" : "part";
-            _create.Text = "Open " + kind;
-            _pickedNumber.Text = row.Number + "   " + row.Name;
-            if (Exists(row))
-            {
-                _pickedDetails.Text = "In 3DEXPERIENCE. Open downloads it from there and opens it.";
-                return;
-            }
-            if (_existing == null)
-            {
-                _pickedDetails.Text = "Open finds it in 3DEXPERIENCE and opens it, or offers to create it if it isn't there.";
-                return;
-            }
-            string where = row.IsAssembly ? "" : row.Parent.Length > 0 ? " in " + row.AssemblyNumber + " " + row.Parent : row.AssemblyNumber.Length > 0 ? " in " + row.AssemblyNumber : "";
-            _pickedDetails.Text = "Not in 3DEXPERIENCE yet. Open offers to create it: new " + kind + ", " + row.Area + where + ".";
+            _create.Text = row == null ? "Open" : "Open " + (row.IsAssembly ? "assembly" : "part");
         }
 
         // A header with no assembly row matches the search by its number, e.g. typing "A0402".
