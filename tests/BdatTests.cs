@@ -1081,9 +1081,11 @@ namespace BdatTests
                 RunNameCutList(swApp, command, "003", "002,003", "run 3");
 
                 // A number another feature holds is skipped: with the Weldment feature called 003, Plate gets 004.
+                // Free 003 first: SolidWorks quietly refuses a name another feature already has.
                 IFeature weldment = Features(doc).First(f => f.GetTypeName2() == "WeldmentFeature");
-                weldment.Name = "003";
                 first.Name = "Plate";
+                weldment.Name = "003";
+                Equal("003", weldment.Name, "Weldment feature renamed");
                 RunNameCutList(swApp, command, "004", "002,004", "run 4");
                 Check(!TestMode.Messages.Any(), "Name Cut List shouldn't pop anything up when it works: " + string.Join(" | ", TestMode.Messages.ToArray()));
 
