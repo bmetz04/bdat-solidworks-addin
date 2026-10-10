@@ -85,19 +85,6 @@ namespace BDAT
             }
         }
 
-        /// <summary>
-        /// What the last full check (the pop-up's) said about this number, if it ran less than maxAge ago; otherwise null.
-        /// Lets the last check before making a part be skipped when the pop-up only just asked.
-        /// </summary>
-        public static bool? Recently(string number, TimeSpan maxAge)
-        {
-            lock (_gate)
-            {
-                if (_known == null || DateTime.Now - _knownTime >= maxAge) return null;
-                return _known.Contains(number);
-            }
-        }
-
         /// <summary>Adds a number BDAT has just saved, so it shows as existing without another search.</summary>
         public static void Remember(string number)
         {

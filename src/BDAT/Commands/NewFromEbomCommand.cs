@@ -101,9 +101,24 @@ namespace BDAT.Commands
                     if (Ui.Show(owner, row.Number + " (" + row.Name + ") isn't in 3DX yet.\n\nMake it as a new " +
                             (row.IsAssembly ? "assembly" : "part") + "?", Title, MessageBoxButtons.YesNo, MessageBoxIcon.Question) != DialogResult.Yes)
                         return;
-                    BookmarkSearch.RefreshInBackground(SearchStartIds()); // the folder read runs while you name it
+                    Prefetch(row); // the folder read runs while you name it
                     if (!NewFromEbomForm.AskDetails(owner, row, out description, out saveToPlatform, out checkIn)) return;
+                    exists = PrefetchedExists(row);
+                    if (exists == true)
+                    {
+                        Ui.Tell(swApp, row.Number + " has just appeared in 3DX (someone else made it), so it's opened instead of making a second one.",
+                            swMessageBoxIcon_e.swMbInformation);
+                        OpenFromPlatform(swApp, row, true);
+                        return;
+                    }
                 }
+
+                // Never make a part BDAT couldn't confirm is new: that's how duplicates happen. Enter and Esc both mean no.
+                if (exists == null && Ui.Choose(owner,
+                        "BDAT couldn't check whether " + row.Number + " is already in 3DX, so it can't be sure this won't make a second copy.\n\n" +
+                        "Check in 3DX first (search for " + row.Number + "), or make it anyway if you're sure it isn't there.",
+                        Title, MessageBoxIcon.Warning, "Don't make it", "Make it anyway", "Cancel") != 1)
+                    return;
             }
 
             // Decide where it goes in 3DEXPERIENCE before making anything, so cancelling here leaves nothing behind.
