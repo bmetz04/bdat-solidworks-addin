@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Text;
@@ -164,17 +164,17 @@ namespace BDAT.Commands
             }
 
             // 5. Open the Parasolid as a new part, then throw the temporary file away.
-            int loadErrors = 0;
-            object importData = swApp.GetImportFileData(xtPath);
-            IModelDoc2 newDoc = swApp.LoadFile4(xtPath, "r", importData, ref loadErrors) as IModelDoc2;
-            Log("opened the Parasolid " + (newDoc != null) + ", errors " + loadErrors);
-            TryDelete(xtPath);
+            int loadErrors;
+            IModelDoc2 newDoc = OpenParasolid(swApp, xtPath, out loadErrors);
             if (newDoc == null)
             {
-                Tell(swApp, "SolidWorks couldn't open the exported Parasolid (error code " + loadErrors + "). Your part wasn't changed.",
+                // Keep the file so it can still be opened by hand.
+                Tell(swApp, "SolidWorks couldn't open the exported Parasolid (error code " + loadErrors + "). Your part wasn't changed.\n\n" +
+                    "The thread-free file is here if you want to open it yourself with File > Open:\n" + xtPath,
                     swMessageBoxIcon_e.swMbWarning);
                 return;
             }
+            TryDelete(xtPath);
 
             var summary = new StringBuilder();
             if (scan.FolderNames.Count > 0)
@@ -366,6 +366,90 @@ namespace BDAT.Commands
             {
                 // Not worth failing the command over.
             }
+        }
+
+        /// <summary>
+        /// Imports the Parasolid as a new part. Importing makes the part from the default part template without asking, so
+        /// while it runs this makes sure SolidWorks won't stop to ask for a template and, if the default part template is
+        /// missing (common on PCs that only use 3DX templates), points it at SolidWorks' own part template. Both settings are
+        /// put back afterwards. Tries LoadFile4 first, then OpenDoc6. Null if neither works.
+        /// </summary>
+        private static IModelDoc2 OpenParasolid(ISldWorks swApp, string xtPath, out int loadErrors)
+        {
+            int templatePref = (int)swUserPreferenceStringValue_e.swDefaultTemplatePart;
+            int alwaysDefaultPref = (int)swUserPreferenceToggle_e.swAlwaysUseDefaultTemplates;
+            string template = swApp.GetUserPreferenceStringValue(templatePref);
+            bool alwaysDefault = swApp.GetUserPreferenceToggle(alwaysDefaultPref);
+            bool templateOk = !string.IsNullOrEmpty(template) && File.Exists(template);
+            Log("default part template \"" + template + "\" exists " + templateOk + ", always use default templates " + alwaysDefault);
+
+            string fallback = templateOk ? null : FindSolidWorksPartTemplate(swApp);
+            if (fallback != null)
+            {
+                Log("using " + fallback + " for the import");
+                swApp.SetUserPreferenceStringValue(templatePref, fallback);
+            }
+            if (!alwaysDefault) swApp.SetUserPreferenceToggle(alwaysDefaultPref, true);
+
+            IModelDoc2 newDoc = null;
+            loadErrors = 0;
+            try
+            {
+                object importData = swApp.GetImportFileData(xtPath);
+                newDoc = swApp.LoadFile4(xtPath, "r", importData, ref loadErrors) as IModelDoc2;
+                Log("LoadFile4 opened " + (newDoc != null) + ", errors " + loadErrors);
+                if (newDoc == null)
+                {
+                    int openErr = 0, openWarn = 0;
+                    newDoc = swApp.OpenDoc6(xtPath, (int)swDocumentTypes_e.swDocPART,
+                        (int)swOpenDocOptions_e.swOpenDocOptions_Silent, "", ref openErr, ref openWarn) as IModelDoc2;
+                    Log("OpenDoc6 opened " + (newDoc != null) + ", errors " + openErr + ", warnings " + openWarn);
+                }
+            }
+            finally
+            {
+                if (fallback != null) swApp.SetUserPreferenceStringValue(templatePref, template ?? "");
+                if (!alwaysDefault) swApp.SetUserPreferenceToggle(alwaysDefaultPref, false);
+            }
+            return newDoc;
+        }
+
+        /// <summary>The Part template that ships with SolidWorks, or null if none is found.</summary>
+        private static string FindSolidWorksPartTemplate(ISldWorks swApp)
+        {
+            var candidates = new List<string>();
+            try
+            {
+                // Folders listed in Tools > Options > File Locations > Document Templates.
+                string folders = swApp.GetUserPreferenceStringValue((int)swUserPreferenceStringValue_e.swFileLocationsDocumentTemplates) ?? "";
+                foreach (string folder in folders.Split(';'))
+                {
+                    if (folder.Trim().Length == 0 || !Directory.Exists(folder.Trim())) continue;
+                    candidates.AddRange(Directory.GetFiles(folder.Trim(), "*.prtdot"));
+                }
+                string exe = swApp.GetExecutablePath();
+                // Usually the install folder, but allow for the path of sldworks.exe itself.
+                string exeDir = string.IsNullOrEmpty(exe) ? null
+                    : exe.EndsWith(".exe", StringComparison.OrdinalIgnoreCase) ? Path.GetDirectoryName(exe) : exe;
+                if (!string.IsNullOrEmpty(exeDir))
+                {
+                    candidates.Add(Path.Combine(exeDir, @"lang\english\Tutorial\part.prtdot"));
+                    candidates.Add(Path.Combine(exeDir, @"lang\english\Tutorial\Part_MM.prtdot"));
+                }
+                string programData = Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData);
+                string[] versionDirs = Directory.Exists(Path.Combine(programData, "SOLIDWORKS"))
+                    ? Directory.GetDirectories(Path.Combine(programData, "SOLIDWORKS"), "SOLIDWORKS*") : new string[0];
+                foreach (string dir in versionDirs)
+                    candidates.Add(Path.Combine(dir, @"templates\Part.prtdot"));
+            }
+            catch (Exception ex)
+            {
+                Log("looking for a part template failed: " + ex.Message);
+            }
+            foreach (string c in candidates)
+                if (File.Exists(c)) return c;
+            Log("no part template found in " + candidates.Count + " place(s)");
+            return null;
         }
 
         /// <summary>True if a document with this title (with or without extension) is already open.</summary>
