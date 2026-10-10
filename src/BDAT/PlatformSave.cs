@@ -231,8 +231,8 @@ namespace BDAT
         }
 
         /// <summary>
-        /// The connector's lock status for path: "notLocked", "lockedByMe", or another value when someone else has it.
-        /// Null if it can't be read.
+        /// The connector's lock status for path (EnoSwLockStatus): "notLocked", "lockedByMe", "lockedByOther" or
+        /// "undefined". Null if it can't be read.
         /// </summary>
         public string LockStatus(string path)
         {
@@ -244,6 +244,21 @@ namespace BDAT
             catch (Exception ex)
             {
                 Log("lock status failed: " + ex.Message);
+                return null;
+            }
+        }
+
+        /// <summary>Who has path locked, e.g. for "checked out by ...". Null if it can't be read.</summary>
+        public string LockUser(string path)
+        {
+            try
+            {
+                string user = _connector.Call(_connector.Manager("FileCache"), "IEnoSwFileCache7", "GetLockUser", path) as string;
+                return string.IsNullOrEmpty(user) ? null : user;
+            }
+            catch (Exception ex)
+            {
+                Log("lock user failed: " + ex.Message);
                 return null;
             }
         }

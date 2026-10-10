@@ -32,10 +32,10 @@ namespace BDAT.Commands
                 Ui.Tell(swApp, name + " is already checked out to you.", swMessageBoxIcon_e.swMbInformation);
                 return;
             }
-            if (before != null && before != "notLocked")
+            if (before == "lockedByOther")
             {
-                Ui.Tell(swApp, name + " is checked out by someone else, so it can't be checked out to you.\n\n" +
-                    "The 3DEXPERIENCE task pane shows who has it.", swMessageBoxIcon_e.swMbWarning);
+                Ui.Tell(swApp, name + " is checked out by " + CheckInOut.Someone(platform, path) +
+                    ", so it can't be checked out to you.", swMessageBoxIcon_e.swMbWarning);
                 return;
             }
 
@@ -74,9 +74,10 @@ namespace BDAT.Commands
                 Ui.Tell(swApp, name + " isn't checked out, so there's nothing to check in.", swMessageBoxIcon_e.swMbInformation);
                 return;
             }
-            if (before != null && before != "lockedByMe")
+            if (before == "lockedByOther")
             {
-                Ui.Tell(swApp, name + " is checked out by someone else, so only they can check it in.", swMessageBoxIcon_e.swMbWarning);
+                Ui.Tell(swApp, name + " is checked out by " + CheckInOut.Someone(platform, path) +
+                    ", so only they can check it in.", swMessageBoxIcon_e.swMbWarning);
                 return;
             }
 
@@ -106,6 +107,12 @@ namespace BDAT.Commands
     internal static class CheckInOut
     {
         private const string LogName = "check-in-out";
+
+        /// <summary>The user who has path locked, or "someone else" if the connector doesn't say.</summary>
+        public static string Someone(PlatformSave platform, string path)
+        {
+            return platform.LockUser(path) ?? "someone else";
+        }
 
         public static bool IsPartOrAssembly(ISldWorks swApp)
         {
