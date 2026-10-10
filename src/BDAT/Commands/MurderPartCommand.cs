@@ -436,7 +436,7 @@ namespace BDAT.Commands
                     candidates.Add(Path.Combine(exeDir, @"lang\english\Tutorial\part.prtdot"));
                     candidates.Add(Path.Combine(exeDir, @"lang\english\Tutorial\Part_MM.prtdot"));
                 }
-                string programData = Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData);
+                string programData = System.Environment.GetFolderPath(System.Environment.SpecialFolder.CommonApplicationData);
                 string[] versionDirs = Directory.Exists(Path.Combine(programData, "SOLIDWORKS"))
                     ? Directory.GetDirectories(Path.Combine(programData, "SOLIDWORKS"), "SOLIDWORKS*") : new string[0];
                 foreach (string dir in versionDirs)
