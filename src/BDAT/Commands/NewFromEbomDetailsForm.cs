@@ -17,7 +17,7 @@ namespace BDAT.Commands
         public NewFromEbomDetailsForm(EbomRow row, string where)
         {
             string kind = row.IsAssembly ? "assembly" : "part";
-            ModernUi.Setup(this, "New from EBOM", false);
+            ModernUi.Setup(this, "Open from EBOM", false);
             ClientSize = new Size(560, 430);
 
             var layout = new TableLayoutPanel { Dock = DockStyle.Fill, Padding = new Padding(20, 16, 20, 14), ColumnCount = 1, RowCount = 7 };
