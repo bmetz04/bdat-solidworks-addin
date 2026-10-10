@@ -2,6 +2,12 @@
 
 Newest first. Publish BDAT adds an entry here every time a new version goes out.
 
+## v9 (2026-10-09 20:21)
+
+- Open from EBOM: open the picked part from 3DEXPERIENCE, offer to create it only when it isn't there
+- Check Out / Check In: name who has it locked
+- Check Out and Check In buttons: lock and unlock the open part or assembly in 3DEXPERIENCE
+
 ## v8 (2026-10-07 20:11)
 
 **New from EBOM**

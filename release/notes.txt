@@ -1,7 +1,3 @@
-**New from EBOM**
-- Finds, makes or lets you pick the 3DEXPERIENCE folder before it makes the part, so cancelling at that step makes nothing. It also checks you're logged in to 3DEXPERIENCE first.
-- Closing or cancelling a folder picker never makes a folder.
-- Folders it makes get the assembly's name as their description (for example A0101 is described as "Balance Bar").
-- If a folder it remembered was deleted in 3DEXPERIENCE, it notices, searches for the right one again, and offers to make or pick one if it can't find it.
-- Two new buttons: Open team EBOM opens the team's Google Sheet, and Check 3DEXPERIENCE again re-checks which parts already exist.
-- The existing-part check is about twice as fast, runs fresh every time you open it, shows "Checking 3DEXPERIENCE..." while it runs, and says when it last checked.
+- Open from EBOM: open the picked part from 3DEXPERIENCE, offer to create it only when it isn't there
+- Check Out / Check In: name who has it locked
+- Check Out and Check In buttons: lock and unlock the open part or assembly in 3DEXPERIENCE
