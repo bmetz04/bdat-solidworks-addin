@@ -68,7 +68,7 @@ namespace BDAT.Commands
             _area.SelectedIndexChanged += delegate { _toggled.Clear(); Fill(); };
             tools.Controls.Add(_area, 1, 0);
             // Show only what's already in 3DEXPERIENCE (once the background check knows).
-            _onlyInPlatform = new CheckBox { Text = "Only in 3DEXPERIENCE", AutoSize = true, Margin = new Padding(0, 8, 14, 0), UseMnemonic = false };
+            _onlyInPlatform = new CheckBox { Text = "Only in 3DX", AutoSize = true, Margin = new Padding(0, 8, 14, 0), UseMnemonic = false };
             _onlyInPlatform.CheckedChanged += delegate { _toggled.Clear(); Fill(); };
             tools.Controls.Add(_onlyInPlatform, 2, 0);
             tools.Controls.Add(ModernUi.Link("Expand all", delegate { _allOpen = true; _toggled.Clear(); Fill(); }, new Padding(0, 9, 10, 0)), 3, 0);
@@ -380,7 +380,7 @@ namespace BDAT.Commands
             {
                 string why = onlyInPlatform && !searching && area == null
                     ? (_existing == null ? "Waiting for the 3DEXPERIENCE check..." : "Nothing in this EBOM is in 3DEXPERIENCE yet.")
-                    : "Nothing matches. Try fewer words, untick Only in 3DEXPERIENCE, or set the area back to " + AllAreas + ".";
+                    : "Nothing matches. Try fewer words, untick Only in 3DX, or set the area back to " + AllAreas + ".";
                 _list.Items.Add(new ListViewItem(new[] { "", why, "", "", "" }) { ForeColor = Muted });
             }
             ShowPicked();
