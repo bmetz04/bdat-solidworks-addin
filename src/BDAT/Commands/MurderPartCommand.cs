@@ -50,6 +50,20 @@ namespace BDAT.Commands
 
         public void Run(ISldWorks swApp)
         {
+            try
+            {
+                RunLogged(swApp);
+            }
+            catch (Exception ex)
+            {
+                // BDAT shows the message; the log keeps the details so a teammate's report can be diagnosed.
+                Log("FAILED: " + ex);
+                throw;
+            }
+        }
+
+        private void RunLogged(ISldWorks swApp)
+        {
             IModelDoc2 doc = swApp.ActiveDoc as IModelDoc2;
             if (doc == null || doc.GetType() != (int)swDocumentTypes_e.swDocPART)
             {
@@ -58,14 +72,25 @@ namespace BDAT.Commands
             }
 
             string baseName = BaseName(doc);
+            Log("---- " + baseName + "  (BDAT " + BuildInfo.Version + ", SolidWorks " + swApp.RevisionNumber() + ")");
+            Log("part file: " + doc.GetPathName());
 
             // 1. Confirm. Scanning is read-only, so the original is still untouched at this point.
             ThreadScan preview = FindThreads(doc);
-            if (!Confirm(swApp, doc, preview)) return;
+            Log("found " + preview.FolderNames.Count + " thread folder(s), " + preview.FeatureNames.Count + " thread feature(s)");
+            if (!Confirm(swApp, doc, preview))
+            {
+                Log("cancelled");
+                return;
+            }
 
             CleanTempDir();
-            string workPath = Path.Combine(TempDir, baseName + WorkCopySuffix + ".SLDPRT");
+            // A unique stamp in the temp names so a copy or result still open from an earlier run can't clash.
+            string stamp = DateTime.Now.ToString("HHmmss");
+            string workPath = Path.Combine(TempDir, baseName + WorkCopySuffix + stamp + ".SLDPRT");
             string xtPath = Path.Combine(TempDir, baseName + ExportSuffix + ".x_t");
+            if (IsOpen(swApp, baseName + ExportSuffix))
+                xtPath = Path.Combine(TempDir, baseName + ExportSuffix + "_" + stamp + ".x_t");
 
             // 2. Copy the part as it is now (the Copy option leaves the open document, its file and its
             //    saved/unsaved state exactly as they were), then open the copy where nobody can see or save it.
@@ -75,6 +100,7 @@ namespace BDAT.Commands
                 (int)swSaveAsVersion_e.swSaveAsCurrentVersion,
                 (int)(swSaveAsOptions_e.swSaveAsOptions_Silent | swSaveAsOptions_e.swSaveAsOptions_Copy),
                 null, null, ref errors, ref warnings);
+            Log("working copy saved " + copied + ", exists " + File.Exists(workPath) + ", errors " + errors + ", warnings " + warnings + " -> " + workPath);
             if (!copied || !File.Exists(workPath))
             {
                 Tell(swApp, "Couldn't make a working copy of the part (error code " + errors + "). Nothing was changed.",
@@ -84,7 +110,7 @@ namespace BDAT.Commands
 
             ThreadScan scan;
             int failedDeletes;
-            bool exported;
+            bool exported = false;
             swApp.DocumentVisible(false, (int)swDocumentTypes_e.swDocPART);
             IModelDoc2 work = null;
             try
@@ -92,6 +118,7 @@ namespace BDAT.Commands
                 int openErr = 0, openWarn = 0;
                 work = swApp.OpenDoc6(workPath, (int)swDocumentTypes_e.swDocPART,
                     (int)swOpenDocOptions_e.swOpenDocOptions_Silent, "", ref openErr, ref openWarn) as IModelDoc2;
+                Log("working copy opened " + (work != null) + ", errors " + openErr + ", warnings " + openWarn);
                 if (work == null)
                 {
                     Tell(swApp, "Couldn't open the working copy (error code " + openErr + "). Nothing was changed.",
@@ -101,9 +128,12 @@ namespace BDAT.Commands
 
                 // 3. Delete threads, on the copy only.
                 scan = FindThreads(work);
+                Log("copy has " + scan.FolderNames.Count + " thread folder(s) [" + string.Join(", ", scan.FolderNames.ToArray())
+                    + "], " + scan.FeatureNames.Count + " thread feature(s) [" + string.Join(", ", scan.FeatureNames.ToArray()) + "]");
                 failedDeletes = DeleteFeatures(work, scan.FeatureNames);
                 DeleteFolders(work, scan.FolderNames);
-                work.ForceRebuild3(false);
+                bool rebuilt = work.ForceRebuild3(false);
+                Log("deleted, " + failedDeletes + " couldn't be deleted, rebuild " + rebuilt);
 
                 // 4. Export the copy to Parasolid.
                 exported = work.Extension.SaveAs3(
@@ -111,11 +141,17 @@ namespace BDAT.Commands
                     (int)swSaveAsVersion_e.swSaveAsCurrentVersion,
                     (int)(swSaveAsOptions_e.swSaveAsOptions_Silent | swSaveAsOptions_e.swSaveAsOptions_Copy),
                     null, null, ref errors, ref warnings);
+                Log("Parasolid export " + exported + ", exists " + File.Exists(xtPath) + ", errors " + errors + ", warnings " + warnings + " -> " + xtPath);
             }
             finally
             {
-                // Close the copy without saving, whatever happened above.
-                if (work != null) swApp.CloseDoc(work.GetTitle());
+                // Close the copy without saving, whatever happened above, and always show new windows again
+                // (otherwise every part opened afterwards would stay invisible).
+                if (work != null)
+                {
+                    try { swApp.CloseDoc(work.GetTitle()); }
+                    catch (Exception ex) { Log("closing the working copy failed: " + ex.Message); }
+                }
                 swApp.DocumentVisible(true, (int)swDocumentTypes_e.swDocPART);
                 TryDelete(workPath);
             }
@@ -131,6 +167,7 @@ namespace BDAT.Commands
             int loadErrors = 0;
             object importData = swApp.GetImportFileData(xtPath);
             IModelDoc2 newDoc = swApp.LoadFile4(xtPath, "r", importData, ref loadErrors) as IModelDoc2;
+            Log("opened the Parasolid " + (newDoc != null) + ", errors " + loadErrors);
             TryDelete(xtPath);
             if (newDoc == null)
             {
@@ -152,6 +189,7 @@ namespace BDAT.Commands
             summary.AppendLine("It isn't saved anywhere yet; use Save As to keep it.");
             summary.AppendLine();
             summary.Append("Your original part \"" + baseName + "\" was not changed.");
+            Log("done");
             Tell(swApp, summary.ToString(), swMessageBoxIcon_e.swMbInformation);
         }
 
@@ -328,6 +366,34 @@ namespace BDAT.Commands
             {
                 // Not worth failing the command over.
             }
+        }
+
+        /// <summary>True if a document with this title (with or without extension) is already open.</summary>
+        private static bool IsOpen(ISldWorks swApp, string title)
+        {
+            try
+            {
+                IModelDoc2 open = swApp.GetFirstDocument() as IModelDoc2;
+                while (open != null)
+                {
+                    string t = open.GetTitle() ?? "";
+                    if (t.Equals(title, StringComparison.OrdinalIgnoreCase)
+                        || t.StartsWith(title + ".", StringComparison.OrdinalIgnoreCase))
+                        return true;
+                    open = open.GetNext() as IModelDoc2;
+                }
+            }
+            catch (Exception)
+            {
+                // Fall back to the usual name.
+            }
+            return false;
+        }
+
+        /// <summary>Appends a line to %TEMP%\BDAT\murder-part.log.</summary>
+        private static void Log(string message)
+        {
+            PlatformSave.Log("murder-part", message);
         }
 
         private static void TryDelete(string path)
