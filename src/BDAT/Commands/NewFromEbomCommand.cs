@@ -10,8 +10,9 @@ using BDAT.Testing;
 namespace BDAT.Commands
 {
     /// <summary>
-    /// New from EBOM: pick a row of the team's EBOM and get a new, unsaved part (or assembly, for an Assembly row)
-    /// already named and described from it.
+    /// Open from EBOM (it was New from EBOM): pick a row of the team's EBOM. If that part or assembly is in 3DEXPERIENCE
+    /// it's downloaded and opened (PlatformParts); if it isn't, you're asked whether to make it, and then you get a new,
+    /// unsaved part (or assembly, for an Assembly row) already named and described from it, as below.
     ///
     ///   1. Downloads the team's EBOM straight from the Master eBOM Google Sheet (published to the web as CSV), keeping
     ///      a copy for when it's offline. With neither, it asks for a CSV and remembers it for this Windows user.
@@ -28,9 +29,9 @@ namespace BDAT.Commands
     /// </summary>
     public sealed class NewFromEbomCommand : IBdatCommand
     {
-        public string Title { get { return "New from EBOM"; } }
+        public string Title { get { return "Open from EBOM"; } }
 
-        public string Hint { get { return "Start a new part or assembly from a row of the EBOM, named and described for you"; } }
+        public string Hint { get { return "Open a part or assembly of the EBOM from 3DEXPERIENCE, or start it new, named and described for you"; } }
 
         internal const string DescriptionProperty = "Description";
         internal const string NumberProperty = "Part Number";
@@ -79,18 +80,29 @@ namespace BDAT.Commands
             List<EbomRow> rows = TryLoad(owner, csv);
             if (rows == null) return;
 
-            bool saveToPlatform, checkIn;
+            bool saveToPlatform, checkIn, openRequested;
             string description;
-            EbomRow row = Pick(owner, csv, source, rows, out saveToPlatform, out checkIn, out description);
+            EbomRow row = Pick(owner, csv, source, rows, out saveToPlatform, out checkIn, out openRequested, out description);
             if (row == null) return;
 
-            // Last check before making anything: is this number already anywhere in 3DEXPERIENCE? (The pop-up greys
-            // those out, but its background check may not have finished, or someone may have just made it.)
-            if (!TestMode.Enabled && ExistingParts.Exists(row.Number) == true)
+            if (!TestMode.Enabled)
             {
-                Ui.Tell(swApp, row.Number + " (" + row.Name + ") is already in 3DEXPERIENCE, so nothing was made.\n\n" +
-                    "Open it from 3DEXPERIENCE instead.", swMessageBoxIcon_e.swMbWarning);
-                return;
+                // Open (or a last check before making anything: someone may have just made it, in which case it's opened).
+                bool? exists = ExistingParts.Exists(row.Number);
+                if (openRequested || exists == true)
+                {
+                    if (exists != false)
+                    {
+                        OpenFromPlatform(swApp, row, exists == true);
+                        return;
+                    }
+                    // Not in 3DEXPERIENCE: offer to make it, the same way the pop-up does.
+                    if (Ui.Show(owner, row.Number + " (" + row.Name + ") isn't in 3DEXPERIENCE yet.\n\nMake it as a new " +
+                            (row.IsAssembly ? "assembly" : "part") + "?", Title, MessageBoxButtons.YesNo, MessageBoxIcon.Question) != DialogResult.Yes)
+                        return;
+                    description = NewFromEbomForm.AskDescription(owner, row, NewFromEbomForm.SaveText(row, saveToPlatform, checkIn));
+                    if (description == null) return;
+                }
             }
 
             // Decide where it goes in 3DEXPERIENCE before making anything, so cancelling here leaves nothing behind.
@@ -157,10 +169,12 @@ namespace BDAT.Commands
             if (saveToPlatform) SaveToPlatform(swApp, connector, doc, row, description, checkIn, folder);
         }
 
-        private static EbomRow Pick(IWin32Window owner, string csv, string source, List<EbomRow> rows, out bool saveToPlatform, out bool checkIn, out string description)
+        private static EbomRow Pick(IWin32Window owner, string csv, string source, List<EbomRow> rows, out bool saveToPlatform, out bool checkIn,
+            out bool openRequested, out string description)
         {
             saveToPlatform = false;
             checkIn = true;
+            openRequested = false; // test mode always creates
             description = null;
             if (TestMode.Enabled)
             {
@@ -178,9 +192,53 @@ namespace BDAT.Commands
                 if (form.ShowDialog(owner) != DialogResult.OK) return null;
                 saveToPlatform = form.SaveToPlatform;
                 checkIn = form.CheckIn;
+                openRequested = form.OpenRequested;
                 description = form.Description;
                 return form.Selected;
             }
+        }
+
+        /// <summary>
+        /// Finds the row's part or assembly in 3DEXPERIENCE, downloads it and opens it. Only reads from 3DEXPERIENCE.
+        /// known: the title search found it, so not finding its id is a problem to report rather than "it isn't there".
+        /// </summary>
+        private void OpenFromPlatform(ISldWorks swApp, EbomRow row, bool known)
+        {
+            string label = row.Number + " (" + row.Name + ")";
+            Connector connector = Connector.Find();
+            if (connector == null || !connector.IsConnected)
+            {
+                Ui.Tell(swApp, (connector == null
+                    ? "Couldn't find the 3DEXPERIENCE connector in this SolidWorks session (is the \"3DEXPERIENCE PLM Services\" add-in on?)"
+                    : "You're not logged in to 3DEXPERIENCE") + ", so " + label + " wasn't opened.", swMessageBoxIcon_e.swMbWarning);
+                return;
+            }
+
+            string error;
+            Cursor.Current = Cursors.WaitCursor;
+            string id = PlatformParts.FindId(row.Number, out error);
+            string path = id == null ? null : PlatformParts.Download(connector, id, out error);
+            Cursor.Current = Cursors.Default;
+            if (path == null)
+            {
+                Ui.Tell(swApp, (known ? label + " is in 3DEXPERIENCE, but BDAT couldn't open it: " : "BDAT couldn't open " + label + ": ") + error +
+                    "\n\nOpen it from the 3DEXPERIENCE task pane instead (search for " + row.Number + ").", swMessageBoxIcon_e.swMbWarning);
+                return;
+            }
+
+            int type = path.EndsWith(".SLDASM", StringComparison.OrdinalIgnoreCase) ? (int)swDocumentTypes_e.swDocASSEMBLY
+                : path.EndsWith(".SLDDRW", StringComparison.OrdinalIgnoreCase) ? (int)swDocumentTypes_e.swDocDRAWING : (int)swDocumentTypes_e.swDocPART;
+            int errors = 0, warnings = 0;
+            IModelDoc2 doc = swApp.OpenDoc6(path, type, (int)swOpenDocOptions_e.swOpenDocOptions_Silent, "", ref errors, ref warnings) as IModelDoc2;
+            if (doc == null)
+            {
+                Ui.Tell(swApp, "3DEXPERIENCE downloaded " + label + ", but SolidWorks didn't open it (error " + errors + ").\n\n" + path,
+                    swMessageBoxIcon_e.swMbWarning);
+                return;
+            }
+            int activateErrors = 0;
+            swApp.ActivateDoc3(doc.GetTitle(), false, (int)swRebuildOnActivation_e.swDontRebuildActiveDoc, ref activateErrors);
+            PlatformSave.Log(LogName, "open: opened " + row.Number + " from " + path);
         }
 
         /// <summary>The file name it's saved under: the combined part number, e.g. BR-10101-AA.SLDPRT.</summary>
@@ -516,7 +574,7 @@ namespace BDAT.Commands
             {
                 string why = ex is IOException && !(ex is FileNotFoundException)
                     ? "it's open in another program (close Excel and try again)." : ex.Message;
-                Ui.Show(owner, "Couldn't read " + Path.GetFileName(path) + ": " + why, "New from EBOM",
+                Ui.Show(owner, "Couldn't read " + Path.GetFileName(path) + ": " + why, "Open from EBOM",
                     MessageBoxButtons.OK, MessageBoxIcon.Warning);
                 return null;
             }

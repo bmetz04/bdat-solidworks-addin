@@ -26,7 +26,7 @@ The SolidWorks tests never close a SolidWorks they didn't start. They won't run 
 - Save MCM parsing: the name is the part number before the first underscore, and the description is everything after it. Covers no underscore, several underscores, `_murdered` and extra spaces.
 - Save MCM name validation.
 - The connector refuses to start in test mode.
-- The toolbar lists Murder Part, Save MCM, Create Origin, New from EBOM, Update BDAT and BDAT vN, in that order, and every callback name exists.
+- The toolbar lists Murder Part, Save MCM, Create Origin, Open from EBOM, Update BDAT and BDAT vN, in that order, and every callback name exists.
 - New from EBOM reads the EBOM CSV by column heading (quoted commas and line breaks, blank rows skipped), names assemblies from the Assembly column and parts from the component name, finds each part's assembly by control number, or the current same-system assembly above it in the sheet when its own has no row, gives every row its assembly number (A0704 from 704xx, even with no assembly row) and lists the ones with no assembly row, hides obsolete rows, names the file after the combined part number (.SLDPRT or .SLDASM), and refuses a CSV with no Combined Part # column. Its Save to 3DEXPERIENCE step is never run: in test mode it only records the file name and folder it would have used.
 - The New from EBOM folder list (`release/ebom-folders.csv`) is parsed and written back the same, picks merge over the team list, a bookmark title matches its assembly number whole-word in any case (`A0704`, `A0704 Bellcranks`, not `A07041`).
 - Create Origin uses SolidWorks' own X, Y and Z, like a 3D sketch point.

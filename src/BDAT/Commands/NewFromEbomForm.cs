@@ -8,7 +8,7 @@ using System.Windows.Forms;
 namespace BDAT.Commands
 {
     /// <summary>
-    /// The New from EBOM pop-up: the EBOM as a tree of assemblies (bold, collapsed) with their parts underneath.
+    /// The Open from EBOM pop-up: the EBOM as a tree of assemblies (bold, collapsed) with their parts underneath.
     /// Search or filter by area, open an assembly with its ▶ marker, double-click or Right arrow, and pick a row.
     /// A strip under the list says what will be made and where it's saved.
     /// </summary>
@@ -37,7 +37,7 @@ namespace BDAT.Commands
 
         public NewFromEbomForm(string csvPath, string source, List<EbomRow> rows)
         {
-            ModernUi.Setup(this, "New from EBOM", true);
+            ModernUi.Setup(this, "Open from EBOM", true);
             ClientSize = new Size(980, 640);
             MinimumSize = new Size(700, 460);
             _bold = new Font(Font, FontStyle.Bold);
@@ -53,8 +53,8 @@ namespace BDAT.Commands
             Controls.Add(layout);
 
             // Title.
-            layout.Controls.Add(ModernUi.Header("New from EBOM",
-                "Pick a part or assembly. It's created with its EBOM number and description, ready to model."), 0, 0);
+            layout.Controls.Add(ModernUi.Header("Open from EBOM",
+                "Pick a part or assembly to open it from 3DEXPERIENCE. If it isn't there yet, you can create it with its EBOM number and description."), 0, 0);
 
             // Search box, area filter, expand and collapse.
             var tools = new TableLayoutPanel { Dock = DockStyle.Fill, AutoSize = true, ColumnCount = 4, RowCount = 1, Margin = new Padding(0, 0, 0, 10) };
@@ -138,7 +138,7 @@ namespace BDAT.Commands
             var buttons = new FlowLayoutPanel { FlowDirection = FlowDirection.RightToLeft, AutoSize = true, WrapContents = false, Margin = new Padding(0) };
             var cancel = ModernUi.Secondary("Cancel");
             cancel.DialogResult = DialogResult.Cancel;
-            _create = ModernUi.Primary("Create");
+            _create = ModernUi.Primary("Open");
             _create.Enabled = false;
             _create.Click += delegate { Confirm(); };
             _save = new CheckBox { Text = "Save to 3DEXPERIENCE", AutoSize = true, Checked = true, Margin = new Padding(0, 10, 16, 0) };
@@ -180,24 +180,52 @@ namespace BDAT.Commands
         /// <summary>The description confirmed (and maybe changed) in the second pop-up.</summary>
         public string Description { get; private set; }
 
-        /// <summary>Create: the second pop-up shows what's about to be made and lets you change the description. Back returns here.</summary>
+        /// <summary>
+        /// True: open the picked row from 3DEXPERIENCE (or offer to create it if it turns out not to be there).
+        /// False: create it now; it's known not to be in 3DEXPERIENCE and you said yes, with Description set.
+        /// </summary>
+        public bool OpenRequested { get; private set; }
+
+        /// <summary>
+        /// Open: a row in 3DEXPERIENCE (or not checked yet) is opened. One known not to be there asks "Make it?", then the
+        /// second pop-up shows what's about to be made and lets you change the description. No or Back returns here.
+        /// </summary>
         private void Confirm()
         {
             EbomRow row = Selected;
-            if (row == null || Exists(row)) return;
-            using (var details = new NewFromEbomDetailsForm(row, SaveText(row)))
+            if (row == null) return;
+            if (_existing == null || Exists(row))
             {
-                if (details.ShowDialog(this) != DialogResult.OK) return;
-                Description = details.Description;
+                OpenRequested = true;
+                DialogResult = DialogResult.OK;
+                return;
             }
+            string kind = row.IsAssembly ? "assembly" : "part";
+            if (Ui.Show(this, row.Number + " (" + row.Name + ") isn't in 3DEXPERIENCE yet.\n\nMake it as a new " + kind + "?",
+                    "Open from EBOM", MessageBoxButtons.YesNo, MessageBoxIcon.Question) != DialogResult.Yes)
+                return;
+            string description = AskDescription(this, row, SaveText(row, _save.Checked, _checkIn.Checked));
+            if (description == null) return;
+            Description = description;
+            OpenRequested = false;
             DialogResult = DialogResult.OK;
         }
 
-        private string SaveText(EbomRow row)
+        /// <summary>The second pop-up: what's about to be made, with its description to change. Null if Back.</summary>
+        internal static string AskDescription(IWin32Window owner, EbomRow row, string saveText)
         {
-            if (!_save.Checked) return "Left open and unsaved.";
+            using (var details = new NewFromEbomDetailsForm(row, saveText))
+            {
+                if (details.ShowDialog(owner) != DialogResult.OK) return null;
+                return details.Description;
+            }
+        }
+
+        internal static string SaveText(EbomRow row, bool save, bool checkIn)
+        {
+            if (!save) return "Left open and unsaved.";
             string where = row.AssemblyNumber.Length > 0 ? "Saved to 3DEXPERIENCE in folder " + row.AssemblyNumber : "Saved to 3DEXPERIENCE";
-            return where + (_checkIn.Checked ? " and checked in." : ", kept checked out to you.");
+            return where + (checkIn ? " and checked in." : ", kept checked out to you.");
         }
 
         protected override void Dispose(bool disposing)
@@ -350,7 +378,6 @@ namespace BDAT.Commands
                 foreach (EbomRow part in parts)
                 {
                     var item = new ListViewItem(new[] { Indent + part.Number, part.Name + (Exists(part) ? InPlatform : ""), part.Area, part.Class }) { Tag = part };
-                    if (Exists(part)) item.ForeColor = Taken;
                     _list.Items.Add(item);
                 }
             }
@@ -386,7 +413,7 @@ namespace BDAT.Commands
         private void OpenSheet()
         {
             try { System.Diagnostics.Process.Start(Ebom.TeamSheetUrl); }
-            catch (Exception ex) { Ui.Show(this, "Couldn't open the team EBOM: " + ex.Message + "\n\n" + Ebom.TeamSheetUrl, "New from EBOM", MessageBoxButtons.OK, MessageBoxIcon.Warning); }
+            catch (Exception ex) { Ui.Show(this, "Couldn't open the team EBOM: " + ex.Message + "\n\n" + Ebom.TeamSheetUrl, "Open from EBOM", MessageBoxButtons.OK, MessageBoxIcon.Warning); }
         }
 
         // ---------------------------------------------------------------- what's already in 3DEXPERIENCE
@@ -397,7 +424,6 @@ namespace BDAT.Commands
         private DateTime _checkedAt = DateTime.MinValue;
         private Button _refresh;
         private const string RefreshText = "Check 3DEXPERIENCE again";
-        private static readonly Color Taken = Color.FromArgb(150, 150, 150);
         private const string InPlatform = "   (in 3DEXPERIENCE)";
 
         private bool Exists(EbomRow row)
@@ -414,7 +440,7 @@ namespace BDAT.Commands
             int n = 0;
             foreach (EbomRow row in _rows)
                 if (!row.IsObsolete && _existing.Contains(row.Number)) n++;
-            return (n == 0 ? "None are in 3DEXPERIENCE yet" : n + " already in 3DEXPERIENCE (greyed out)") + at + ".";
+            return (n == 0 ? "None are in 3DEXPERIENCE yet" : n + " in 3DEXPERIENCE") + at + ".";
         }
 
         /// <summary>Starts the background check of which EBOM numbers are already in 3DEXPERIENCE.</summary>
@@ -453,7 +479,6 @@ namespace BDAT.Commands
             {
                 string name = group.Assembly.Name + (group.Parts.Count > 0 ? "   (" + group.Parts.Count + ")" : "") + (Exists(group.Assembly) ? InPlatform : "");
                 item = new ListViewItem(new[] { marker + group.Assembly.Number, name, group.Area, group.Assembly.Class }) { Tag = group.Assembly };
-                if (Exists(group.Assembly)) item.ForeColor = Taken;
             }
             else
             {
@@ -466,7 +491,7 @@ namespace BDAT.Commands
             return item;
         }
 
-        /// <summary>The strip under the list: what Create will make, and where it'll be saved.</summary>
+        /// <summary>The strip under the list: whether Open opens it from 3DEXPERIENCE or offers to create it.</summary>
         private void ShowPicked()
         {
             EbomRow row = Selected;
@@ -474,25 +499,29 @@ namespace BDAT.Commands
             if (row == null)
             {
                 bool header = _list.SelectedItems.Count > 0;
-                _pickedNumber.Text = header ? "Nothing to create here" : "Pick a part or assembly";
+                _pickedNumber.Text = header ? "Nothing to open here" : "Pick a part or assembly";
                 _pickedDetails.Text = header
                     ? "The EBOM has no row for this assembly, so open it and pick one of its parts."
                     : "Search above, or open an assembly to see its parts.";
-                _create.Text = "Create";
+                _create.Text = "Open";
                 return;
             }
             string kind = row.IsAssembly ? "assembly" : "part";
-            _create.Text = "Create " + kind;
+            _create.Text = "Open " + kind;
             _pickedNumber.Text = row.Number + "   " + row.Name;
             if (Exists(row))
             {
-                _create.Enabled = false;
-                _pickedDetails.Text = "Already in 3DEXPERIENCE, so there's nothing to create. Open it from 3DEXPERIENCE instead.";
+                _pickedDetails.Text = "In 3DEXPERIENCE. Open downloads it from there and opens it.";
+                return;
+            }
+            if (_existing == null)
+            {
+                _pickedDetails.Text = "Open finds it in 3DEXPERIENCE and opens it, or offers to create it if it isn't there.";
                 return;
             }
             string where = row.IsAssembly ? "" : row.Parent.Length > 0 ? " in " + row.AssemblyNumber + " " + row.Parent : row.AssemblyNumber.Length > 0 ? " in " + row.AssemblyNumber : "";
-            string save = SaveText(row);
-            _pickedDetails.Text = "New " + kind + ", " + row.Area + where + ". " + save;
+            string save = SaveText(row, _save.Checked, _checkIn.Checked);
+            _pickedDetails.Text = "Not in 3DEXPERIENCE yet. Open offers to create it: new " + kind + ", " + row.Area + where + ". " + save;
         }
 
         // A header with no assembly row matches the search by its number, e.g. typing "A0402".
@@ -538,7 +567,7 @@ namespace BDAT.Commands
             if (e.X - hit.SubItem.Bounds.Left <= TextRenderer.MeasureText(ClosedMarker, _bold).Width + 8) Toggle(GroupOf(hit.Item));
         }
 
-        // Double-click: a part is created; an assembly opens or closes (Create or Enter makes the assembly itself).
+        // Double-click: a part is opened (or offered to be created); an assembly row expands or collapses (Open or Enter opens the assembly itself).
         private void OnListDoubleClick(object sender, EventArgs e)
         {
             ListViewItem item = _list.SelectedItems.Count == 0 ? null : _list.SelectedItems[0];

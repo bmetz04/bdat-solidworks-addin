@@ -269,7 +269,7 @@ namespace BdatTests
                 Equal("Murder Part", titles[0], "button 1");
                 Equal("Save MCM", titles[1], "button 2");
                 Equal("Create Origin", titles[2], "button 3");
-                Equal("New from EBOM", titles[3], "button 4");
+                Equal("Open from EBOM", titles[3], "button 4");
                 Equal("Waterjet DXF", titles[4], "button 5");
                 Equal("Name Cut List", titles[5], "button 6");
                 Equal("Update BDAT", titles[6], "button 7");
@@ -478,6 +478,27 @@ namespace BdatTests
                 try { BookmarkSearch.Find("A0704", new[] { "X" }); }
                 catch (InvalidOperationException) { refused = true; }
                 Check(refused && TestMode.ConnectorAttempts >= 1, "the folder search can't reach 3DEXPERIENCE in test mode");
+                TestMode.ConnectorAttempts = 0;
+            });
+
+            Test("Open from EBOM finds the part's id in the search reply", delegate
+            {
+                string reply = "{\"totalItems\":3,\"member\":[" +
+                    "{\"name\":\"prd-1\",\"title\":\"BR-10101-AA\",\"id\":\"ID1\",\"type\":\"VPMReference\"}," +
+                    "{\"name\":\"prd-2\",\"title\":\"BR-10101-AB\",\"id\":\"ID2\"}," +
+                    "{\"name\":\"prd-3\",\"title\":\"BR-10102-AA.SLDPRT\",\"id\":\"ID3\"}]}";
+                Equal("ID1", PlatformParts.IdFromSearch(reply, "br-10101-aa"), "the exact number, any case, not a near match");
+                Equal("ID3", PlatformParts.IdFromSearch(reply, "BR-10102-AA"), "a title with the file extension still matches");
+                Check(PlatformParts.IdFromSearch(reply, "BR-10103-AA") == null, "no match, no id");
+                Check(PlatformParts.IdFromSearch("{\"member\":[{\"title\":\"X\",\"id\":\"A\"},{\"title\":\"X\",\"id\":\"B\"}]}", "X") == null,
+                    "two different items with the same number: don't guess");
+                Check(PlatformParts.IdFromSearch(null, "X") == null, "no reply, no id");
+                Equal("resources/v1/modeler/dseng/dseng:EngItem/search?$searchStr=BR-10101-AA&$top=50", PlatformParts.SearchPath("BR-10101-AA"), "search path");
+
+                bool refused = false;
+                try { string err; PlatformParts.FindId("BR-10101-AA", out err); }
+                catch (InvalidOperationException) { refused = true; }
+                Check(refused, "the open search can't reach 3DEXPERIENCE in test mode");
                 TestMode.ConnectorAttempts = 0;
             });
 
