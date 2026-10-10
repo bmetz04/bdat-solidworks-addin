@@ -59,7 +59,16 @@ namespace BDAT
             _swApp.SetAddinCallbackInfo2(0, this, _addinCookie);
 
             _cmdMgr = _swApp.GetCommandManager(_addinCookie);
-            AddCommandManager();
+            try
+            {
+                AddCommandManager();
+            }
+            catch (Exception ex)
+            {
+                // Logged so a half-built toolbar can be diagnosed (%TEMP%\BDAT\toolbar.log).
+                PlatformSave.Log(ToolbarLog, "AddCommandManager failed: " + ex);
+                throw;
+            }
             return true;
         }
 
@@ -104,6 +113,7 @@ namespace BDAT
                     ignorePrevious = true;
             }
 
+            PlatformSave.Log(ToolbarLog, "toolbar " + ToolbarVersion + ", rebuild " + ignorePrevious);
             if (ignorePrevious) ClearCachedTabs();
 
             ICommandGroup group = _cmdMgr.CreateCommandGroup2(
@@ -136,6 +146,7 @@ namespace BDAT
             AddCommandTab(swDocumentTypes_e.swDocASSEMBLY);
 
             SaveVersion();
+            PlatformSave.Log(ToolbarLog, "toolbar built, " + _commands.Count + " buttons");
         }
 
         private void AddCommandTab(swDocumentTypes_e docType)
@@ -188,9 +199,10 @@ namespace BDAT
                     }
                 }
             }
-            catch
+            catch (Exception ex)
             {
                 // Worst case the tab shows stale buttons until SolidWorks is restarted.
+                PlatformSave.Log(ToolbarLog, "clearing cached tabs failed: " + ex);
             }
         }
 
@@ -212,6 +224,7 @@ namespace BDAT
                                 if (!(owner is string) || !string.Equals((string)owner, module, StringComparison.OrdinalIgnoreCase)) continue;
                             }
                             contextKey.DeleteSubKeyTree(tab, false);
+                            PlatformSave.Log(ToolbarLog, "cleared cached tab " + commandManagerPath + "\\" + context + "\\" + tab);
                         }
                     }
                 }
@@ -242,6 +255,7 @@ namespace BDAT
         }
 
         private const string UserKeyPath = @"Software\BDAT";
+        private const string ToolbarLog = "toolbar";
 
         #endregion
 
