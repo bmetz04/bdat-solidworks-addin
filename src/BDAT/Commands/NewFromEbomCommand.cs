@@ -89,7 +89,7 @@ namespace BDAT.Commands
             {
                 // Open (or a last check before making anything: someone may have just made it, in which case it's opened).
                 // When you said "Make it?" Yes, this check already started in the background (Prefetch).
-                bool? exists = PrefetchedExists(row.Number);
+                bool? exists = PrefetchedExists(row);
                 if (openRequested || exists == true)
                 {
                     if (exists != false)
@@ -259,73 +259,84 @@ namespace BDAT.Commands
         /// </summary>
         private void SaveToPlatform(ISldWorks swApp, Connector connector, IModelDoc2 doc, EbomRow row, string description, bool checkIn, Bookmark folder)
         {
-            string fileName = FileName(row);
-            string notSaved = "\n\n" + row.Number + " is open but not saved. Save it to 3DX by hand, or close it.";
+            // A small window while it works, so the wait for 3DX doesn't look like SolidWorks has frozen.
+            ModernUi.BusyWindow busy = ModernUi.Busy(SolidWorksWindow(swApp), "Saving " + row.Number + " to 3DX...", "Saving the file...");
+            try
+            {
+                string fileName = FileName(row);
+                string notSaved = "\n\n" + row.Number + " is open but not saved. Save it to 3DX by hand, or close it.";
 
-            var platform = new PlatformSave(swApp, connector, LogName);
-            string existing = platform.ExistingOnPlatform(doc, fileName);
-            if (existing != null)
-            {
-                Ui.Tell(swApp, row.Number + " is already in 3DX (" + existing + "), so the new one wasn't saved.\n\n" +
-                    "Open the existing one instead, and close this new one without saving.", swMessageBoxIcon_e.swMbWarning);
-                return;
-            }
-
-            bool savedOk = platform.Save(doc, fileName);
-            if (savedOk) ExistingParts.Remember(row.Number);
-            if (!savedOk)
-            {
-                Ui.Tell(swApp, "3DX didn't save " + row.Number + ". Check the 3DX task pane for details." + notSaved,
-                    swMessageBoxIcon_e.swMbStop);
-                return;
-            }
-
-            string where = folder == null ? "" : " in " + FolderLabel(row);
-            string done;
-            swMessageBoxIcon_e icon = swMessageBoxIcon_e.swMbInformation;
-            string phid = folder == null ? null : platform.WaitForPhysicalId(doc);
-            if (folder != null && string.IsNullOrEmpty(phid))
-            {
-                done = "Saved " + row.Number + " to 3DX, but it didn't show up within " + PlatformSave.SaveWaitSeconds +
-                    " seconds, so it wasn't put in " + FolderLabel(row) + ".\n\nOnce the save finishes, add it by hand " +
-                    "(right-click it in 3DX > Add to Bookmark).";
-                icon = swMessageBoxIcon_e.swMbWarning;
-                where = "";
-            }
-            else
-            {
-                string refused = folder == null ? null : platform.AddToBookmark(folder.Id, phid);
-                if (refused != null)
+                var platform = new PlatformSave(swApp, connector, LogName);
+                string existing = platform.ExistingOnPlatform(doc, fileName);
+                if (existing != null)
                 {
-                    done = "Saved " + row.Number + " (" + description + ") to 3DX, but it couldn't be put in " +
-                        FolderLabel(row) + ":\n\n" + refused + PlatformSave.BookmarkAdvice(refused);
+                    busy.Close(); Ui.Tell(swApp, row.Number + " is already in 3DX (" + existing + "), so the new one wasn't saved.\n\n" +
+                        "Open the existing one instead, and close this new one without saving.", swMessageBoxIcon_e.swMbWarning);
+                    return;
+                }
+
+                busy.Step("Uploading it to 3DX (about 10 seconds)...");
+                bool savedOk = platform.Save(doc, fileName);
+                if (savedOk) ExistingParts.Remember(row.Number);
+                if (!savedOk)
+                {
+                    busy.Close(); Ui.Tell(swApp, "3DX didn't save " + row.Number + ". Check the 3DX task pane for details." + notSaved,
+                        swMessageBoxIcon_e.swMbStop);
+                    return;
+                }
+
+                string where = folder == null ? "" : " in " + FolderLabel(row);
+                string done;
+                swMessageBoxIcon_e icon = swMessageBoxIcon_e.swMbInformation;
+                busy.Step(folder == null ? "Finishing..." : "Putting it in " + FolderLabel(row) + "...");
+                string phid = folder == null ? null : platform.WaitForPhysicalId(doc);
+                if (folder != null && string.IsNullOrEmpty(phid))
+                {
+                    done = "Saved " + row.Number + " to 3DX, but it didn't show up within " + PlatformSave.SaveWaitSeconds +
+                        " seconds, so it wasn't put in " + FolderLabel(row) + ".\n\nOnce the save finishes, add it by hand " +
+                        "(right-click it in 3DX > Add to Bookmark).";
                     icon = swMessageBoxIcon_e.swMbWarning;
+                    where = "";
                 }
                 else
-                    done = "Saved " + row.Number + " (" + description + ") to 3DX" + where + ".";
-            }
+                {
+                    string refused = folder == null ? null : platform.AddToBookmark(folder.Id, phid);
+                    if (refused != null)
+                    {
+                        done = "Saved " + row.Number + " (" + description + ") to 3DX, but it couldn't be put in " +
+                            FolderLabel(row) + ":\n\n" + refused + PlatformSave.BookmarkAdvice(refused);
+                        icon = swMessageBoxIcon_e.swMbWarning;
+                    }
+                    else
+                        done = "Saved " + row.Number + " (" + description + ") to 3DX" + where + ".";
+                }
 
-            if (checkIn)
-            {
-                if (platform.Unlock(doc.GetPathName())) done += "\n\nChecked in.";
+                if (checkIn)
+                {
+                    if (platform.Unlock(doc.GetPathName())) done += "\n\nChecked in.";
+                    else
+                    {
+                        done += "\n\nIt couldn't be checked in, so it's still locked by you. Unlock it from the 3DX task pane " +
+                            "(right-click it > Unlock).";
+                        icon = swMessageBoxIcon_e.swMbWarning;
+                    }
+                }
                 else
                 {
-                    done += "\n\nIt couldn't be checked in, so it's still locked by you. Unlock it from the 3DX task pane " +
-                        "(right-click it > Unlock).";
-                    icon = swMessageBoxIcon_e.swMbWarning;
+                    // Keep it checked out (reserved) to you, to carry on modelling it.
+                    if (platform.Reserve(doc.GetPathName(), true)) done += "\n\nKept checked out to you. Check it in from the 3DX task pane when you're done.";
+                    else
+                    {
+                        done += "\n\nIt couldn't be kept checked out to you. Reserve it from the 3DX task pane (right-click it > Reserve).";
+                        icon = swMessageBoxIcon_e.swMbWarning;
+                    }
                 }
+                busy.Close(); Ui.Tell(swApp, done, icon);
             }
-            else
+            finally
             {
-                // Keep it checked out (reserved) to you, to carry on modelling it.
-                if (platform.Reserve(doc.GetPathName())) done += "\n\nKept checked out to you. Check it in from the 3DX task pane when you're done.";
-                else
-                {
-                    done += "\n\nIt couldn't be kept checked out to you. Reserve it from the 3DX task pane (right-click it > Reserve).";
-                    icon = swMessageBoxIcon_e.swMbWarning;
-                }
+                busy.Close();
             }
-            Ui.Tell(swApp, done, icon);
         }
 
         /// <summary>The pop-up's "Check in" box, remembered for this Windows user (ticked unless you've unticked it).</summary>
@@ -524,22 +535,32 @@ namespace BDAT.Commands
             string number = row.Number;
             _prefetchNumber = number;
             _prefetchTime = DateTime.Now;
-            _prefetchExists = System.Threading.Tasks.Task.Run<bool?>(delegate { return ExistingParts.Exists(number); });
+            bool isAssembly = row.IsAssembly;
+            // A full check from the pop-up in the last minute already answers it; otherwise search just this kind.
+            bool? recent = ExistingParts.Recently(number, TimeSpan.FromMinutes(1));
+            _prefetchExists = recent.HasValue
+                ? System.Threading.Tasks.Task.FromResult<bool?>(recent)
+                : System.Threading.Tasks.Task.Run<bool?>(delegate { return ExistingParts.Exists(number, isAssembly); });
             BookmarkSearch.RefreshInBackground(SearchStartIds());
         }
 
         // The background "already in 3DX?" answer for this number if one was started, otherwise asked now.
-        private static bool? PrefetchedExists(string number)
+        private static bool? PrefetchedExists(EbomRow row)
         {
+            string number = row.Number;
             System.Threading.Tasks.Task<bool?> task = _prefetchExists;
             // Only a check for this number, started in the last few minutes (an older answer could be out of date).
             bool mine = task != null && string.Equals(_prefetchNumber, number, StringComparison.OrdinalIgnoreCase) &&
                 DateTime.Now - _prefetchTime < TimeSpan.FromMinutes(3);
             _prefetchExists = null;
             _prefetchNumber = null;
-            if (!mine) return ExistingParts.Exists(number);
+            if (!mine)
+            {
+                bool? recent = ExistingParts.Recently(number, TimeSpan.FromMinutes(1));
+                return recent ?? ExistingParts.Exists(number, row.IsAssembly);
+            }
             try { return task.Result; }
-            catch (Exception) { return ExistingParts.Exists(number); }
+            catch (Exception) { return ExistingParts.Exists(number, row.IsAssembly); }
         }
 
         /// <summary>Folders BDAT already knows, to find the team's top folder from: McMaster Carr, then every remembered one.</summary>

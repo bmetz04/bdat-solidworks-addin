@@ -59,12 +59,21 @@ namespace BDAT
         /// <summary>True if this one number is in 3DEXPERIENCE, false if not, null if it couldn't check. Asks the platform now.</summary>
         public static bool? Exists(string number)
         {
+            return Exists(number, null);
+        }
+
+        /// <summary>
+        /// The same, searching only parts (isAssembly false) or only assemblies (true), which halves the wait; null searches both.
+        /// </summary>
+        public static bool? Exists(string number, bool? isAssembly)
+        {
             TestMode.BlockConnector("ExistingParts");
             try
             {
                 var found = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
                 var one = new[] { number };
-                if (!Search(one, "3DPart", found) || !Search(one, "Assembly", found)) return null;
+                if (isAssembly != true && !Search(one, "3DPart", found)) return null;
+                if (isAssembly != false && !Search(one, "Assembly", found)) return null;
                 if (found.Count > 0) Remember(number);
                 return found.Count > 0;
             }
@@ -73,6 +82,19 @@ namespace BDAT
                 Exception inner = ex is TargetInvocationException && ex.InnerException != null ? ex.InnerException : ex;
                 PlatformSave.Log(LogName, "existing check for " + number + " failed: " + inner);
                 return null;
+            }
+        }
+
+        /// <summary>
+        /// What the last full check (the pop-up's) said about this number, if it ran less than maxAge ago; otherwise null.
+        /// Lets the last check before making a part be skipped when the pop-up only just asked.
+        /// </summary>
+        public static bool? Recently(string number, TimeSpan maxAge)
+        {
+            lock (_gate)
+            {
+                if (_known == null || DateTime.Now - _knownTime >= maxAge) return null;
+                return _known.Contains(number);
             }
         }
 

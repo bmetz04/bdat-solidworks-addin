@@ -315,9 +315,24 @@ namespace BDAT
         /// <summary>Keeps the saved file checked out (reserved) to you. True if it's reserved by you afterwards.</summary>
         public bool Reserve(string path)
         {
+            return Reserve(path, false);
+        }
+
+        /// <summary>
+        /// The same. justSaved: the file was saved a moment ago (so it isn't locked yet), so just reserve it and trust the
+        /// answer, without the before and after lock-status look-ups (about a second each).
+        /// </summary>
+        public bool Reserve(string path, bool justSaved)
+        {
             if (string.IsNullOrEmpty(path)) { Log("reserve: the document has no file path"); return false; }
             try
             {
+                if (justSaved)
+                {
+                    bool reserved = (bool)_connector.Call(_connector.Manager("UiCommands"), "IEnoSwUiCommands", "ReserveFiles", (object)new[] { path });
+                    Log("reserve (just saved): ReserveFiles returned " + reserved);
+                    return reserved;
+                }
                 object cache = _connector.Manager("FileCache");
                 object before = _connector.Call(cache, "IEnoSwFileCache7", "GetLockStatus", path);
                 Log("reserve: lock status before " + before);

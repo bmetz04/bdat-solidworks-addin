@@ -187,6 +187,64 @@ namespace BDAT
             return link;
         }
 
+        /// <summary>
+        /// A small "working on it" window shown while BDAT does something slow on SolidWorks' thread (e.g. saving to 3DX),
+        /// so it doesn't look stuck. Close() it before showing a message; closing twice is fine.
+        /// </summary>
+        public static BusyWindow Busy(IWin32Window owner, string title, string detail)
+        {
+            var window = new BusyWindow(title, detail);
+            try
+            {
+                if (owner != null && owner.Handle != IntPtr.Zero) window.Show(owner);
+                else { window.StartPosition = FormStartPosition.CenterScreen; window.Show(); }
+                window.Refresh();
+                Application.DoEvents();
+            }
+            catch (Exception)
+            {
+                // Just no window.
+            }
+            return window;
+        }
+
+        internal sealed class BusyWindow : Form
+        {
+            public BusyWindow(string title, string detail)
+            {
+                Setup(this, "BDAT", false);
+                ControlBox = false;
+                AutoSize = true;
+                AutoSizeMode = AutoSizeMode.GrowAndShrink;
+                MinimumSize = new Size(380, 0);
+                var layout = new FlowLayoutPanel { FlowDirection = FlowDirection.TopDown, AutoSize = true, WrapContents = false, Padding = new Padding(22, 18, 22, 20) };
+                var titleFont = new Font("Segoe UI Semibold", 12f);
+                var heading = new Label { Text = title, Font = titleFont, AutoSize = true, Margin = new Padding(0), UseMnemonic = false };
+                heading.Disposed += delegate { titleFont.Dispose(); };
+                layout.Controls.Add(heading);
+                var note = Note(detail, new Padding(1, 6, 0, 10));
+                note.MaximumSize = new Size(420, 0);
+                layout.Controls.Add(note);
+                layout.Controls.Add(new ProgressBar { Style = ProgressBarStyle.Marquee, MarqueeAnimationSpeed = 30, Width = 360, Height = 8, Margin = new Padding(0) });
+                Controls.Add(layout);
+            }
+
+            /// <summary>Keeps the window painted between slow steps.</summary>
+            public void Step(string detail)
+            {
+                if (IsDisposed) return;
+                if (detail != null && Controls.Count > 0 && Controls[0].Controls.Count > 1) Controls[0].Controls[1].Text = detail;
+                Refresh();
+                Application.DoEvents();
+            }
+
+            public new void Close()
+            {
+                if (IsDisposed) return;
+                try { base.Close(); Dispose(); } catch (Exception) { }
+            }
+        }
+
         [DllImport("user32.dll", CharSet = CharSet.Unicode)]
         private static extern IntPtr SendMessage(IntPtr hWnd, int msg, IntPtr wParam, string lParam);
 
