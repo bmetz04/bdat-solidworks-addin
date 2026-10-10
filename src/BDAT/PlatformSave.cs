@@ -230,6 +230,49 @@ namespace BDAT
             return advice;
         }
 
+        /// <summary>
+        /// The connector's lock status for path: "notLocked", "lockedByMe", or another value when someone else has it.
+        /// Null if it can't be read.
+        /// </summary>
+        public string LockStatus(string path)
+        {
+            try
+            {
+                object status = _connector.Call(_connector.Manager("FileCache"), "IEnoSwFileCache7", "GetLockStatus", path);
+                return status == null ? null : status.ToString();
+            }
+            catch (Exception ex)
+            {
+                Log("lock status failed: " + ex.Message);
+                return null;
+            }
+        }
+
+        /// <summary>
+        /// Uploads the changes to a document that's already in 3DEXPERIENCE, with no window: saves it to its own
+        /// work-folder file (and, for an assembly, the parts it changed), then sends it with the connector's SaveAPI.
+        /// </summary>
+        public bool SaveChanges(IModelDoc2 doc)
+        {
+            string path = doc.GetPathName();
+            if (string.IsNullOrEmpty(path)) { Log("save changes: the document has no file path"); return false; }
+            try
+            {
+                int options = (int)swSaveAsOptions_e.swSaveAsOptions_Silent;
+                if (doc.GetType() == (int)swDocumentTypes_e.swDocASSEMBLY) options |= (int)swSaveAsOptions_e.swSaveAsOptions_SaveReferenced;
+                int errors = 0, warnings = 0;
+                bool local = doc.Save3(options, ref errors, ref warnings);
+                Log("save changes: local save of " + path + " returned " + local + ", error " + errors + ", warning " + warnings);
+                if (!local) return false;
+                return UploadWithSaveApi(path);
+            }
+            catch (Exception ex)
+            {
+                Log("save changes failed: " + ex.Message);
+                return false;
+            }
+        }
+
         /// <summary>Check in: releases your lock on the saved file. True if it's unlocked afterwards (or was never locked).</summary>
         public bool Unlock(string path)
         {

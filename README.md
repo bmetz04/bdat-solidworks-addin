@@ -53,6 +53,14 @@ Starts a new part or assembly from a row of the team's EBOM (the Master eBOM Goo
 
 It never changes the Google Sheet.
 
+### Check Out / Check In
+Lock and unlock the open part or assembly in 3DEXPERIENCE without opening the task pane.
+
+- **Check Out** locks (reserves) it to you, like right-click > Lock in the 3DEXPERIENCE task pane. If someone else has it, it says so.
+- **Check In** saves your changes to 3DEXPERIENCE first if there are any (it asks, and no Save window opens), then unlocks it.
+
+Only the open document is locked or unlocked, not the parts inside an assembly. It must already be in 3DEXPERIENCE and you must be logged in. Log: `%TEMP%\BDAT\check-in-out.log`.
+
 ### Update BDAT
 Checks GitHub for a newer published BDAT. If there is one, it downloads it now (Windows asks for admin once) and installs it as soon as you close SolidWorks, so the next time you open SolidWorks you're on the new version.
 

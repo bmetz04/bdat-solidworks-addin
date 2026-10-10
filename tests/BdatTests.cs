@@ -265,15 +265,17 @@ namespace BdatTests
             Test("Toolbar has the expected BDAT buttons, in order", delegate
             {
                 List<string> titles = CommandTitles(new SwAddin());
-                Check(titles.Count == 8, "expected 8 buttons, got " + titles.Count + ": " + string.Join(", ", titles.ToArray()));
+                Check(titles.Count == 10, "expected 10 buttons, got " + titles.Count + ": " + string.Join(", ", titles.ToArray()));
                 Equal("Murder Part", titles[0], "button 1");
                 Equal("Save MCM", titles[1], "button 2");
                 Equal("Create Origin", titles[2], "button 3");
                 Equal("New from EBOM", titles[3], "button 4");
                 Equal("Waterjet DXF", titles[4], "button 5");
                 Equal("Name Cut List", titles[5], "button 6");
-                Equal("Update BDAT", titles[6], "button 7");
-                Check(Regex.IsMatch(titles[7], @"^BDAT (v\d+|dev build)$"), "button 8 should be the version (BDAT vN), got \"" + titles[7] + "\"");
+                Equal("Check Out", titles[6], "button 7");
+                Equal("Check In", titles[7], "button 8");
+                Equal("Update BDAT", titles[8], "button 9");
+                Check(Regex.IsMatch(titles[9], @"^BDAT (v\d+|dev build)$"), "button 10 should be the version (BDAT vN), got \"" + titles[9] + "\"");
             });
 
             Test("EBOM CSV is read by column heading", delegate

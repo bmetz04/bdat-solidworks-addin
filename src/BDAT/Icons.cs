@@ -89,10 +89,16 @@ namespace BDAT
                 case 5: // Name Cut List: brown circle with "01"
                     DrawBadge(g, cell, Color.FromArgb(150, 85, 30), "01", 0.36f);
                     break;
-                case 6: // Update: green circle with a white down arrow
+                case 6: // Check Out: dark red circle with a white closed padlock
+                    DrawLockIcon(g, cell, Color.FromArgb(170, 40, 60), false);
+                    break;
+                case 7: // Check In: dark green circle with a white open padlock
+                    DrawLockIcon(g, cell, Color.FromArgb(40, 120, 80), true);
+                    break;
+                case 8: // Update: green circle with a white down arrow
                     DrawArrowIcon(g, cell, Color.FromArgb(30, 140, 60), false);
                     break;
-                case 7: // Version: blue circle with an "i"
+                case 9: // Version: blue circle with an "i"
                     DrawBadge(g, cell, Color.FromArgb(30, 90, 170), "i");
                     break;
                 default:
@@ -134,6 +140,25 @@ namespace BDAT
                 g.DrawLine(pen, cx, top, cx, bottom);
                 g.DrawLines(pen, new[] { new PointF(cx - wing, tip + back), new PointF(cx, tip), new PointF(cx + wing, tip + back) });
             }
+        }
+
+        private static void DrawLockIcon(Graphics g, Rectangle cell, Color color, bool open)
+        {
+            float pad = cell.Width * 0.08f;
+            var circle = new RectangleF(cell.X + pad, cell.Y + pad, cell.Width - 2 * pad, cell.Height - 2 * pad);
+            using (var fill = new SolidBrush(color))
+                g.FillEllipse(fill, circle);
+
+            // Body, then the shackle: an arch over the body, lifted and swung right when open.
+            float w = cell.Width, h = cell.Height;
+            var body = new RectangleF(cell.X + w * 0.3f, cell.Y + h * 0.46f, w * 0.4f, h * 0.3f);
+            using (var white = new SolidBrush(Color.White))
+                g.FillRectangle(white, body);
+            float lift = open ? h * 0.08f : 0f;
+            float shift = open ? w * 0.1f : 0f;
+            var arch = new RectangleF(cell.X + w * 0.36f + shift, cell.Y + h * 0.24f - lift, w * 0.28f, h * 0.32f);
+            using (var pen = new Pen(Color.White, Math.Max(1.5f, w * 0.08f)))
+                g.DrawArc(pen, arch, 180, 180);
         }
 
         private static void DrawAxesIcon(Graphics g, Rectangle cell, Color color)
