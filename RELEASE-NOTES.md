@@ -2,6 +2,22 @@
 
 Newest first. Publish BDAT adds an entry here every time a new version goes out.
 
+## v11 (2026-10-10 15:37)
+
+**Open from EBOM**
+- Faster: the slow 3DX look-ups run while you're naming the part, and a "Saving to 3DX..." window shows progress while it saves.
+- Can't save a part twice: BDAT checks 3DX fresh right before making a part, opens it instead if someone has just made it, and won't make it if the check can't run unless you choose "Make it anyway".
+- The Open button is greyed out ("Checking 3DX...") until the 3DX check is done.
+
+**Murder Part**
+- Works even when SolidWorks has no default part template set, and keeps the file if the import still fails.
+
+**Create Origin**
+- Fixed creating the origin on some SolidWorks versions.
+
+**General**
+- BDAT now installs and runs on older SolidWorks versions too.
+
 ## v10 (2026-10-09 20:43)
 
 **Open from EBOM**

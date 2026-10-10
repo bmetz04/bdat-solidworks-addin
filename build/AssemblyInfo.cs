@@ -7,5 +7,5 @@ using System.Runtime.InteropServices;
 [assembly: AssemblyVersion("0.1.0.0")]
 [assembly: AssemblyFileVersion("0.1.0.0")]
 // Publish BDAT.bat rewrites this line with the published version, e.g. "v3 (2026-10-01 05:20)".
-[assembly: AssemblyInformationalVersion("v10 (2026-10-09 20:43)")]
+[assembly: AssemblyInformationalVersion("v11 (2026-10-10 15:37)")]
 [assembly: ComVisible(false)]
