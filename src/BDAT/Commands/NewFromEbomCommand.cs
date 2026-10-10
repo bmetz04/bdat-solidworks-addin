@@ -88,7 +88,8 @@ namespace BDAT.Commands
             if (!TestMode.Enabled)
             {
                 // Open (or a last check before making anything: someone may have just made it, in which case it's opened).
-                bool? exists = ExistingParts.Exists(row.Number);
+                // When you said "Make it?" Yes, this check already started in the background (Prefetch).
+                bool? exists = PrefetchedExists(row.Number);
                 if (openRequested || exists == true)
                 {
                     if (exists != false)
@@ -100,6 +101,7 @@ namespace BDAT.Commands
                     if (Ui.Show(owner, row.Number + " (" + row.Name + ") isn't in 3DX yet.\n\nMake it as a new " +
                             (row.IsAssembly ? "assembly" : "part") + "?", Title, MessageBoxButtons.YesNo, MessageBoxIcon.Question) != DialogResult.Yes)
                         return;
+                    BookmarkSearch.RefreshInBackground(SearchStartIds()); // the folder read runs while you name it
                     if (!NewFromEbomForm.AskDetails(owner, row, out description, out saveToPlatform, out checkIn)) return;
                 }
             }
@@ -378,8 +380,9 @@ namespace BDAT.Commands
             string label = FolderLabel(row);
             if (number.Length == 0) return AskNoFolder(owner, row, "It has no assembly number in the EBOM.", out cancelled);
 
-            // A remembered folder is only used if it's still in 3DEXPERIENCE (it may have been deleted or moved).
-            BookmarkSearch.Refresh();
+            // A remembered folder is only used if it's still in 3DEXPERIENCE (it may have been deleted or moved), so the
+            // folder tree must be fresh: read again unless Prefetch just read it in the background.
+            if (!BookmarkSearch.ReadWithin(TimeSpan.FromMinutes(2))) BookmarkSearch.Refresh();
             Bookmark known = null;
             foreach (Bookmark candidate in EbomFolders.Candidates(number))
             {
@@ -502,6 +505,41 @@ namespace BDAT.Commands
             var folder = new Bookmark { Id = made.Id, Title = made.Title };
             EbomFolders.Remember(number, folder);
             return folder;
+        }
+
+        // ---------------------------------------------------------------- reading ahead
+
+        private static string _prefetchNumber;
+        private static DateTime _prefetchTime;
+        private static System.Threading.Tasks.Task<bool?> _prefetchExists;
+
+        /// <summary>
+        /// Starts the slow 3DX look-ups for making this row on background threads, as soon as you say "Make it?" Yes, so
+        /// they run while you're still in the naming pop-up: the last "is it in 3DX already?" check and a fresh read of
+        /// the folder tree. Read-only. The same checks still happen; they're just usually finished by the time you click.
+        /// </summary>
+        internal static void Prefetch(EbomRow row)
+        {
+            if (TestMode.Enabled || row == null) return;
+            string number = row.Number;
+            _prefetchNumber = number;
+            _prefetchTime = DateTime.Now;
+            _prefetchExists = System.Threading.Tasks.Task.Run<bool?>(delegate { return ExistingParts.Exists(number); });
+            BookmarkSearch.RefreshInBackground(SearchStartIds());
+        }
+
+        // The background "already in 3DX?" answer for this number if one was started, otherwise asked now.
+        private static bool? PrefetchedExists(string number)
+        {
+            System.Threading.Tasks.Task<bool?> task = _prefetchExists;
+            // Only a check for this number, started in the last few minutes (an older answer could be out of date).
+            bool mine = task != null && string.Equals(_prefetchNumber, number, StringComparison.OrdinalIgnoreCase) &&
+                DateTime.Now - _prefetchTime < TimeSpan.FromMinutes(3);
+            _prefetchExists = null;
+            _prefetchNumber = null;
+            if (!mine) return ExistingParts.Exists(number);
+            try { return task.Result; }
+            catch (Exception) { return ExistingParts.Exists(number); }
         }
 
         /// <summary>Folders BDAT already knows, to find the team's top folder from: McMaster Carr, then every remembered one.</summary>

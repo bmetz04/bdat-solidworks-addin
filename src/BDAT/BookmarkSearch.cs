@@ -101,9 +101,45 @@ namespace BDAT
             _tree = null;
         }
 
+        /// <summary>True if the folder tree was read from 3DX within the last maxAge (so it already shows recent deletions).</summary>
+        public static bool ReadWithin(TimeSpan maxAge)
+        {
+            return _tree != null && DateTime.Now - _treeTime < maxAge;
+        }
+
+        /// <summary>
+        /// Reads the folder tree afresh on a background thread, so it's ready by the time it's needed. A Find or StillExists
+        /// that comes along meanwhile waits for this read instead of starting another.
+        /// </summary>
+        public static void RefreshInBackground(IEnumerable<string> knownBookmarkIds)
+        {
+            if (TestMode.Enabled) return;
+            var ids = new List<string>(knownBookmarkIds);
+            System.Threading.Tasks.Task.Run(delegate
+            {
+                try
+                {
+                    lock (_treeGate)
+                    {
+                        Refresh();
+                        TreeLocked(ids);
+                    }
+                }
+                catch (Exception ex) { PlatformSave.Log(LogName, "background folder read failed: " + ex.Message); }
+            });
+        }
+
         // ---------------------------------------------------------------- reading the tree
 
+        // One read at a time: a background read (RefreshInBackground) and a foreground one share the result.
+        private static readonly object _treeGate = new object();
+
         private static List<FoundBookmark> Tree(IEnumerable<string> knownBookmarkIds)
+        {
+            lock (_treeGate) return TreeLocked(knownBookmarkIds);
+        }
+
+        private static List<FoundBookmark> TreeLocked(IEnumerable<string> knownBookmarkIds)
         {
             if (_tree != null && DateTime.Now - _treeTime < TreeLifetime) return _tree;
             TestMode.BlockConnector("BookmarkSearch");

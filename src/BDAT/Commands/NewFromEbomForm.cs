@@ -180,6 +180,7 @@ namespace BDAT.Commands
             if (Ui.Show(this, row.Number + " (" + row.Name + ") isn't in 3DX yet.\n\nMake it as a new " + kind + "?",
                     "Open from EBOM", MessageBoxButtons.YesNo, MessageBoxIcon.Question) != DialogResult.Yes)
                 return;
+            NewFromEbomCommand.Prefetch(row); // the 3DX checks run while you name it
             string description;
             bool save, checkIn;
             if (!AskDetails(this, row, out description, out save, out checkIn)) return;

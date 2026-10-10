@@ -174,7 +174,7 @@ namespace BDAT
                 if (!string.IsNullOrEmpty(phid)) return phid;
                 if (DateTime.Now > giveUp) return null;
                 Application.DoEvents();
-                Thread.Sleep(1000);
+                Thread.Sleep(250); // check often: the id usually appears within a second or two of the save
             }
         }
 
