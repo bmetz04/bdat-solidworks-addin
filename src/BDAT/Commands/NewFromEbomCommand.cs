@@ -88,7 +88,7 @@ namespace BDAT.Commands
             if (!TestMode.Enabled)
             {
                 // Open (or a last check before making anything: someone may have just made it, in which case it's opened).
-                // When you said "Make it?" Yes, this check already started in the background (Prefetch).
+                // Always a fresh answer, right before anything is made.
                 bool? exists = PrefetchedExists(row);
                 if (openRequested || exists == true)
                 {
@@ -520,47 +520,23 @@ namespace BDAT.Commands
 
         // ---------------------------------------------------------------- reading ahead
 
-        private static string _prefetchNumber;
-        private static DateTime _prefetchTime;
-        private static System.Threading.Tasks.Task<bool?> _prefetchExists;
 
         /// <summary>
-        /// Starts the slow 3DX look-ups for making this row on background threads, as soon as you say "Make it?" Yes, so
-        /// they run while you're still in the naming pop-up: the last "is it in 3DX already?" check and a fresh read of
-        /// the folder tree. Read-only. The same checks still happen; they're just usually finished by the time you click.
+        /// Starts reading the folder tree on a background thread as soon as you say "Make it?" Yes, so it's usually ready by
+        /// the time you click Create in the naming pop-up. Read-only.
         /// </summary>
         internal static void Prefetch(EbomRow row)
         {
             if (TestMode.Enabled || row == null) return;
-            string number = row.Number;
-            _prefetchNumber = number;
-            _prefetchTime = DateTime.Now;
-            bool isAssembly = row.IsAssembly;
-            // A full check from the pop-up in the last minute already answers it; otherwise search just this kind.
-            bool? recent = ExistingParts.Recently(number, TimeSpan.FromMinutes(1));
-            _prefetchExists = recent.HasValue
-                ? System.Threading.Tasks.Task.FromResult<bool?>(recent)
-                : System.Threading.Tasks.Task.Run<bool?>(delegate { return ExistingParts.Exists(number, isAssembly); });
+            // Only the folder tree is read ahead. The "already in 3DX?" check is always asked fresh right before the part
+            // is made (Ben, 2026-10-10: a part someone has just made must never be saved twice).
             BookmarkSearch.RefreshInBackground(SearchStartIds());
         }
 
-        // The background "already in 3DX?" answer for this number if one was started, otherwise asked now.
+        // Is this number in 3DX right now? Always asked fresh, searching only the row's kind (part or assembly).
         private static bool? PrefetchedExists(EbomRow row)
         {
-            string number = row.Number;
-            System.Threading.Tasks.Task<bool?> task = _prefetchExists;
-            // Only a check for this number, started in the last few minutes (an older answer could be out of date).
-            bool mine = task != null && string.Equals(_prefetchNumber, number, StringComparison.OrdinalIgnoreCase) &&
-                DateTime.Now - _prefetchTime < TimeSpan.FromMinutes(3);
-            _prefetchExists = null;
-            _prefetchNumber = null;
-            if (!mine)
-            {
-                bool? recent = ExistingParts.Recently(number, TimeSpan.FromMinutes(1));
-                return recent ?? ExistingParts.Exists(number, row.IsAssembly);
-            }
-            try { return task.Result; }
-            catch (Exception) { return ExistingParts.Exists(number, row.IsAssembly); }
+            return ExistingParts.Exists(row.Number, row.IsAssembly);
         }
 
         /// <summary>Folders BDAT already knows, to find the team's top folder from: McMaster Carr, then every remembered one.</summary>
