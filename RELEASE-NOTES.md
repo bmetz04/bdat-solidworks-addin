@@ -2,6 +2,17 @@
 
 Newest first. Publish BDAT adds an entry here every time a new version goes out.
 
+## v10 (2026-10-09 20:43)
+
+**Open from EBOM**
+- New In 3DX column with a check mark for parts and assemblies already in 3DX, instead of "(in 3DEXPERIENCE)" after the name.
+- New "Only in 3DX" tick box to show just what's already in 3DX.
+- Save to 3DX and Check in are now in the naming pop-up, which shows where the part will go as you tick them.
+- Less clutter: the text under the list is gone, and the list runs down to the buttons.
+
+**General**
+- BDAT's messages and pop-ups now say "3DX" instead of "3DEXPERIENCE".
+
 ## v9 (2026-10-09 20:21)
 
 - Open from EBOM: open the picked part from 3DEXPERIENCE, offer to create it only when it isn't there
