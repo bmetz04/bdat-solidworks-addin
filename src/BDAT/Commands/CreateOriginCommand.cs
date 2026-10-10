@@ -224,10 +224,6 @@ namespace BDAT.Commands
         /// </summary>
         private static IFeature MakeOrigin(IModelDoc2 doc, double[] point, double[][] axes)
         {
-            MethodInfo create = typeof(IFeatureManager).GetMethod("CreateCoordinateSystemUsingNumericalValues");
-            if (create == null || create.GetParameters().Length != 8)
-                throw new InvalidOperationException("this needs SolidWorks 2019 or later (coordinate systems by numbers).");
-
             foreach (double[] angles in RotationCandidates(axes))
             {
                 IFeature last = doc.FeatureByPositionReverse(0) as IFeature;
@@ -235,11 +231,26 @@ namespace BDAT.Commands
                 object made;
                 try
                 {
-                    made = create.Invoke(doc.FeatureManager,
+                    // Called by name through COM (IDispatch): the interop types are embedded, and an embedded
+                    // interface only has the methods BDAT calls directly, so reflection on IFeatureManager can't
+                    // find this one. Calling it by name also still works on a SolidWorks older than the one BDAT
+                    // was built with, where it fails cleanly instead of calling a method that isn't there.
+                    object featureManager = doc.FeatureManager;
+                    made = featureManager.GetType().InvokeMember("CreateCoordinateSystemUsingNumericalValues",
+                        BindingFlags.InvokeMethod, null, featureManager,
                         new object[] { true, point[0], point[1], point[2], true, angles[0], angles[1], angles[2] });
                 }
                 catch (TargetInvocationException)
                 {
+                    continue;
+                }
+                catch (MissingMethodException)
+                {
+                    throw NeedsNewerSolidWorks();
+                }
+                catch (System.Runtime.InteropServices.COMException ex)
+                {
+                    if (ex.ErrorCode == unchecked((int)0x80020006)) throw NeedsNewerSolidWorks(); // DISP_E_UNKNOWNNAME
                     continue;
                 }
                 IFeature cs = made as IFeature ?? doc.FeatureByPositionReverse(0) as IFeature;
@@ -252,6 +263,11 @@ namespace BDAT.Commands
                 Delete(doc, cs);
             }
             throw new InvalidOperationException("SolidWorks didn't line the coordinate system up with the part's X, Y and Z.");
+        }
+
+        private static Exception NeedsNewerSolidWorks()
+        {
+            return new InvalidOperationException("this needs SolidWorks 2019 or later (coordinate systems by numbers).");
         }
 
         /// <summary>

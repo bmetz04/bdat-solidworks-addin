@@ -170,6 +170,15 @@ namespace BdatTests
                 });
             }
 
+            // BDAT embeds the SolidWorks interop types. A reference to an interop DLL ties BDAT to the exact SolidWorks
+            // version it was built with, and setup fails on PCs with an older SolidWorks (RegAsm error 0x80131040).
+            Test("BDAT.dll doesn't depend on a SolidWorks interop version", delegate
+            {
+                foreach (AssemblyName r in typeof(TestMode).Assembly.GetReferencedAssemblies())
+                    Check(!r.Name.StartsWith("SolidWorks.Interop", StringComparison.OrdinalIgnoreCase),
+                        "BDAT.dll references " + r.FullName + "; build it with /link, not /r");
+            });
+
             Test("Save MCM name validation", delegate
             {
                 Check(NameError("91251A540") == null, "a part number should be a valid name");
