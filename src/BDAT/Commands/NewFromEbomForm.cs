@@ -168,6 +168,7 @@ namespace BDAT.Commands
         /// </summary>
         private void Confirm()
         {
+            if (_checking) return; // double-click and Enter wait for the 3DX check too
             EbomRow row = Selected;
             if (row == null) return;
             if (_existing == null || Exists(row))
@@ -470,8 +471,9 @@ namespace BDAT.Commands
         private void ShowPicked()
         {
             EbomRow row = Selected;
-            _create.Enabled = row != null;
-            _create.Text = row == null ? "Open" : "Open " + (row.IsAssembly ? "assembly" : "part");
+            // Not while it's checking 3DX: until the check is back BDAT doesn't know whether to open it or offer to make it.
+            _create.Enabled = row != null && !_checking;
+            _create.Text = _checking ? "Checking 3DX..." : row == null ? "Open" : "Open " + (row.IsAssembly ? "assembly" : "part");
         }
 
         // A header with no assembly row matches the search by its number, e.g. typing "A0402".
