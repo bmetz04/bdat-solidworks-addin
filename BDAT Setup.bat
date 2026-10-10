@@ -110,6 +110,19 @@ if ($redist) {
     Write-Host 'Could not find the SolidWorks api\redist folder. Continuing; BDAT will use the copies SolidWorks registered.' -ForegroundColor Yellow
 }
 
+# Forget SolidWorks' saved layout of the BDAT tab. SolidWorks puts the saved button slots back over the tab BDAT
+# builds, so when buttons are added the last ones go missing. BDAT tries to clear this itself, but inside
+# 3DEXPERIENCE SOLIDWORKS its registry view is separate, so it's cleared here, with SolidWorks closed.
+$bdatModule = '{D8D33AC0-63B3-49BC-B09A-E46207CE999B}'
+Get-ChildItem 'HKCU:\Software\SolidWorks' -ErrorAction SilentlyContinue | Where-Object { $_.PSChildName -like 'SOLIDWORKS *' } | ForEach-Object {
+    foreach ($ui in @('User Interface\CommandManager', 'Simplified Interface\User Interface\CommandManager')) {
+        Get-ChildItem (Join-Path $_.PSPath $ui) -ErrorAction SilentlyContinue | Get-ChildItem -ErrorAction SilentlyContinue | ForEach-Object {
+            $owner = (Get-ItemProperty $_.PSPath -ErrorAction SilentlyContinue).ModuleName
+            if ($owner -and $owner -ieq $bdatModule) { Remove-Item $_.PSPath -Recurse -Force -ErrorAction SilentlyContinue }
+        }
+    }
+}
+
 # Register with SolidWorks.
 Write-Host 'Registering BDAT with SolidWorks...'
 $regasm = Join-Path $env:WINDIR 'Microsoft.NET\Framework64\v4.0.30319\RegAsm.exe'
