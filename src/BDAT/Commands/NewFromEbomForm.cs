@@ -57,8 +57,9 @@ namespace BDAT.Commands
                 "Pick a part or assembly to open it from 3DEXPERIENCE. If it isn't there yet, you can create it with its EBOM number and description."), 0, 0);
 
             // Search box, area filter, expand and collapse.
-            var tools = new TableLayoutPanel { Dock = DockStyle.Fill, AutoSize = true, ColumnCount = 4, RowCount = 1, Margin = new Padding(0, 0, 0, 10) };
+            var tools = new TableLayoutPanel { Dock = DockStyle.Fill, AutoSize = true, ColumnCount = 5, RowCount = 1, Margin = new Padding(0, 0, 0, 10) };
             tools.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100f));
+            tools.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
             tools.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
             tools.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
             tools.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
@@ -73,8 +74,12 @@ namespace BDAT.Commands
             _area = new ComboBox { DropDownStyle = ComboBoxStyle.DropDownList, Width = 210, Margin = new Padding(0, 5, 12, 0), FlatStyle = FlatStyle.System };
             _area.SelectedIndexChanged += delegate { _toggled.Clear(); Fill(); };
             tools.Controls.Add(_area, 1, 0);
-            tools.Controls.Add(ModernUi.Link("Expand all", delegate { _allOpen = true; _toggled.Clear(); Fill(); }, new Padding(0, 9, 10, 0)), 2, 0);
-            tools.Controls.Add(ModernUi.Link("Collapse all", delegate { _allOpen = false; _toggled.Clear(); Fill(); }, new Padding(0, 9, 0, 0)), 3, 0);
+            // Show only what's already in 3DEXPERIENCE (once the background check knows).
+            _onlyInPlatform = new CheckBox { Text = "Only in 3DEXPERIENCE", AutoSize = true, Margin = new Padding(0, 8, 14, 0), UseMnemonic = false };
+            _onlyInPlatform.CheckedChanged += delegate { _toggled.Clear(); Fill(); };
+            tools.Controls.Add(_onlyInPlatform, 2, 0);
+            tools.Controls.Add(ModernUi.Link("Expand all", delegate { _allOpen = true; _toggled.Clear(); Fill(); }, new Padding(0, 9, 10, 0)), 3, 0);
+            tools.Controls.Add(ModernUi.Link("Collapse all", delegate { _allOpen = false; _toggled.Clear(); Fill(); }, new Padding(0, 9, 0, 0)), 4, 0);
             layout.Controls.Add(tools, 0, 1);
 
             // The list, in a thin frame.
@@ -96,6 +101,7 @@ namespace BDAT.Commands
             _list.Columns.Add("Name", 420);
             _list.Columns.Add("Area", 200);
             _list.Columns.Add("Class", 90);
+            _list.Columns.Add("In 3DX", 70, HorizontalAlignment.Center);
             ModernUi.ExplorerTheme(_list);
             _list.SelectedIndexChanged += delegate { ShowPicked(); };
             _list.DoubleClick += OnListDoubleClick;
@@ -347,8 +353,11 @@ namespace BDAT.Commands
                 _toggled.Clear();
             }
             bool searching = _search.Text.Trim().Length > 0;
+            bool onlyInPlatform = _onlyInPlatform.Checked;
+            bool filtering = searching || onlyInPlatform;
             string area = _area.SelectedIndex > 0 ? _area.SelectedItem as string : null;
             var matches = new HashSet<EbomRow>(Ebom.Search(_rows, _search.Text, false));
+            if (onlyInPlatform) matches.RemoveWhere(r => !Exists(r));
 
             object selectedTag = _list.SelectedItems.Count > 0 ? _list.SelectedItems[0].Tag : null;
             int shown = 0, groupsShown = 0;
@@ -357,16 +366,16 @@ namespace BDAT.Commands
             foreach (EbomGroup group in _groups)
             {
                 if (area != null && !string.Equals(group.Area, area, StringComparison.OrdinalIgnoreCase)) continue;
-                bool headerMatches = !searching || (group.Assembly != null ? matches.Contains(group.Assembly)
-                    : GroupTextMatches(group, _search.Text));
+                bool headerMatches = !filtering || (group.Assembly != null ? matches.Contains(group.Assembly)
+                    : !onlyInPlatform && GroupTextMatches(group, _search.Text));
                 var matchingParts = new List<EbomRow>();
                 foreach (EbomRow part in group.Parts)
                     if (matches.Contains(part)) matchingParts.Add(part);
-                if (searching && !headerMatches && matchingParts.Count == 0) continue;
+                if (filtering && !headerMatches && matchingParts.Count == 0) continue;
 
                 // An assembly that matches shows all its parts; otherwise only the parts that match.
-                List<EbomRow> parts = headerMatches ? group.Parts : matchingParts;
-                bool open = searching || _allOpen;
+                List<EbomRow> parts = headerMatches && !onlyInPlatform ? group.Parts : matchingParts;
+                bool open = filtering || _allOpen;
                 if (_toggled.Contains(group)) open = !open;
                 if (group.Parts.Count == 0) open = false;
 
@@ -377,7 +386,7 @@ namespace BDAT.Commands
                 if (!open) continue;
                 foreach (EbomRow part in parts)
                 {
-                    var item = new ListViewItem(new[] { Indent + part.Number, part.Name + (Exists(part) ? InPlatform : ""), part.Area, part.Class }) { Tag = part };
+                    var item = new ListViewItem(new[] { Indent + part.Number, part.Name, part.Area, part.Class, InPlatformMark(part) }) { Tag = part };
                     _list.Items.Add(item);
                 }
             }
@@ -399,8 +408,10 @@ namespace BDAT.Commands
             foreach (EbomRow row in _rows)
                 if (!row.IsObsolete) current++;
             if (_list.Items.Count == 0)
-                _count.Text = "Nothing matches. Try fewer words, or set the area back to " + AllAreas + ".";
-            else if (searching)
+                _count.Text = onlyInPlatform && !searching && area == null
+                    ? (_existing == null ? "Waiting for the 3DEXPERIENCE check." : "Nothing in this EBOM is in 3DEXPERIENCE yet.")
+                    : "Nothing matches. Try fewer words, untick Only in 3DEXPERIENCE, or set the area back to " + AllAreas + ".";
+            else if (filtering)
                 _count.Text = shown + (shown == 1 ? " match" : " matches") + " in " + groupsShown + (groupsShown == 1 ? " assembly" : " assemblies") + ".";
             else
                 _count.Text = groupsShown + " assemblies, " + current + " current EBOM rows. Click ▶, double-click or press → to show an assembly's parts.";
@@ -424,7 +435,13 @@ namespace BDAT.Commands
         private DateTime _checkedAt = DateTime.MinValue;
         private Button _refresh;
         private const string RefreshText = "Check 3DEXPERIENCE again";
-        private const string InPlatform = "   (in 3DEXPERIENCE)";
+        private CheckBox _onlyInPlatform;
+
+        // The In 3DX column: a check mark for rows already in 3DEXPERIENCE.
+        private string InPlatformMark(EbomRow row)
+        {
+            return Exists(row) ? "\u2713" : "";
+        }
 
         private bool Exists(EbomRow row)
         {
@@ -477,14 +494,14 @@ namespace BDAT.Commands
             ListViewItem item;
             if (group.Assembly != null)
             {
-                string name = group.Assembly.Name + (group.Parts.Count > 0 ? "   (" + group.Parts.Count + ")" : "") + (Exists(group.Assembly) ? InPlatform : "");
-                item = new ListViewItem(new[] { marker + group.Assembly.Number, name, group.Area, group.Assembly.Class }) { Tag = group.Assembly };
+                string name = group.Assembly.Name + (group.Parts.Count > 0 ? "   (" + group.Parts.Count + ")" : "") ;
+                item = new ListViewItem(new[] { marker + group.Assembly.Number, name, group.Area, group.Assembly.Class, InPlatformMark(group.Assembly) }) { Tag = group.Assembly };
             }
             else
             {
                 string number = group.Number.Length > 0 ? group.Number : "Other";
                 string name = (group.Number.Length > 0 ? NoAssemblyRow : "(no assembly number in EBOM)") + "   (" + group.Parts.Count + ")";
-                item = new ListViewItem(new[] { marker + number, name, group.Area, "" }) { Tag = group, ForeColor = Muted };
+                item = new ListViewItem(new[] { marker + number, name, group.Area, "", "" }) { Tag = group, ForeColor = Muted };
             }
             item.Font = _bold;
             item.BackColor = AssemblyBack;
@@ -618,8 +635,8 @@ namespace BDAT.Commands
         /// <summary>Name takes whatever width the other columns leave.</summary>
         private void FitNameColumn()
         {
-            if (_list.Columns.Count < 4) return;
-            int others = _list.Columns[0].Width + _list.Columns[2].Width + _list.Columns[3].Width;
+            if (_list.Columns.Count < 5) return;
+            int others = _list.Columns[0].Width + _list.Columns[2].Width + _list.Columns[3].Width + _list.Columns[4].Width;
             int width = _list.ClientSize.Width - others - 6;
             if (width > 200) _list.Columns[1].Width = width;
         }
