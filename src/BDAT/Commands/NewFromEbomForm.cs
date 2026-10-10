@@ -47,7 +47,7 @@ namespace BDAT.Commands
 
             // Title.
             layout.Controls.Add(ModernUi.Header("Open from EBOM",
-                "Pick a part or assembly to open it from 3DEXPERIENCE. If it isn't there yet, you can create it with its EBOM number and description."), 0, 0);
+                "Pick a part or assembly to open it from 3DX. If it isn't there yet, you can create it with its EBOM number and description."), 0, 0);
 
             // Search box, area filter, expand and collapse.
             var tools = new TableLayoutPanel { Dock = DockStyle.Fill, AutoSize = true, ColumnCount = 5, RowCount = 1, Margin = new Padding(0, 0, 0, 10) };
@@ -177,7 +177,7 @@ namespace BDAT.Commands
                 return;
             }
             string kind = row.IsAssembly ? "assembly" : "part";
-            if (Ui.Show(this, row.Number + " (" + row.Name + ") isn't in 3DEXPERIENCE yet.\n\nMake it as a new " + kind + "?",
+            if (Ui.Show(this, row.Number + " (" + row.Name + ") isn't in 3DX yet.\n\nMake it as a new " + kind + "?",
                     "Open from EBOM", MessageBoxButtons.YesNo, MessageBoxIcon.Question) != DialogResult.Yes)
                 return;
             string description;
@@ -379,7 +379,7 @@ namespace BDAT.Commands
             if (_list.Items.Count == 0)
             {
                 string why = onlyInPlatform && !searching && area == null
-                    ? (_existing == null ? "Waiting for the 3DEXPERIENCE check..." : "Nothing in this EBOM is in 3DEXPERIENCE yet.")
+                    ? (_existing == null ? "Waiting for the 3DX check..." : "Nothing in this EBOM is in 3DX yet.")
                     : "Nothing matches. Try fewer words, untick Only in 3DX, or set the area back to " + AllAreas + ".";
                 _list.Items.Add(new ListViewItem(new[] { "", why, "", "", "" }) { ForeColor = Muted });
             }
@@ -400,7 +400,7 @@ namespace BDAT.Commands
         private bool _checking, _checkFailed;
         private DateTime _checkedAt = DateTime.MinValue;
         private Button _refresh;
-        private const string RefreshText = "Check 3DEXPERIENCE again";
+        private const string RefreshText = "Check 3DX again";
         private CheckBox _onlyInPlatform;
 
         // The In 3DX column: a check mark for rows already in 3DEXPERIENCE.
@@ -424,7 +424,7 @@ namespace BDAT.Commands
                 if (!row.IsObsolete && !numbers.Contains(row.Number)) numbers.Add(row.Number);
             if (_checking) return;
             _checking = true;
-            if (_refresh != null) { _refresh.Enabled = false; _refresh.Text = "Checking 3DEXPERIENCE..."; }
+            if (_refresh != null) { _refresh.Enabled = false; _refresh.Text = "Checking 3DX..."; }
             _checkFailed = false;
             Fill();
             var worker = new System.ComponentModel.BackgroundWorker();
@@ -439,7 +439,7 @@ namespace BDAT.Commands
                 _existing = e.Error == null ? e.Result as HashSet<string> : null;
                 _checkFailed = _existing == null;
                 // No status line any more, so a failed check shows on the button itself.
-                if (_refresh != null) _refresh.Text = _checkFailed ? "Couldn't check 3DEXPERIENCE: try again" : RefreshText;
+                if (_refresh != null) _refresh.Text = _checkFailed ? "Couldn't check 3DX: try again" : RefreshText;
                 Fill();
             };
             worker.RunWorkerAsync();

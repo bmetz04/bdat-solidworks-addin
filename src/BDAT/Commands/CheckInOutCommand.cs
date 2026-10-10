@@ -14,7 +14,7 @@ namespace BDAT.Commands
     {
         public string Title { get { return "Check Out"; } }
 
-        public string Hint { get { return "Lock this part or assembly in 3DEXPERIENCE so you can edit it"; } }
+        public string Hint { get { return "Lock this part or assembly in 3DX so you can edit it"; } }
 
         public bool IsEnabled(ISldWorks swApp) { return CheckInOut.IsPartOrAssembly(swApp); }
 
@@ -42,8 +42,8 @@ namespace BDAT.Commands
             if (platform.Reserve(path))
                 Ui.Tell(swApp, "Checked out " + name + ". Click Check In when you're done.", swMessageBoxIcon_e.swMbInformation);
             else
-                Ui.Tell(swApp, "3DEXPERIENCE didn't check out " + name + ".\n\n" +
-                    "If someone saved a newer version, reload it from the 3DEXPERIENCE task pane first, then try again.",
+                Ui.Tell(swApp, "3DX didn't check out " + name + ".\n\n" +
+                    "If someone saved a newer version, reload it from the 3DX task pane first, then try again.",
                     swMessageBoxIcon_e.swMbWarning);
         }
     }
@@ -56,7 +56,7 @@ namespace BDAT.Commands
     {
         public string Title { get { return "Check In"; } }
 
-        public string Hint { get { return "Save your changes to 3DEXPERIENCE and unlock this part or assembly"; } }
+        public string Hint { get { return "Save your changes to 3DX and unlock this part or assembly"; } }
 
         public bool IsEnabled(ISldWorks swApp) { return CheckInOut.IsPartOrAssembly(swApp); }
 
@@ -84,13 +84,13 @@ namespace BDAT.Commands
             // Unlocking with unsaved changes would leave them out of 3DEXPERIENCE, so save them first.
             if (doc.GetSaveFlag())
             {
-                if (Ui.Show(Ui.SolidWorksWindow(swApp), name + " has changes that aren't in 3DEXPERIENCE yet.\n\nSave them and check it in?",
+                if (Ui.Show(Ui.SolidWorksWindow(swApp), name + " has changes that aren't in 3DX yet.\n\nSave them and check it in?",
                     Title, MessageBoxButtons.YesNo, MessageBoxIcon.Question) != DialogResult.Yes)
                     return;
                 if (!platform.SaveChanges(doc))
                 {
-                    Ui.Tell(swApp, "3DEXPERIENCE didn't save " + name + ", so it's still checked out to you.\n\n" +
-                        "Save it from the 3DEXPERIENCE task pane, then click Check In again.", swMessageBoxIcon_e.swMbStop);
+                    Ui.Tell(swApp, "3DX didn't save " + name + ", so it's still checked out to you.\n\n" +
+                        "Save it from the 3DX task pane, then click Check In again.", swMessageBoxIcon_e.swMbStop);
                     return;
                 }
             }
@@ -98,8 +98,8 @@ namespace BDAT.Commands
             if (platform.Unlock(path))
                 Ui.Tell(swApp, "Checked in " + name + ".", swMessageBoxIcon_e.swMbInformation);
             else
-                Ui.Tell(swApp, "3DEXPERIENCE didn't check in " + name + ", so it's still checked out to you.\n\n" +
-                    "Unlock it from the 3DEXPERIENCE task pane (right-click it > Unlock).", swMessageBoxIcon_e.swMbWarning);
+                Ui.Tell(swApp, "3DX didn't check in " + name + ", so it's still checked out to you.\n\n" +
+                    "Unlock it from the 3DX task pane (right-click it > Unlock).", swMessageBoxIcon_e.swMbWarning);
         }
     }
 
@@ -138,21 +138,21 @@ namespace BDAT.Commands
             // Locking and unlocking are writes to 3DEXPERIENCE, which tests must never do.
             if (TestMode.Enabled)
             {
-                Ui.Tell(swApp, "Test mode: " + title + " needs 3DEXPERIENCE, so nothing was done.", swMessageBoxIcon_e.swMbInformation);
+                Ui.Tell(swApp, "Test mode: " + title + " needs 3DX, so nothing was done.", swMessageBoxIcon_e.swMbInformation);
                 return null;
             }
 
             Connector connector = Connector.Find();
             if (connector == null)
             {
-                Ui.Tell(swApp, "Couldn't find the 3DEXPERIENCE connector in this SolidWorks session.\n\n" +
+                Ui.Tell(swApp, "Couldn't find the 3DX connector in this SolidWorks session.\n\n" +
                     "Make sure the \"3DEXPERIENCE PLM Services\" add-in is on (Tools > Add-Ins), then try again.",
                     swMessageBoxIcon_e.swMbStop);
                 return null;
             }
             if (!connector.IsConnected)
             {
-                Ui.Tell(swApp, "You're not logged in to 3DEXPERIENCE. Log in from the 3DEXPERIENCE task pane, then try again.",
+                Ui.Tell(swApp, "You're not logged in to 3DX. Log in from the 3DX task pane, then try again.",
                     swMessageBoxIcon_e.swMbWarning);
                 return null;
             }
@@ -161,7 +161,7 @@ namespace BDAT.Commands
             string path = doc.GetPathName();
             if (string.IsNullOrEmpty(path) || string.IsNullOrEmpty(platform.PhysicalId(path)))
             {
-                Ui.Tell(swApp, "This isn't in 3DEXPERIENCE yet. Save it to 3DEXPERIENCE first.", swMessageBoxIcon_e.swMbWarning);
+                Ui.Tell(swApp, "This isn't in 3DX yet. Save it to 3DX first.", swMessageBoxIcon_e.swMbWarning);
                 return null;
             }
             return platform;

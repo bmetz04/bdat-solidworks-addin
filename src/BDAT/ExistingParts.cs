@@ -40,7 +40,7 @@ namespace BDAT
             {
                 var found = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
                 if (!Search(numbers, "3DPart", found) || !Search(numbers, "Assembly", found)) return null;
-                PlatformSave.Log(LogName, "existing check: " + found.Count + " of " + numbers.Count + " EBOM numbers are already in 3DEXPERIENCE");
+                PlatformSave.Log(LogName, "existing check: " + found.Count + " of " + numbers.Count + " EBOM numbers are already in 3DX");
                 lock (_gate)
                 {
                     _known = found;

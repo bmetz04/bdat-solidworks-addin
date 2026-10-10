@@ -48,7 +48,7 @@ namespace BDAT
                 if (entry.Command.Title != title) continue;
                 entry.Command.Run(_swApp);
                 if (TestMode.ConnectorAttempts != 0)
-                    throw new InvalidOperationException(title + " tried to reach 3DEXPERIENCE " + TestMode.ConnectorAttempts + " time(s).");
+                    throw new InvalidOperationException(title + " tried to reach 3DX " + TestMode.ConnectorAttempts + " time(s).");
                 return string.Join("\u001e", TestMode.Messages.ToArray());
             }
             throw new ArgumentException("No BDAT command called " + title);

@@ -40,7 +40,7 @@ namespace BDAT
                 Type requestType = wsapi == null ? null : wsapi.GetType("WSAPI.DSHttpWebRequest");
                 if (lockField == null || getServer == null || login == null || requestType == null)
                 {
-                    error = "this version of the 3DEXPERIENCE connector doesn't offer a search BDAT can use.";
+                    error = "this version of the 3DX connector doesn't offer a search BDAT can use.";
                     return null;
                 }
 
@@ -49,7 +49,7 @@ namespace BDAT
                 lock (serverLock)
                 {
                     object server = getServer.Invoke(null, null);
-                    if (server == null) { error = "you're not connected to 3DEXPERIENCE."; return null; }
+                    if (server == null) { error = "you're not connected to 3DX."; return null; }
                     var cc = new CookieContainer();
                     object session = login.Invoke(null, new object[] { server, cc });
                     if (session == null) { error = "couldn't sign in to 3DSpace."; return null; }
@@ -60,7 +60,7 @@ namespace BDAT
 
                 string id = IdFromSearch(reply, number);
                 PlatformSave.Log(LogName, "open: search for " + number + " = " + (id ?? "no match in: " + Short(reply)));
-                if (id == null) error = "3DEXPERIENCE's search didn't find " + number + ".";
+                if (id == null) error = "3DX's search didn't find " + number + ".";
                 return id;
             }
             catch (Exception ex)
@@ -82,7 +82,7 @@ namespace BDAT
                 PlatformSave.Log(LogName, "open: downloaded " + physicalId + " to " + (path ?? "nothing"));
                 if (string.IsNullOrEmpty(path) || !File.Exists(path))
                 {
-                    error = "3DEXPERIENCE didn't download it.";
+                    error = "3DX didn't download it.";
                     return null;
                 }
                 return path;

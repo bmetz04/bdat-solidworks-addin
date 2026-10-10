@@ -31,7 +31,7 @@ namespace BDAT.Commands
     {
         public string Title { get { return "Open from EBOM"; } }
 
-        public string Hint { get { return "Open a part or assembly of the EBOM from 3DEXPERIENCE, or start it new, named and described for you"; } }
+        public string Hint { get { return "Open a part or assembly of the EBOM from 3DX, or start it new, named and described for you"; } }
 
         internal const string DescriptionProperty = "Description";
         internal const string NumberProperty = "Part Number";
@@ -97,7 +97,7 @@ namespace BDAT.Commands
                         return;
                     }
                     // Not in 3DEXPERIENCE: offer to make it, the same way the pop-up does.
-                    if (Ui.Show(owner, row.Number + " (" + row.Name + ") isn't in 3DEXPERIENCE yet.\n\nMake it as a new " +
+                    if (Ui.Show(owner, row.Number + " (" + row.Name + ") isn't in 3DX yet.\n\nMake it as a new " +
                             (row.IsAssembly ? "assembly" : "part") + "?", Title, MessageBoxButtons.YesNo, MessageBoxIcon.Question) != DialogResult.Yes)
                         return;
                     if (!NewFromEbomForm.AskDetails(owner, row, out description, out saveToPlatform, out checkIn)) return;
@@ -112,14 +112,14 @@ namespace BDAT.Commands
                 connector = Connector.Find();
                 if (connector == null)
                 {
-                    Ui.Tell(swApp, "Couldn't find the 3DEXPERIENCE connector in this SolidWorks session (is the \"3DEXPERIENCE PLM Services\" " +
-                        "add-in on?), so nothing was made.\n\nUntick Save to 3DEXPERIENCE to make it without saving.", swMessageBoxIcon_e.swMbWarning);
+                    Ui.Tell(swApp, "Couldn't find the 3DX connector in this SolidWorks session (is the \"3DEXPERIENCE PLM Services\" " +
+                        "add-in on?), so nothing was made.\n\nUntick Save to 3DX to make it without saving.", swMessageBoxIcon_e.swMbWarning);
                     return;
                 }
                 if (!connector.IsConnected)
                 {
-                    Ui.Tell(swApp, "You're not logged in to 3DEXPERIENCE, so nothing was made.\n\nLog in from the 3DEXPERIENCE task pane, " +
-                        "or untick Save to 3DEXPERIENCE to make it without saving.", swMessageBoxIcon_e.swMbWarning);
+                    Ui.Tell(swApp, "You're not logged in to 3DX, so nothing was made.\n\nLog in from the 3DX task pane, " +
+                        "or untick Save to 3DX to make it without saving.", swMessageBoxIcon_e.swMbWarning);
                     return;
                 }
                 bool cancelled;
@@ -208,8 +208,8 @@ namespace BDAT.Commands
             if (connector == null || !connector.IsConnected)
             {
                 Ui.Tell(swApp, (connector == null
-                    ? "Couldn't find the 3DEXPERIENCE connector in this SolidWorks session (is the \"3DEXPERIENCE PLM Services\" add-in on?)"
-                    : "You're not logged in to 3DEXPERIENCE") + ", so " + label + " wasn't opened.", swMessageBoxIcon_e.swMbWarning);
+                    ? "Couldn't find the 3DX connector in this SolidWorks session (is the \"3DEXPERIENCE PLM Services\" add-in on?)"
+                    : "You're not logged in to 3DX") + ", so " + label + " wasn't opened.", swMessageBoxIcon_e.swMbWarning);
                 return;
             }
 
@@ -220,8 +220,8 @@ namespace BDAT.Commands
             Cursor.Current = Cursors.Default;
             if (path == null)
             {
-                Ui.Tell(swApp, (known ? label + " is in 3DEXPERIENCE, but BDAT couldn't open it: " : "BDAT couldn't open " + label + ": ") + error +
-                    "\n\nOpen it from the 3DEXPERIENCE task pane instead (search for " + row.Number + ").", swMessageBoxIcon_e.swMbWarning);
+                Ui.Tell(swApp, (known ? label + " is in 3DX, but BDAT couldn't open it: " : "BDAT couldn't open " + label + ": ") + error +
+                    "\n\nOpen it from the 3DX task pane instead (search for " + row.Number + ").", swMessageBoxIcon_e.swMbWarning);
                 return;
             }
 
@@ -231,7 +231,7 @@ namespace BDAT.Commands
             IModelDoc2 doc = swApp.OpenDoc6(path, type, (int)swOpenDocOptions_e.swOpenDocOptions_Silent, "", ref errors, ref warnings) as IModelDoc2;
             if (doc == null)
             {
-                Ui.Tell(swApp, "3DEXPERIENCE downloaded " + label + ", but SolidWorks didn't open it (error " + errors + ").\n\n" + path,
+                Ui.Tell(swApp, "3DX downloaded " + label + ", but SolidWorks didn't open it (error " + errors + ").\n\n" + path,
                     swMessageBoxIcon_e.swMbWarning);
                 return;
             }
@@ -258,13 +258,13 @@ namespace BDAT.Commands
         private void SaveToPlatform(ISldWorks swApp, Connector connector, IModelDoc2 doc, EbomRow row, string description, bool checkIn, Bookmark folder)
         {
             string fileName = FileName(row);
-            string notSaved = "\n\n" + row.Number + " is open but not saved. Save it to 3DEXPERIENCE by hand, or close it.";
+            string notSaved = "\n\n" + row.Number + " is open but not saved. Save it to 3DX by hand, or close it.";
 
             var platform = new PlatformSave(swApp, connector, LogName);
             string existing = platform.ExistingOnPlatform(doc, fileName);
             if (existing != null)
             {
-                Ui.Tell(swApp, row.Number + " is already in 3DEXPERIENCE (" + existing + "), so the new one wasn't saved.\n\n" +
+                Ui.Tell(swApp, row.Number + " is already in 3DX (" + existing + "), so the new one wasn't saved.\n\n" +
                     "Open the existing one instead, and close this new one without saving.", swMessageBoxIcon_e.swMbWarning);
                 return;
             }
@@ -273,7 +273,7 @@ namespace BDAT.Commands
             if (savedOk) ExistingParts.Remember(row.Number);
             if (!savedOk)
             {
-                Ui.Tell(swApp, "3DEXPERIENCE didn't save " + row.Number + ". Check the 3DEXPERIENCE task pane for details." + notSaved,
+                Ui.Tell(swApp, "3DX didn't save " + row.Number + ". Check the 3DX task pane for details." + notSaved,
                     swMessageBoxIcon_e.swMbStop);
                 return;
             }
@@ -284,9 +284,9 @@ namespace BDAT.Commands
             string phid = folder == null ? null : platform.WaitForPhysicalId(doc);
             if (folder != null && string.IsNullOrEmpty(phid))
             {
-                done = "Saved " + row.Number + " to 3DEXPERIENCE, but it didn't show up within " + PlatformSave.SaveWaitSeconds +
+                done = "Saved " + row.Number + " to 3DX, but it didn't show up within " + PlatformSave.SaveWaitSeconds +
                     " seconds, so it wasn't put in " + FolderLabel(row) + ".\n\nOnce the save finishes, add it by hand " +
-                    "(right-click it in 3DEXPERIENCE > Add to Bookmark).";
+                    "(right-click it in 3DX > Add to Bookmark).";
                 icon = swMessageBoxIcon_e.swMbWarning;
                 where = "";
             }
@@ -295,12 +295,12 @@ namespace BDAT.Commands
                 string refused = folder == null ? null : platform.AddToBookmark(folder.Id, phid);
                 if (refused != null)
                 {
-                    done = "Saved " + row.Number + " (" + description + ") to 3DEXPERIENCE, but it couldn't be put in " +
+                    done = "Saved " + row.Number + " (" + description + ") to 3DX, but it couldn't be put in " +
                         FolderLabel(row) + ":\n\n" + refused + PlatformSave.BookmarkAdvice(refused);
                     icon = swMessageBoxIcon_e.swMbWarning;
                 }
                 else
-                    done = "Saved " + row.Number + " (" + description + ") to 3DEXPERIENCE" + where + ".";
+                    done = "Saved " + row.Number + " (" + description + ") to 3DX" + where + ".";
             }
 
             if (checkIn)
@@ -308,7 +308,7 @@ namespace BDAT.Commands
                 if (platform.Unlock(doc.GetPathName())) done += "\n\nChecked in.";
                 else
                 {
-                    done += "\n\nIt couldn't be checked in, so it's still locked by you. Unlock it from the 3DEXPERIENCE task pane " +
+                    done += "\n\nIt couldn't be checked in, so it's still locked by you. Unlock it from the 3DX task pane " +
                         "(right-click it > Unlock).";
                     icon = swMessageBoxIcon_e.swMbWarning;
                 }
@@ -316,10 +316,10 @@ namespace BDAT.Commands
             else
             {
                 // Keep it checked out (reserved) to you, to carry on modelling it.
-                if (platform.Reserve(doc.GetPathName())) done += "\n\nKept checked out to you. Check it in from the 3DEXPERIENCE task pane when you're done.";
+                if (platform.Reserve(doc.GetPathName())) done += "\n\nKept checked out to you. Check it in from the 3DX task pane when you're done.";
                 else
                 {
-                    done += "\n\nIt couldn't be kept checked out to you. Reserve it from the 3DEXPERIENCE task pane (right-click it > Reserve).";
+                    done += "\n\nIt couldn't be kept checked out to you. Reserve it from the 3DX task pane (right-click it > Reserve).";
                     icon = swMessageBoxIcon_e.swMbWarning;
                 }
             }
@@ -425,8 +425,8 @@ namespace BDAT.Commands
                     }
 
                     string why = BookmarkSearch.Available
-                        ? "There's no folder named " + number + " in 3DEXPERIENCE yet."
-                        : "BDAT couldn't search the 3DEXPERIENCE folders just now.";
+                        ? "There's no folder named " + number + " in 3DX yet."
+                        : "BDAT couldn't search the 3DX folders just now.";
                     int choice = Ui.Choose(owner,
                         "Where should " + row.Number + " go? It belongs in " + label + ".\n\n" + why + "\n\n" +
                         "BDAT can make the " + number + " folder for you, or you can pick an existing folder, or save it " +
@@ -495,7 +495,7 @@ namespace BDAT.Commands
             FoundBookmark made = BookmarkSearch.Create(parentId, parentPath, number, string.IsNullOrEmpty(assemblyName) ? null : assemblyName, out error);
             if (made == null)
             {
-                Ui.Show(owner, "Couldn't make the " + number + " folder: " + error + "\n\nYou can make it in 3DEXPERIENCE yourself, or pick a folder instead.",
+                Ui.Show(owner, "Couldn't make the " + number + " folder: " + error + "\n\nYou can make it in 3DX yourself, or pick a folder instead.",
                     Title, MessageBoxButtons.OK, MessageBoxIcon.Warning);
                 return null;
             }
@@ -515,7 +515,7 @@ namespace BDAT.Commands
 
         private Bookmark AskNoFolder(IWin32Window owner, EbomRow row, string why, out bool cancelled)
         {
-            cancelled = Ui.Show(owner, why + "\n\nSave " + row.Number + " to 3DEXPERIENCE without putting it in a folder?",
+            cancelled = Ui.Show(owner, why + "\n\nSave " + row.Number + " to 3DX without putting it in a folder?",
                 Title, MessageBoxButtons.YesNo, MessageBoxIcon.Question) != DialogResult.Yes;
             return null;
         }

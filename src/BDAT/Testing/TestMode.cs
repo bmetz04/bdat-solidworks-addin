@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Runtime.CompilerServices;
 
@@ -130,7 +130,7 @@ namespace BDAT.Testing
         {
             if (!Enabled) return;
             ConnectorAttempts++;
-            throw new InvalidOperationException("BDAT test mode: " + what + " tried to reach 3DEXPERIENCE. Tests must never do that.");
+            throw new InvalidOperationException("BDAT test mode: " + what + " tried to reach 3DX. Tests must never do that.");
         }
     }
 

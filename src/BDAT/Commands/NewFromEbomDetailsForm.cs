@@ -51,7 +51,7 @@ namespace BDAT.Commands
             layout.Controls.Add(ModernUi.Framed(_description, 90), 0, 4);
 
             var options = new FlowLayoutPanel { AutoSize = true, WrapContents = false, Margin = new Padding(0, 12, 0, 0) };
-            _save = new CheckBox { Text = "Save to 3DEXPERIENCE", AutoSize = true, Checked = true, Margin = new Padding(0, 0, 18, 0) };
+            _save = new CheckBox { Text = "Save to 3DX", AutoSize = true, Checked = true, Margin = new Padding(0, 0, 18, 0) };
             _checkIn = new CheckBox { Text = "Check in", AutoSize = true, Checked = NewFromEbomCommand.CheckInPreference, Margin = new Padding(0) };
             new ToolTip().SetToolTip(_checkIn, "Ticked: check it in after saving, so it isn't left reserved by you.\nUnticked: keep it checked out to you, to carry on modelling it.");
             _save.CheckedChanged += delegate { _checkIn.Enabled = _save.Checked; ShowWhere(); };
@@ -108,7 +108,7 @@ namespace BDAT.Commands
         internal static string SaveText(EbomRow row, bool save, bool checkIn)
         {
             if (!save) return "Left open and unsaved.";
-            string where = row.AssemblyNumber.Length > 0 ? "Saved to 3DEXPERIENCE in folder " + row.AssemblyNumber : "Saved to 3DEXPERIENCE";
+            string where = row.AssemblyNumber.Length > 0 ? "Saved to 3DX in folder " + row.AssemblyNumber : "Saved to 3DX";
             return where + (checkIn ? " and checked in." : ", kept checked out to you.");
         }
 

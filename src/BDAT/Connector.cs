@@ -111,7 +111,7 @@ namespace BDAT
         private Type Interface(string name)
         {
             Type t = _itf.GetType(ItfAssembly + "." + name);
-            if (t == null) throw new TypeLoadException("The 3DEXPERIENCE connector has no " + name + ". It may be a different version.");
+            if (t == null) throw new TypeLoadException("The 3DX connector has no " + name + ". It may be a different version.");
             return t;
         }
 

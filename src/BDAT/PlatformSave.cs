@@ -193,7 +193,7 @@ namespace BDAT
         /// </summary>
         internal static string BookmarkError(string reply)
         {
-            if (string.IsNullOrEmpty(reply)) return "3DEXPERIENCE didn't answer.";
+            if (string.IsNullOrEmpty(reply)) return "3DX didn't answer.";
             if (JsonString(reply, "status") == "success") return null;
             string error = JsonString(reply, "error");
             return string.IsNullOrEmpty(error) ? reply : error;
@@ -222,10 +222,10 @@ namespace BDAT
         /// <summary>What to tell people when AddToBookmark is refused.</summary>
         internal static string BookmarkAdvice(string error)
         {
-            string advice = "\n\nAdd it by hand: find it in 3DEXPERIENCE, right-click it > Add to Bookmark.";
+            string advice = "\n\nAdd it by hand: find it in 3DX, right-click it > Add to Bookmark.";
             if (error != null && error.IndexOf("security context", StringComparison.OrdinalIgnoreCase) >= 0)
-                advice = "\n\nThat usually means your 3DEXPERIENCE security context (collaborative space and role, shown at the top " +
-                    "of the 3DEXPERIENCE task pane) isn't the team's one, so it was also saved in that space. Switch to the team's " +
+                advice = "\n\nThat usually means your 3DX security context (collaborative space and role, shown at the top " +
+                    "of the 3DX task pane) isn't the team's one, so it was also saved in that space. Switch to the team's " +
                     "collaborative space before saving." + advice;
             return advice;
         }

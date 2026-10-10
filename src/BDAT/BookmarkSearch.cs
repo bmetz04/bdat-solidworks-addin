@@ -91,7 +91,7 @@ namespace BDAT
             if (tree == null) return null;
             foreach (FoundBookmark b in tree)
                 if (string.Equals(b.Id, bookmarkId, StringComparison.Ordinal)) return true;
-            PlatformSave.Log(LogName, "folder " + bookmarkId + " isn't in 3DEXPERIENCE any more");
+            PlatformSave.Log(LogName, "folder " + bookmarkId + " isn't in 3DX any more");
             return false;
         }
 
@@ -276,7 +276,7 @@ namespace BDAT
                 MethodInfo create = web == null ? null : web.GetMethod("CreateBookmark", any);
                 if (lockField == null || getServer == null || login == null || create == null)
                 {
-                    error = "this version of the 3DEXPERIENCE connector doesn't offer it.";
+                    error = "this version of the 3DX connector doesn't offer it.";
                     return null;
                 }
 
@@ -284,7 +284,7 @@ namespace BDAT
                 lock (serverLock)
                 {
                     object server = getServer.Invoke(null, null);
-                    if (server == null) { error = "you're not connected to 3DEXPERIENCE."; return null; }
+                    if (server == null) { error = "you're not connected to 3DX."; return null; }
                     var cc = new CookieContainer();
                     object session = login.Invoke(null, new object[] { server, cc });
                     if (!Succeeded(session)) { error = "couldn't sign in to 3DSpace."; return null; }
@@ -316,7 +316,7 @@ namespace BDAT
                     if (id == null)
                     {
                         string message = result == null ? null : Property(result, "message") as string;
-                        error = string.IsNullOrEmpty(message) ? "3DEXPERIENCE didn't make it." : message;
+                        error = string.IsNullOrEmpty(message) ? "3DX didn't make it." : message;
                         PlatformSave.Log(LogName, "making folder failed: " + error);
                         return null;
                     }

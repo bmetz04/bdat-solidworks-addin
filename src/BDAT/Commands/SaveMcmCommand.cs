@@ -30,7 +30,7 @@ namespace BDAT.Commands
     {
         public string Title { get { return "Save MCM"; } }
 
-        public string Hint { get { return "Save this McMaster-Carr part to 3DEXPERIENCE in Vendor CAD > McMaster Carr"; } }
+        public string Hint { get { return "Save this McMaster-Carr part to 3DX in Vendor CAD > McMaster Carr"; } }
 
         private const string DestinationPath = "Formula UBC Racing > Vendor CAD > ";
         private const string BookmarkTitle = "McMaster Carr";
@@ -70,14 +70,14 @@ namespace BDAT.Commands
             Connector connector = Connector.Find();
             if (connector == null)
             {
-                Tell(swApp, "Couldn't find the 3DEXPERIENCE connector in this SolidWorks session.\n\n" +
+                Tell(swApp, "Couldn't find the 3DX connector in this SolidWorks session.\n\n" +
                     "Make sure the \"3DEXPERIENCE PLM Services\" add-in is on (Tools > Add-Ins), then try again.",
                     swMessageBoxIcon_e.swMbStop);
                 return;
             }
             if (!connector.IsConnected)
             {
-                Tell(swApp, "You're not logged in to 3DEXPERIENCE. Log in from the 3DEXPERIENCE task pane, then try again.",
+                Tell(swApp, "You're not logged in to 3DX. Log in from the 3DX task pane, then try again.",
                     swMessageBoxIcon_e.swMbWarning);
                 return;
             }
@@ -90,7 +90,7 @@ namespace BDAT.Commands
             if (!string.IsNullOrEmpty(originalPath) && !string.IsNullOrEmpty(platform.PhysicalId(originalPath)))
             {
                 DialogResult again = Ui.Show(owner,
-                    "\"" + sourceFile + "\" is already in 3DEXPERIENCE.\n\nSave it as a new part anyway?",
+                    "\"" + sourceFile + "\" is already in 3DX.\n\nSave it as a new part anyway?",
                     Title, MessageBoxButtons.YesNo, MessageBoxIcon.Question);
                 if (again != DialogResult.Yes) return;
             }
@@ -109,8 +109,8 @@ namespace BDAT.Commands
             string existing = platform.ExistingOnPlatform(doc, name + ".SLDPRT");
             if (existing != null)
             {
-                Tell(swApp, "\"" + name + "\" is already in 3DEXPERIENCE (" + existing + ").\n\n" +
-                    "Nothing was saved. Use the existing part, or delete it from 3DEXPERIENCE first.",
+                Tell(swApp, "\"" + name + "\" is already in 3DX (" + existing + ").\n\n" +
+                    "Nothing was saved. Use the existing part, or delete it from 3DX first.",
                     swMessageBoxIcon_e.swMbWarning);
                 return;
             }
@@ -135,7 +135,7 @@ namespace BDAT.Commands
             bool saved = platform.Save(doc, name + ".SLDPRT");
             if (!saved)
             {
-                Tell(swApp, "3DEXPERIENCE didn't save \"" + name + "\". Check the 3DEXPERIENCE task pane for details.\n\n" +
+                Tell(swApp, "3DX didn't save \"" + name + "\". Check the 3DX task pane for details.\n\n" +
                     "If a part with that name is already in your work folder, pick a different name.",
                     swMessageBoxIcon_e.swMbStop);
                 return;
@@ -144,9 +144,9 @@ namespace BDAT.Commands
             string phid = platform.WaitForPhysicalId(doc);
             if (string.IsNullOrEmpty(phid))
             {
-                Tell(swApp, "\"" + name + "\" was sent to 3DEXPERIENCE, but it didn't show up within " + PlatformSave.SaveWaitSeconds +
+                Tell(swApp, "\"" + name + "\" was sent to 3DX, but it didn't show up within " + PlatformSave.SaveWaitSeconds +
                     " seconds, so it wasn't added to " + bookmark.Title + ".\n\n" +
-                    "Once the save finishes, add it to the bookmark by hand (right-click it in 3DEXPERIENCE > Add to Bookmark).",
+                    "Once the save finishes, add it to the bookmark by hand (right-click it in 3DX > Add to Bookmark).",
                     swMessageBoxIcon_e.swMbWarning);
                 return;
             }
@@ -169,18 +169,18 @@ namespace BDAT.Commands
             }
 
             // 7. Check in: unlock the part so it isn't left reserved by you.
-            string done = "Saved \"" + name + "\" to 3DEXPERIENCE in " + DestinationPath + bookmark.Title + " and checked it in.";
+            string done = "Saved \"" + name + "\" to 3DX in " + DestinationPath + bookmark.Title + " and checked it in.";
             swMessageBoxIcon_e icon = swMessageBoxIcon_e.swMbInformation;
             if (refused != null)
             {
-                done = "Saved \"" + name + "\" to 3DEXPERIENCE and checked it in, but it couldn't be put in " + DestinationPath +
+                done = "Saved \"" + name + "\" to 3DX and checked it in, but it couldn't be put in " + DestinationPath +
                     bookmark.Title + ":\n\n" + refused + PlatformSave.BookmarkAdvice(refused);
                 icon = swMessageBoxIcon_e.swMbWarning;
             }
             if (!platform.Unlock(doc.GetPathName()))
             {
                 done += "\n\nIt couldn't be checked in, so it's still locked by you. " +
-                    "Unlock it from the 3DEXPERIENCE task pane (right-click it > Unlock).";
+                    "Unlock it from the 3DX task pane (right-click it > Unlock).";
                 icon = swMessageBoxIcon_e.swMbWarning;
             }
             if (freezeProblem != null)
@@ -215,7 +215,7 @@ namespace BDAT.Commands
             Bookmark known = KnownBookmark();
             if (known == null || Ui.Show(null, FolderQuestion(name, known), Title, MessageBoxButtons.YesNoCancel, MessageBoxIcon.Question) != DialogResult.Yes)
             {
-                Ui.Tell(swApp, "Test mode: the McMaster Carr folder picker needs 3DEXPERIENCE, so it isn't opened.", swMessageBoxIcon_e.swMbInformation);
+                Ui.Tell(swApp, "Test mode: the McMaster Carr folder picker needs 3DX, so it isn't opened.", swMessageBoxIcon_e.swMbInformation);
                 return;
             }
 
@@ -241,7 +241,7 @@ namespace BDAT.Commands
             }
             result.Steps.Add("freeze");
 
-            result.Steps.Add("skipped: save to 3DEXPERIENCE");
+            result.Steps.Add("skipped: save to 3DX");
             result.Steps.Add("skipped: add to bookmark");
             result.Steps.Add("skipped: check in");
             TestMode.LastSaveMcm = result;
@@ -361,7 +361,7 @@ namespace BDAT.Commands
                 if (use != DialogResult.No) return null;
             }
             else if (Ui.Show(owner,
-                "Which 3DEXPERIENCE folder is McMaster Carr? In the next window, open Formula UBC Racing > Vendor CAD and pick " +
+                "Which 3DX folder is McMaster Carr? In the next window, open Formula UBC Racing > Vendor CAD and pick " +
                 "McMaster Carr. BDAT remembers it.", Title, MessageBoxButtons.OKCancel, MessageBoxIcon.Information) != DialogResult.OK)
             {
                 return null;
