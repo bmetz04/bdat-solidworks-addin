@@ -100,8 +100,7 @@ namespace BDAT.Commands
                     if (Ui.Show(owner, row.Number + " (" + row.Name + ") isn't in 3DEXPERIENCE yet.\n\nMake it as a new " +
                             (row.IsAssembly ? "assembly" : "part") + "?", Title, MessageBoxButtons.YesNo, MessageBoxIcon.Question) != DialogResult.Yes)
                         return;
-                    description = NewFromEbomForm.AskDescription(owner, row, NewFromEbomForm.SaveText(row, saveToPlatform, checkIn));
-                    if (description == null) return;
+                    if (!NewFromEbomForm.AskDetails(owner, row, out description, out saveToPlatform, out checkIn)) return;
                 }
             }
 

@@ -24,12 +24,10 @@ namespace BDAT.Commands
         private readonly ComboBox _area;
         private readonly ListView _list;
         private readonly Label _source;
-        private readonly Label _count;
         private readonly Label _pickedNumber;
         private readonly Label _pickedDetails;
         private readonly Button _create;
-        private readonly CheckBox _save;
-        private readonly CheckBox _checkIn;
+        private string _emptyMessage;
         private readonly Font _bold;
         private readonly Font _big;
         private List<EbomRow> _rows;
@@ -111,9 +109,6 @@ namespace BDAT.Commands
             listFrame.Controls.Add(_list);
             layout.Controls.Add(listFrame, 0, 2);
 
-            _count = new Label { UseMnemonic = false, AutoSize = true, ForeColor = Muted, Margin = new Padding(1, 6, 0, 0) };
-            layout.Controls.Add(_count, 0, 3);
-
             // What you picked, and where it goes.
             var picked = new FlowLayoutPanel { FlowDirection = FlowDirection.TopDown, AutoSize = true, WrapContents = false, Margin = new Padding(0, 12, 0, 0) };
             _pickedNumber = new Label { UseMnemonic = false, Font = _big, AutoSize = true, Margin = new Padding(0) };
@@ -147,15 +142,8 @@ namespace BDAT.Commands
             _create = ModernUi.Primary("Open");
             _create.Enabled = false;
             _create.Click += delegate { Confirm(); };
-            _save = new CheckBox { Text = "Save to 3DEXPERIENCE", AutoSize = true, Checked = true, Margin = new Padding(0, 10, 16, 0) };
-            _checkIn = new CheckBox { Text = "Check in", AutoSize = true, Checked = NewFromEbomCommand.CheckInPreference, Margin = new Padding(0, 10, 18, 0) };
-            new ToolTip().SetToolTip(_checkIn, "Ticked: check it in after saving, so it isn't left reserved by you.\nUnticked: keep it checked out to you, to carry on modelling it.");
-            _save.CheckedChanged += delegate { _checkIn.Enabled = _save.Checked; ShowPicked(); };
-            _checkIn.CheckedChanged += delegate { NewFromEbomCommand.CheckInPreference = _checkIn.Checked; ShowPicked(); };
             buttons.Controls.Add(cancel);
             buttons.Controls.Add(_create);
-            buttons.Controls.Add(_checkIn);
-            buttons.Controls.Add(_save);
             bottom.Controls.Add(buttons, 1, 0);
             layout.Controls.Add(bottom, 0, 5);
 
@@ -172,16 +160,10 @@ namespace BDAT.Commands
         }
 
         /// <summary>Whether to save the new part to 3DEXPERIENCE straight away, in its assembly's folder.</summary>
-        public bool SaveToPlatform
-        {
-            get { return _save.Checked; }
-        }
+        public bool SaveToPlatform { get; private set; }
 
         /// <summary>Whether to check it in after saving (otherwise it stays checked out to you).</summary>
-        public bool CheckIn
-        {
-            get { return _checkIn.Checked; }
-        }
+        public bool CheckIn { get; private set; }
 
         /// <summary>The description confirmed (and maybe changed) in the second pop-up.</summary>
         public string Description { get; private set; }
@@ -210,28 +192,30 @@ namespace BDAT.Commands
             if (Ui.Show(this, row.Number + " (" + row.Name + ") isn't in 3DEXPERIENCE yet.\n\nMake it as a new " + kind + "?",
                     "Open from EBOM", MessageBoxButtons.YesNo, MessageBoxIcon.Question) != DialogResult.Yes)
                 return;
-            string description = AskDescription(this, row, SaveText(row, _save.Checked, _checkIn.Checked));
-            if (description == null) return;
+            string description;
+            bool save, checkIn;
+            if (!AskDetails(this, row, out description, out save, out checkIn)) return;
             Description = description;
+            SaveToPlatform = save;
+            CheckIn = checkIn;
             OpenRequested = false;
             DialogResult = DialogResult.OK;
         }
 
-        /// <summary>The second pop-up: what's about to be made, with its description to change. Null if Back.</summary>
-        internal static string AskDescription(IWin32Window owner, EbomRow row, string saveText)
+        /// <summary>
+        /// The second pop-up: what's about to be made, its description to change, and whether to save it to 3DEXPERIENCE and
+        /// check it in. False if Back.
+        /// </summary>
+        internal static bool AskDetails(IWin32Window owner, EbomRow row, out string description, out bool save, out bool checkIn)
         {
-            using (var details = new NewFromEbomDetailsForm(row, saveText))
+            using (var details = new NewFromEbomDetailsForm(row))
             {
-                if (details.ShowDialog(owner) != DialogResult.OK) return null;
-                return details.Description;
+                bool ok = details.ShowDialog(owner) == DialogResult.OK;
+                description = ok ? details.Description : null;
+                save = ok && details.SaveToPlatform;
+                checkIn = details.CheckIn;
+                return ok;
             }
-        }
-
-        internal static string SaveText(EbomRow row, bool save, bool checkIn)
-        {
-            if (!save) return "Left open and unsaved.";
-            string where = row.AssemblyNumber.Length > 0 ? "Saved to 3DEXPERIENCE in folder " + row.AssemblyNumber : "Saved to 3DEXPERIENCE";
-            return where + (checkIn ? " and checked in." : ", kept checked out to you.");
         }
 
         protected override void Dispose(bool disposing)
@@ -404,19 +388,11 @@ namespace BDAT.Commands
             _list.EndUpdate();
             if (_list.SelectedItems.Count == 0 && _list.Items.Count == 1) _list.Items[0].Selected = true;
 
-            int current = 0;
-            foreach (EbomRow row in _rows)
-                if (!row.IsObsolete) current++;
-            if (_list.Items.Count == 0)
-                _count.Text = onlyInPlatform && !searching && area == null
+            // No status line under the list (Ben, 2026-10-09): an empty list explains itself in the strip below instead.
+            _emptyMessage = _list.Items.Count > 0 ? null
+                : onlyInPlatform && !searching && area == null
                     ? (_existing == null ? "Waiting for the 3DEXPERIENCE check." : "Nothing in this EBOM is in 3DEXPERIENCE yet.")
                     : "Nothing matches. Try fewer words, untick Only in 3DEXPERIENCE, or set the area back to " + AllAreas + ".";
-            else if (filtering)
-                _count.Text = shown + (shown == 1 ? " match" : " matches") + " in " + groupsShown + (groupsShown == 1 ? " assembly" : " assemblies") + ".";
-            else
-                _count.Text = groupsShown + " assemblies, " + current + " current EBOM rows. Click ▶, double-click or press → to show an assembly's parts.";
-            string status = ExistingStatus();
-            if (status.Length > 0) _count.Text = status + "   \u00B7   " + _count.Text;
             ShowPicked();
         }
 
@@ -448,17 +424,6 @@ namespace BDAT.Commands
             return row != null && _existing != null && _existing.Contains(row.Number);
         }
 
-        private string ExistingStatus()
-        {
-            if (_checking) return "Checking 3DEXPERIENCE for numbers that already exist...";
-            if (_checkFailed) return "Couldn't check 3DEXPERIENCE for numbers that already exist.";
-            if (_existing == null) return "";
-            string at = _checkedAt == DateTime.MinValue ? "" : " (checked " + _checkedAt.ToString("h:mm tt") + ")";
-            int n = 0;
-            foreach (EbomRow row in _rows)
-                if (!row.IsObsolete && _existing.Contains(row.Number)) n++;
-            return (n == 0 ? "None are in 3DEXPERIENCE yet" : n + " in 3DEXPERIENCE") + at + ".";
-        }
 
         /// <summary>Starts the background check of which EBOM numbers are already in 3DEXPERIENCE.</summary>
         private void CheckExisting()
@@ -516,10 +481,12 @@ namespace BDAT.Commands
             if (row == null)
             {
                 bool header = _list.SelectedItems.Count > 0;
-                _pickedNumber.Text = header ? "Nothing to open here" : "Pick a part or assembly";
+                _pickedNumber.Text = header ? "Nothing to open here" : _emptyMessage != null ? "Nothing to show" : "Pick a part or assembly";
                 _pickedDetails.Text = header
                     ? "The EBOM has no row for this assembly, so open it and pick one of its parts."
-                    : "Search above, or open an assembly to see its parts.";
+                    : _emptyMessage ?? (_checkFailed
+                        ? "Couldn't check which parts are in 3DEXPERIENCE (Check 3DEXPERIENCE again to retry). Open still finds them."
+                        : "Search above, or open an assembly to see its parts.");
                 _create.Text = "Open";
                 return;
             }
@@ -537,8 +504,7 @@ namespace BDAT.Commands
                 return;
             }
             string where = row.IsAssembly ? "" : row.Parent.Length > 0 ? " in " + row.AssemblyNumber + " " + row.Parent : row.AssemblyNumber.Length > 0 ? " in " + row.AssemblyNumber : "";
-            string save = SaveText(row, _save.Checked, _checkIn.Checked);
-            _pickedDetails.Text = "Not in 3DEXPERIENCE yet. Open offers to create it: new " + kind + ", " + row.Area + where + ". " + save;
+            _pickedDetails.Text = "Not in 3DEXPERIENCE yet. Open offers to create it: new " + kind + ", " + row.Area + where + ".";
         }
 
         // A header with no assembly row matches the search by its number, e.g. typing "A0402".
