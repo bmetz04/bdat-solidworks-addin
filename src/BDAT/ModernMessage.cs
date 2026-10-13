@@ -86,6 +86,7 @@ namespace BDAT
         /// </summary>
         public static int Choose(IWin32Window owner, string message, string caption, MessageBoxIcon icon, params string[] choices)
         {
+            if (icon == MessageBoxIcon.Error) Usage.NoteError(message);
             using (var box = new ModernMessage(message, caption, MessageBoxButtons.OK, icon))
             {
                 Control row = box.AcceptButton is Control ? ((Control)box.AcceptButton).Parent : null;
@@ -114,6 +115,7 @@ namespace BDAT
         /// <summary>Shows a message the way MessageBox.Show does, centred on owner (or the screen if owner is null).</summary>
         public static DialogResult Show(IWin32Window owner, string message, string caption, MessageBoxButtons buttons, MessageBoxIcon icon)
         {
+            if (icon == MessageBoxIcon.Error) Usage.NoteError(message);
             using (var box = new ModernMessage(message, caption, buttons, icon))
             {
                 if (owner == null || owner.Handle == IntPtr.Zero)

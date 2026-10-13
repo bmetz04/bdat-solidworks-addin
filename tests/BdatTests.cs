@@ -617,6 +617,22 @@ namespace BdatTests
                 Check(TestMode.Messages[0].Contains(BuildInfo.Version), "the message should show " + BuildInfo.Version);
             });
 
+            Test("Usage sharing is off in test mode, so test runs never reach the Sheet", delegate
+            {
+                Check(!Usage.On, "usage would be sent during a test run");
+            });
+
+            Test("Usage error text has no paths, file names or e-mail addresses", delegate
+            {
+                Equal("", Usage.Scrub(null), "null");
+                Equal("Couldn't open <path>", Usage.Scrub("Couldn't open C:\\Users\\bacon\\Desktop\\A0101 frame.SLDPRT"), "local path");
+                Equal("Couldn't save <path>", Usage.Scrub("Couldn't save \\\\server\\share\\part.sldprt"), "network path");
+                Equal("<file> is read-only", Usage.Scrub("BR-10101-AA.SLDPRT is read-only"), "file name");
+                Equal("Locked by <email>", Usage.Scrub("Locked by someone@example.com"), "e-mail");
+                Equal("two lines", Usage.Scrub("two\r\n  lines"), "line breaks");
+                Check(Usage.Scrub(new string('x', 1000)).Length == 300, "the error text should be cut to 300 characters");
+            });
+
             Test("Update BDAT in test mode never downloads or starts the installer", delegate
             {
                 string installer = Path.Combine(Path.GetTempPath(), "BDAT", "BDAT Update.bat");

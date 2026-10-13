@@ -15,11 +15,16 @@ set CSC=%WINDIR%\Microsoft.NET\Framework64\v4.0.30319\csc.exe
 set SRC=%~dp0src\BDAT
 set OUT=%SRC%\bin\Release\net48
 if not exist "%OUT%" mkdir "%OUT%"
+REM Anonymous usage (src\BDAT\Usage.cs) only works in builds made on a PC with %USERPROFILE%\BDAT\usage-key.txt
+REM (line 1 the Google Apps Script web address, line 2 its key). It lives outside the repo, so the key is never on GitHub.
+set USAGE_KEY=%USERPROFILE%\BDAT\usage-key.txt
+set USAGE_RES=
+if exist "%USAGE_KEY%" set USAGE_RES=/resource:"%USAGE_KEY%",BDAT.usage-key.txt
 
 "%CSC%" /nologo /target:library /platform:x64 /optimize+ /out:"%OUT%\BDAT.dll" ^
   /r:System.dll /r:System.Core.dll /r:System.Drawing.dll /r:System.Windows.Forms.dll ^
   /link:"%API%\SolidWorks.Interop.sldworks.dll" /link:"%API%\SolidWorks.Interop.swconst.dll" /link:"%API%\SolidWorks.Interop.swpublished.dll" ^
-  /resource:"%SRC%\Resources\fubc-logo.png",BDAT.fubc-logo.png /resource:"%SRC%\Resources\fubc-logo-white.png",BDAT.fubc-logo-white.png ^
+  /resource:"%SRC%\Resources\fubc-logo.png",BDAT.fubc-logo.png /resource:"%SRC%\Resources\fubc-logo-white.png",BDAT.fubc-logo-white.png %USAGE_RES% ^
   /recurse:"%SRC%\*.cs" "%~dp0build\AssemblyInfo.cs"
 if errorlevel 1 (
   echo Build failed. If it says the file is in use, close SolidWorks and try again.
@@ -29,4 +34,5 @@ if errorlevel 1 (
 REM BDAT itself no longer needs these; the test harness does.
 copy /y "%API%\SolidWorks.Interop.*.dll" "%OUT%\" >nul
 echo Built %OUT%\BDAT.dll
+if defined USAGE_RES (echo Anonymous usage sharing is built in.) else (echo No usage-key.txt, so this build sends no usage.)
 if "%PAUSE_AT_END%"=="1" pause

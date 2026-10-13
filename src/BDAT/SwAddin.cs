@@ -69,6 +69,10 @@ namespace BDAT
                 PlatformSave.Log(ToolbarLog, "AddCommandManager failed: " + ex);
                 throw;
             }
+
+            try { Usage.SetSolidWorksVersion(_swApp.RevisionNumber()); }
+            catch (Exception) { }
+            Usage.Loaded();
             return true;
         }
 
@@ -263,16 +267,22 @@ namespace BDAT
 
         private void Run(IBdatCommand command)
         {
+            Usage.ButtonStarting();
+            System.Diagnostics.Stopwatch timer = System.Diagnostics.Stopwatch.StartNew();
+            Exception crash = null;
             try
             {
                 command.Run(_swApp);
             }
             catch (Exception ex)
             {
+                crash = ex;
                 MessageBox.Show(
                     command.Title + " failed:\n\n" + ex.Message,
                     AddinTitle, MessageBoxButtons.OK, MessageBoxIcon.Error);
             }
+            // The version button's title is "BDAT vN", so it's sent under a fixed name.
+            Usage.ButtonFinished(command is VersionCommand ? "BDAT version" : command.Title, timer.ElapsedMilliseconds, crash);
         }
 
         private int CanRun(IBdatCommand command)
