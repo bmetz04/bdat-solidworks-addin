@@ -12,6 +12,9 @@ Only builds made on a PC that has `%USERPROFILE%\BDAT\usage-key.txt` (`C:\Users\
 Ben's PC). build.bat embeds that file in BDAT.dll. The file is outside the repo, so the web address and key are
 never on GitHub. Builds without it (other PCs, Claude's builds) send nothing.
 
+Nothing is sent until the user agrees: the first time they click a BDAT button, a pop-up asks whether to share
+(closing it counts as no). They can change it later on the BDAT version button.
+
 It is also off:
 - in test mode, so test runs never reach the Sheet,
 - for anyone who clicks **Turn sharing off** on the BDAT version button (per Windows user),

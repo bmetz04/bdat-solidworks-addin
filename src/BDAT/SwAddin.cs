@@ -267,6 +267,8 @@ namespace BDAT
 
         private void Run(IBdatCommand command)
         {
+            try { Usage.AskOnce(Ui.SolidWorksWindow(_swApp)); }
+            catch (Exception) { } // the question must never stop a button
             Usage.ButtonStarting();
             HideOpenDocumentNames();
             Exception crash = null;

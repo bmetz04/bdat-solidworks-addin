@@ -21,6 +21,7 @@ namespace BDAT
     /// Sending happens on a background thread with a short timeout and never shows anything or slows a button down.
     /// If it fails (offline, Google down) the row is dropped.
     ///
+    /// Nothing is sent until the user says yes to the question on their first button click (AskOnce).
     /// Off when: the build has no usage key (only Publish builds on Ben's PC have one, from
     /// %USERPROFILE%\BDAT\usage-key.txt), test mode, the user turned it off from the BDAT version button,
     /// or C:\ProgramData\BDAT\no-usage.txt exists.
@@ -65,22 +66,42 @@ namespace BDAT
             {
                 if (!Available || TestMode.Enabled) return false;
                 if (File.Exists(Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData), @"BDAT\no-usage.txt"))) return false;
-                return !TurnedOff;
+                return Answer() == "0"; // only after the user chose to keep it on (AskOnce)
             }
         }
 
-        /// <summary>The user's own off switch (BDAT version button), per Windows user.</summary>
+        /// <summary>The user's choice: "0" sharing on, "1" off, null not asked yet.</summary>
+        private static string Answer()
+        {
+            try
+            {
+                using (RegistryKey key = Registry.CurrentUser.OpenSubKey(SettingsKey))
+                    return key == null ? null : key.GetValue(OffValue) as string;
+            }
+            catch (Exception) { return null; }
+        }
+
+        /// <summary>
+        /// The first time a button is clicked in a build that can share usage, asks whether to share it. Nothing is
+        /// sent before that. Closing the question counts as no.
+        /// </summary>
+        public static void AskOnce(System.Windows.Forms.IWin32Window owner)
+        {
+            if (!Available || TestMode.Enabled || Answer() != null) return;
+            if (File.Exists(Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData), @"BDAT\no-usage.txt"))) return;
+            int picked = Ui.Choose(owner,
+                "Can BDAT share anonymous usage with Ben?\n\n" +
+                "It sends which BDAT buttons are used, whether they worked, and error messages, so problems get " +
+                "fixed faster. Never your name, files or part data.\n\n" +
+                "You can change this later from the BDAT version button.",
+                "BDAT", MessageBoxIcon.Question, "Share", "Don't share");
+            TurnedOff = picked != 0;
+        }
+
+        /// <summary>The user's own off switch (first-use question, BDAT version button), per Windows user.</summary>
         public static bool TurnedOff
         {
-            get
-            {
-                try
-                {
-                    using (RegistryKey key = Registry.CurrentUser.OpenSubKey(SettingsKey))
-                        return key != null && "1".Equals(key.GetValue(OffValue) as string);
-                }
-                catch (Exception) { return false; }
-            }
+            get { return Answer() != "0"; }
             set
             {
                 try
