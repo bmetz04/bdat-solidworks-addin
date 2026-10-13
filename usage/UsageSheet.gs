@@ -6,17 +6,13 @@
 // BDAT anonymous usage: receives one row per BDAT button click and adds it to this Sheet.
 // Paste this into Extensions > Apps Script of the usage Google Sheet. See usage/SETUP.md.
 //
-// Only rows with the right KEY, a known button name and sane values are kept. Each PC id is limited to
+// Only rows with the right KEY, a plain button name (so new BDAT buttons need no change here) and sane values are kept. Each PC id is limited to
 // MAX_PER_ID_PER_DAY rows a day and the whole Sheet to MAX_PER_DAY, so nobody can flood it.
 // This script can only add rows: nothing that reaches it can read, change or delete the Sheet.
 
 const KEY = 'PASTE-YOUR-KEY-HERE'; // the same random key as line 2 of usage-key.txt
 const MAX_PER_ID_PER_DAY = 200;
 const MAX_PER_DAY = 2000;
-const BUTTONS = [
-  'BDAT loaded', 'Murder Part', 'Save MCM', 'Create Origin', 'Open from EBOM', 'Waterjet DXF', 'Name Cut List',
-  'Check Out', 'Check In', 'Update BDAT', 'BDAT version',
-];
 const RESULTS = ['ok', 'error', 'crash'];
 const HEADERS = ['Time', 'PC id', 'Button', 'Result', 'Seconds', 'BDAT', 'SolidWorks', 'Error'];
 
@@ -24,7 +20,7 @@ function doPost(e) {
   const p = (e && e.parameter) || {};
   // Each refusal says which check failed, so BDAT's usage.log shows why.
   if (String(p.key || '').trim() !== KEY.trim()) return reply('no: key');
-  if (BUTTONS.indexOf(p.button) < 0) return reply('no: button');
+  if (!/^[A-Za-z0-9 ]{1,40}$/.test(p.button || '')) return reply('no: button');
   if (RESULTS.indexOf(p.result) < 0) return reply('no: result');
   if (!/^[0-9a-f]{12}$/.test(p.id || '')) return reply('no: id');
   const ms = Number(p.ms);
