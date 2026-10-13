@@ -133,8 +133,12 @@ namespace BDAT
             try
             {
                 ServicePointManager.SecurityProtocol |= SecurityProtocolType.Tls12;
+                string answer;
                 using (var web = new QuickWebClient())
-                    web.UploadValues(_url, "POST", form);
+                    answer = Encoding.UTF8.GetString(web.UploadValues(_url, "POST", form)).Trim();
+                // The script answers "ok"; anything else (wrong key, over the limit, a Google sign-in page) is logged.
+                if (answer != "ok")
+                    PlatformSave.Log(LogName, "the Sheet refused a row: " + (answer.Length > 200 ? answer.Substring(0, 200) : answer));
             }
             catch (Exception ex)
             {
