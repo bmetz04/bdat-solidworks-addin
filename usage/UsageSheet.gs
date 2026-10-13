@@ -1,3 +1,8 @@
+/**
+ * @OnlyCurrentDoc
+ * Limits this script to the one Sheet it is attached to, instead of all of your spreadsheets.
+ */
+
 // BDAT anonymous usage: receives one row per BDAT button click and adds it to this Sheet.
 // Paste this into Extensions > Apps Script of the usage Google Sheet. See usage/SETUP.md.
 //
