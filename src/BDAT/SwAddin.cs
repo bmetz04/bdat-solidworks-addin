@@ -277,6 +277,7 @@ namespace BDAT
             catch (Exception ex)
             {
                 crash = ex;
+                timer.Stop(); // time reading the "failed" box isn't BDAT's
                 MessageBox.Show(
                     command.Title + " failed:\n\n" + ex.Message,
                     AddinTitle, MessageBoxButtons.OK, MessageBoxIcon.Error);
