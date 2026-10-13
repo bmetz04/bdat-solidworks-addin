@@ -68,7 +68,7 @@ Checks GitHub for a newer published BDAT. If there is one, it downloads it now (
 Shows which version is running; click it for the full version and where it was loaded from. The number goes up by one every time Publish BDAT runs. Local builds show "dev build".
 
 ### BDAT Settings
-Settings for you on this PC. For now: **Share anonymous usage with Ben** (which buttons are used, whether they worked, and error messages; never names, files or part data). BDAT asks this once on your first button click; change your answer here any time.
+Settings for you on this PC. For now: **Share usage data to help improve BDAT** (which buttons are used, whether they worked, and error messages; never names, files or part data). BDAT asks this once on your first button click; change your answer here any time.
 
 ## Getting it and keeping it updated
 

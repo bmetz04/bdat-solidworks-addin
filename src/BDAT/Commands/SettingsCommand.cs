@@ -49,7 +49,7 @@ namespace BDAT.Commands
 
             _share = new CheckBox
             {
-                Text = "Share anonymous usage with Ben",
+                Text = "Share usage data to help improve BDAT",
                 AutoSize = true,
                 Checked = Usage.CanChoose && !Usage.TurnedOff,
                 Enabled = Usage.CanChoose,

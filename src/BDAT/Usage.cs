@@ -108,9 +108,9 @@ namespace BDAT
             if (!Available || TestMode.Enabled || Answer() != null) return;
             if (File.Exists(Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData), @"BDAT\no-usage.txt"))) return;
             int picked = Ui.Choose(owner,
-                "Can BDAT share anonymous usage with Ben?\n\n" +
-                "It sends which BDAT buttons are used, whether they worked, and error messages, so problems get " +
-                "fixed faster. Never your name, files or part data.\n\n" +
+                "Share usage data to help improve BDAT?\n\n" +
+                "BDAT would send which buttons are used, whether they worked, and any error messages, so problems " +
+                "get fixed faster and the add-in keeps getting better. Never your name, files or part data.\n\n" +
                 "You can change this later in BDAT Settings.",
                 "BDAT", MessageBoxIcon.Question, "Share", "Don't share");
             TurnedOff = picked != 0;
