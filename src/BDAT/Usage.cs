@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Collections.Specialized;
 using System.IO;
 using System.Net;
@@ -47,6 +48,9 @@ namespace BDAT
         private static readonly System.Diagnostics.Stopwatch WorkTimer = new System.Diagnostics.Stopwatch();
         private static bool _running;
         private static bool _watchingPopUps;
+
+        // Names of the documents open while the button ran, removed from its error text.
+        private static readonly List<string> NamesToHide = new List<string>();
 
         /// <summary>True when this build can send usage at all (it was built with a usage key).</summary>
         public static bool Available
@@ -103,6 +107,7 @@ namespace BDAT
         public static void ButtonStarting()
         {
             _runningError = null;
+            NamesToHide.Clear();
             if (!_watchingPopUps)
             {
                 _watchingPopUps = true;
@@ -118,6 +123,12 @@ namespace BDAT
         public static void NoteError(string message)
         {
             if (_runningError == null) _runningError = message ?? "";
+        }
+
+        /// <summary>A document or part name that must not appear in this button's error text.</summary>
+        public static void HideName(string name)
+        {
+            if (!string.IsNullOrEmpty(name) && name.Trim().Length >= 3) NamesToHide.Add(name.Trim());
         }
 
         /// <summary>Stops the work timer, e.g. before showing a "failed" message.</summary>
@@ -146,7 +157,7 @@ namespace BDAT
             form["id"] = UserId();
             form["button"] = button;
             form["result"] = result;
-            form["error"] = Scrub(error);
+            form["error"] = Scrub(error, NamesToHide);
             form["ms"] = milliseconds.ToString();
             form["bdat"] = BuildInfo.ShortVersion;
             form["sw"] = _solidWorksVersion;
@@ -173,16 +184,23 @@ namespace BDAT
         }
 
         /// <summary>
-        /// Error text without anything that could name a person or a part: file paths, file names and e-mail
-        /// addresses are replaced, and it's cut to MaxErrorLength characters.
+        /// Error text without anything that could name a person or a part: the open documents' names (hide), anything
+        /// in double quotes, team part numbers with the name in brackets after them, file paths, file names and e-mail
+        /// addresses are replaced, and it's cut to MaxErrorLength characters. Best effort: BDAT's messages put names
+        /// in these forms.
         /// </summary>
-        internal static string Scrub(string text)
+        internal static string Scrub(string text, IEnumerable<string> hide)
         {
             if (string.IsNullOrEmpty(text)) return "";
             string s = Regex.Replace(text, @"[A-Za-z]:\\[^\r\n""'<>|]*", "<path>");
             s = Regex.Replace(s, @"\\\\[^\r\n""'<>|]*", "<path>");
             s = Regex.Replace(s, @"[^\s""'<>|\\/]+\.(sldprt|sldasm|slddrw|prtdot|asmdot|drwdot|x_t|x_b|step|stp|dxf|dwg|csv|txt|log)\b", "<file>", RegexOptions.IgnoreCase);
             s = Regex.Replace(s, @"[\w.+-]+@[\w-]+\.[\w.-]+", "<email>");
+            if (hide != null)
+                foreach (string name in hide)
+                    s = Regex.Replace(s, Regex.Escape(name), "<name>", RegexOptions.IgnoreCase);
+            s = Regex.Replace(s, @"""[^""\r\n]{1,120}""", "<name>");
+            s = Regex.Replace(s, @"\b[A-Z]{2}-\d{3,}-[A-Z0-9]+\b(\s*\([^)\r\n]*\))?", "<part>", RegexOptions.IgnoreCase);
             s = Regex.Replace(s, @"\s+", " ").Trim();
             return s.Length > MaxErrorLength ? s.Substring(0, MaxErrorLength) : s;
         }

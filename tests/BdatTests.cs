@@ -624,13 +624,16 @@ namespace BdatTests
 
             Test("Usage error text has no paths, file names or e-mail addresses", delegate
             {
-                Equal("", Usage.Scrub(null), "null");
-                Equal("Couldn't open <path>", Usage.Scrub("Couldn't open C:\\Users\\bacon\\Desktop\\A0101 frame.SLDPRT"), "local path");
-                Equal("Couldn't save <path>", Usage.Scrub("Couldn't save \\\\server\\share\\part.sldprt"), "network path");
-                Equal("<file> is read-only", Usage.Scrub("BR-10101-AA.SLDPRT is read-only"), "file name");
-                Equal("Locked by <email>", Usage.Scrub("Locked by someone@example.com"), "e-mail");
-                Equal("two lines", Usage.Scrub("two\r\n  lines"), "line breaks");
-                Check(Usage.Scrub(new string('x', 1000)).Length == 300, "the error text should be cut to 300 characters");
+                Equal("", Usage.Scrub(null, null), "null");
+                Equal("Couldn't open <path>", Usage.Scrub("Couldn't open C:\\Users\\bacon\\Desktop\\A0101 frame.SLDPRT", null), "local path");
+                Equal("Couldn't save <path>", Usage.Scrub("Couldn't save \\\\server\\share\\part.sldprt", null), "network path");
+                Equal("<file> is read-only", Usage.Scrub("BR-10101-AA.SLDPRT is read-only", null), "file name");
+                Equal("Locked by <email>", Usage.Scrub("Locked by someone@example.com", null), "e-mail");
+                Equal("Couldn't open <name>: locked", Usage.Scrub("Couldn't open Brake Caliper: locked", new[] { "Brake Caliper" }), "open document name");
+                Equal("<name> is already in 3DX", Usage.Scrub("\"91251A540_screw\" is already in 3DX", null), "quoted name");
+                Equal("BDAT couldn't open <part>: timeout", Usage.Scrub("BDAT couldn't open BR-10101-AA (Front upright): timeout", null), "EBOM part number and name");
+                Equal("two lines", Usage.Scrub("two\r\n  lines", null), "line breaks");
+                Check(Usage.Scrub(new string('x', 1000), null).Length == 300, "the error text should be cut to 300 characters");
             });
 
             Test("Update BDAT in test mode never downloads or starts the installer", delegate
