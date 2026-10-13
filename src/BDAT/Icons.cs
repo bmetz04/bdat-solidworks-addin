@@ -101,9 +101,36 @@ namespace BDAT
                 case 9: // Version: blue circle with an "i"
                     DrawBadge(g, cell, Color.FromArgb(30, 90, 170), "i");
                     break;
+                case 10: // Settings: grey circle with a white gear
+                    DrawGearIcon(g, cell, Color.FromArgb(90, 100, 110));
+                    break;
                 default:
                     DrawBadge(g, cell, Color.DimGray, (index + 1).ToString());
                     break;
+            }
+        }
+
+        private static void DrawGearIcon(Graphics g, Rectangle cell, Color color)
+        {
+            float pad = cell.Width * 0.08f;
+            var circle = new RectangleF(cell.X + pad, cell.Y + pad, cell.Width - 2 * pad, cell.Height - 2 * pad);
+            using (var fill = new SolidBrush(color))
+                g.FillEllipse(fill, circle);
+
+            // Eight teeth round a ring, with the centre left in the background colour.
+            float cx = cell.X + cell.Width / 2f, cy = cell.Y + cell.Height / 2f;
+            float outer = cell.Width * 0.3f, ring = cell.Width * 0.21f, hole = cell.Width * 0.09f;
+            using (var white = new SolidBrush(Color.White))
+            using (var pen = new Pen(Color.White, Math.Max(1.5f, cell.Width * 0.1f)))
+            using (var back = new SolidBrush(color))
+            {
+                for (int i = 0; i < 8; i++)
+                {
+                    double a = i * Math.PI / 4;
+                    g.DrawLine(pen, cx, cy, cx + (float)(Math.Cos(a) * outer), cy + (float)(Math.Sin(a) * outer));
+                }
+                g.FillEllipse(white, cx - ring, cy - ring, 2 * ring, 2 * ring);
+                g.FillEllipse(back, cx - hole, cy - hole, 2 * hole, 2 * hole);
             }
         }
 

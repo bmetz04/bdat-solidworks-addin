@@ -29,7 +29,7 @@ namespace BDAT
 
         // Bump this whenever commands are added, removed or reordered so SolidWorks
         // rebuilds the toolbar instead of reusing its cached copy.
-        private const int CommandGroupVersion = 13;
+        private const int CommandGroupVersion = 14;
 
         private ISldWorks _swApp;
         private ICommandManager _cmdMgr;
@@ -48,6 +48,7 @@ namespace BDAT
             new CommandEntry(new CheckInCommand(), "OnCheckIn", "CanCheckIn"),
             new CommandEntry(new UpdateCommand(), "OnUpdate", "CanUpdate"),
             new CommandEntry(new VersionCommand(), "OnVersion", "CanVersion"),
+            new CommandEntry(new SettingsCommand(), "OnSettings", "CanSettings"),
         };
 
         #region ISwAddin
@@ -364,6 +365,9 @@ namespace BDAT
 
         public void OnVersion() { Run(_commands[9].Command); }
         public int CanVersion() { return CanRun(_commands[9].Command); }
+
+        public void OnSettings() { Run(_commands[10].Command); }
+        public int CanSettings() { return CanRun(_commands[10].Command); }
 
         #endregion
 

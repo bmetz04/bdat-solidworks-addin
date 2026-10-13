@@ -67,6 +67,9 @@ Checks GitHub for a newer published BDAT. If there is one, it downloads it now (
 ### BDAT vN
 Shows which version is running; click it for the full version and where it was loaded from. The number goes up by one every time Publish BDAT runs. Local builds show "dev build".
 
+### BDAT Settings
+Settings for you on this PC. For now: **Share anonymous usage with Ben** (which buttons are used, whether they worked, and error messages; never names, files or part data). BDAT asks this once on your first button click; change your answer here any time.
+
 ## Getting it and keeping it updated
 
 Teammates: close SolidWorks and double-click **BDAT Setup.bat**. It downloads the latest build, registers it, and adds an **Update BDAT** desktop shortcut for later updates. It also installs the FUBC drawing sheet formats to `C:\ProgramData\BDAT\Sheet Formats` (from `release/sheet-formats`), which the FUBC Drawing template uses for sheets after the first. See [SETUP-NEW-COMPUTER.md](SETUP-NEW-COMPUTER.md).

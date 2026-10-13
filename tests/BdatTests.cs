@@ -274,7 +274,7 @@ namespace BdatTests
             Test("Toolbar has the expected BDAT buttons, in order", delegate
             {
                 List<string> titles = CommandTitles(new SwAddin());
-                Check(titles.Count == 10, "expected 10 buttons, got " + titles.Count + ": " + string.Join(", ", titles.ToArray()));
+                Check(titles.Count == 11, "expected 11 buttons, got " + titles.Count + ": " + string.Join(", ", titles.ToArray()));
                 Equal("Murder Part", titles[0], "button 1");
                 Equal("Save MCM", titles[1], "button 2");
                 Equal("Create Origin", titles[2], "button 3");
@@ -285,6 +285,7 @@ namespace BdatTests
                 Equal("Check In", titles[7], "button 8");
                 Equal("Update BDAT", titles[8], "button 9");
                 Check(Regex.IsMatch(titles[9], @"^BDAT (v\d+|dev build)$"), "button 10 should be the version (BDAT vN), got \"" + titles[9] + "\"");
+                Equal("BDAT Settings", titles[10], "button 11");
             });
 
             Test("EBOM CSV is read by column heading", delegate
@@ -968,7 +969,7 @@ namespace BdatTests
             Check(lines.Any(l => l[0] == "tab" && l[1] == "True"), "there's no BDAT tab for parts");
 
             var buttons = lines.Where(l => l.Length == 3).ToList();
-            foreach (string expected in new[] { "Murder Part", "Save MCM", "Update BDAT" })
+            foreach (string expected in new[] { "Murder Part", "Save MCM", "Update BDAT", "BDAT Settings" })
             {
                 string[] b = buttons.FirstOrDefault(l => l[0] == expected);
                 Check(b != null, "no " + expected + " button");

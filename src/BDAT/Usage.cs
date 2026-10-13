@@ -23,7 +23,7 @@ namespace BDAT
     ///
     /// Nothing is sent until the user says yes to the question on their first button click (AskOnce).
     /// Off when: the build has no usage key (only Publish builds on Ben's PC have one, from
-    /// %USERPROFILE%\BDAT\usage-key.txt), test mode, the user turned it off from the BDAT version button,
+    /// %USERPROFILE%\BDAT\usage-key.txt), test mode, the user said no or turned it off in BDAT Settings,
     /// or C:\ProgramData\BDAT\no-usage.txt exists.
     /// </summary>
     internal static class Usage
@@ -70,6 +70,24 @@ namespace BDAT
             }
         }
 
+        /// <summary>True when the user can switch sharing on or off (BDAT Settings).</summary>
+        public static bool CanChoose
+        {
+            get { return WhyNot == null; }
+        }
+
+        /// <summary>Why sharing can't be switched on this PC, or null when it can.</summary>
+        public static string WhyNot
+        {
+            get
+            {
+                if (!Available) return "This BDAT build doesn't share usage.";
+                if (File.Exists(Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData), @"BDAT\no-usage.txt")))
+                    return "Usage sharing is turned off for everyone on this PC.";
+                return null;
+            }
+        }
+
         /// <summary>The user's choice: "0" sharing on, "1" off, null not asked yet.</summary>
         private static string Answer()
         {
@@ -93,12 +111,12 @@ namespace BDAT
                 "Can BDAT share anonymous usage with Ben?\n\n" +
                 "It sends which BDAT buttons are used, whether they worked, and error messages, so problems get " +
                 "fixed faster. Never your name, files or part data.\n\n" +
-                "You can change this later from the BDAT version button.",
+                "You can change this later in BDAT Settings.",
                 "BDAT", MessageBoxIcon.Question, "Share", "Don't share");
             TurnedOff = picked != 0;
         }
 
-        /// <summary>The user's own off switch (first-use question, BDAT version button), per Windows user.</summary>
+        /// <summary>The user's own off switch (first-use question, BDAT Settings), per Windows user.</summary>
         public static bool TurnedOff
         {
             get { return Answer() != "0"; }
