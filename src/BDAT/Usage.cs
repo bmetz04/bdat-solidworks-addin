@@ -5,14 +5,15 @@ using System.Net;
 using System.Text;
 using System.Text.RegularExpressions;
 using System.Threading;
+using System.Windows.Forms;
 using BDAT.Testing;
 using Microsoft.Win32;
 
 namespace BDAT
 {
     /// <summary>
-    /// Anonymous usage: which button was clicked, whether it worked, the error text if it didn't, how long it took,
-    /// and the BDAT and SolidWorks versions, sent to Ben's Google Sheet (see usage\SETUP.md).
+    /// Anonymous usage: which button was clicked, whether it worked, the error text if it didn't, how long BDAT
+    /// worked on it (time in pop-ups not counted), and the BDAT and SolidWorks versions, sent to Ben's Google Sheet (see usage\SETUP.md).
     /// Never sends names, file or part names, or anything from a part. Each Windows user gets a random id so users
     /// can be counted without knowing who they are.
     ///
@@ -40,6 +41,12 @@ namespace BDAT
 
         // The button running right now, and the first error message it showed.
         private static string _runningError;
+
+        // Time BDAT spends working on the running button. Paused while any BDAT pop-up is open (Windows Forms says
+        // when a modal window opens and closes on this thread), so reading and typing in pop-ups isn't counted.
+        private static readonly System.Diagnostics.Stopwatch WorkTimer = new System.Diagnostics.Stopwatch();
+        private static bool _running;
+        private static bool _watchingPopUps;
 
         /// <summary>True when this build can send usage at all (it was built with a usage key).</summary>
         public static bool Available
@@ -96,6 +103,15 @@ namespace BDAT
         public static void ButtonStarting()
         {
             _runningError = null;
+            if (!_watchingPopUps)
+            {
+                _watchingPopUps = true;
+                Application.EnterThreadModal += delegate { WorkTimer.Stop(); };
+                Application.LeaveThreadModal += delegate { if (_running) WorkTimer.Start(); };
+            }
+            _running = true;
+            WorkTimer.Reset();
+            WorkTimer.Start();
         }
 
         /// <summary>BDAT showed an error message. Remembered (the first one) for the button that's running.</summary>
@@ -104,9 +120,18 @@ namespace BDAT
             if (_runningError == null) _runningError = message ?? "";
         }
 
-        /// <summary>Call after a button ran. crash is the exception it threw, if any.</summary>
-        public static void ButtonFinished(string button, long milliseconds, Exception crash)
+        /// <summary>Stops the work timer, e.g. before showing a "failed" message.</summary>
+        public static void StopTimer()
         {
+            _running = false;
+            WorkTimer.Stop();
+        }
+
+        /// <summary>Call after a button ran. crash is the exception it threw, if any.</summary>
+        public static void ButtonFinished(string button, Exception crash)
+        {
+            StopTimer();
+            long milliseconds = WorkTimer.ElapsedMilliseconds;
             string error = crash != null ? crash.Message : _runningError;
             string result = crash != null ? "crash" : _runningError != null ? "error" : "ok";
             _runningError = null;

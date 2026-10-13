@@ -268,7 +268,6 @@ namespace BDAT
         private void Run(IBdatCommand command)
         {
             Usage.ButtonStarting();
-            System.Diagnostics.Stopwatch timer = System.Diagnostics.Stopwatch.StartNew();
             Exception crash = null;
             try
             {
@@ -277,13 +276,13 @@ namespace BDAT
             catch (Exception ex)
             {
                 crash = ex;
-                timer.Stop(); // time reading the "failed" box isn't BDAT's
+                Usage.StopTimer(); // time reading the "failed" box isn't BDAT's
                 MessageBox.Show(
                     command.Title + " failed:\n\n" + ex.Message,
                     AddinTitle, MessageBoxButtons.OK, MessageBoxIcon.Error);
             }
             // The version button's title is "BDAT vN", so it's sent under a fixed name.
-            Usage.ButtonFinished(command is VersionCommand ? "BDAT version" : command.Title, timer.ElapsedMilliseconds, crash);
+            Usage.ButtonFinished(command is VersionCommand ? "BDAT version" : command.Title, crash);
         }
 
         private int CanRun(IBdatCommand command)
