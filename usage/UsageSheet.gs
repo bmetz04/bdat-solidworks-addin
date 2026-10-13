@@ -22,11 +22,13 @@ const HEADERS = ['Time', 'PC id', 'Button', 'Result', 'Seconds', 'BDAT', 'SolidW
 
 function doPost(e) {
   const p = (e && e.parameter) || {};
-  if (p.key !== KEY) return reply('no');
-  if (BUTTONS.indexOf(p.button) < 0 || RESULTS.indexOf(p.result) < 0) return reply('no');
-  if (!/^[0-9a-f]{12}$/.test(p.id || '')) return reply('no');
+  // Each refusal says which check failed, so BDAT's usage.log shows why.
+  if (String(p.key || '').trim() !== KEY.trim()) return reply('no: key');
+  if (BUTTONS.indexOf(p.button) < 0) return reply('no: button');
+  if (RESULTS.indexOf(p.result) < 0) return reply('no: result');
+  if (!/^[0-9a-f]{12}$/.test(p.id || '')) return reply('no: id');
   const ms = Number(p.ms);
-  if (!(ms >= 0 && ms < 3600000)) return reply('no');
+  if (!(ms >= 0 && ms < 3600000)) return reply('no: ms');
 
   const lock = LockService.getScriptLock();
   if (!lock.tryLock(10000)) return reply('busy');
