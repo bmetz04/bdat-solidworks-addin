@@ -8,6 +8,7 @@ if not exist "%DLL%" (
   pause
   exit /b 1
 )
+powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0build\clear-tab-layout.ps1"
 "%WINDIR%\Microsoft.NET\Framework64\v4.0.30319\RegAsm.exe" /codebase "%DLL%"
 echo.
 echo Done. Start SolidWorks and look for the BDAT tab/toolbar.

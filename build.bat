@@ -34,5 +34,7 @@ if errorlevel 1 (
 REM BDAT itself no longer needs these; the test harness does.
 copy /y "%API%\SolidWorks.Interop.*.dll" "%OUT%\" >nul
 echo Built %OUT%\BDAT.dll
+REM New buttons only show once SolidWorks forgets its saved BDAT tab (see build\clear-tab-layout.ps1).
+powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0build\clear-tab-layout.ps1"
 if defined USAGE_RES (echo Anonymous usage sharing is built in.) else (echo No usage-key.txt, so this build sends no usage.)
 if "%PAUSE_AT_END%"=="1" pause
