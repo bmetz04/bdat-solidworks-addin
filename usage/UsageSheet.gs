@@ -66,3 +66,45 @@ function clean(text, max) {
 function reply(text) {
   return ContentService.createTextOutput(text);
 }
+
+// Daily e-mail of crashes and errors. Run setUpDailyReport once from the editor (select it, Run, allow access);
+// after that dailyReport runs every morning and e-mails the script's owner only if something went wrong in the
+// last 24 hours. Triggers use the saved code, so changes here need no new deployment.
+const REPORT_HOUR = 7;
+
+function setUpDailyReport() {
+  ScriptApp.getProjectTriggers()
+    .filter(function (t) { return t.getHandlerFunction() === 'dailyReport'; })
+    .forEach(function (t) { ScriptApp.deleteTrigger(t); });
+  ScriptApp.newTrigger('dailyReport').timeBased().everyDays(1).atHour(REPORT_HOUR).create();
+}
+
+function dailyReport() {
+  const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheets()[0];
+  if (sheet.getLastRow() < 2) return;
+  const since = new Date(Date.now() - 24 * 3600 * 1000);
+  const rows = sheet.getRange(2, 1, sheet.getLastRow() - 1, HEADERS.length).getValues()
+    .filter(function (r) { return r[0] instanceof Date && r[0] >= since && (r[3] === 'crash' || r[3] === 'error'); });
+  if (rows.length === 0) return;
+
+  // Same button, result and error counted once, most frequent first.
+  const groups = {};
+  rows.forEach(function (r) {
+    const k = r[2] + '|' + r[3] + '|' + r[7];
+    if (!groups[k]) groups[k] = { button: r[2], result: r[3], error: r[7], count: 0, pcs: {}, bdat: {} };
+    groups[k].count++;
+    groups[k].pcs[r[1]] = true;
+    groups[k].bdat[r[5]] = true;
+  });
+  const lines = Object.keys(groups).map(function (k) { return groups[k]; })
+    .sort(function (a, b) { return b.count - a.count; })
+    .map(function (g) {
+      return g.count + 'x ' + g.button + ' ' + g.result + ' on ' + Object.keys(g.pcs).length + ' PC(s), BDAT ' +
+        Object.keys(g.bdat).join(', ') + '\n   ' + (g.error || '(no message)');
+    });
+  const crashes = rows.filter(function (r) { return r[3] === 'crash'; }).length;
+  MailApp.sendEmail(
+    Session.getEffectiveUser().getEmail(),
+    'BDAT: ' + crashes + ' crash(es), ' + (rows.length - crashes) + ' error(s) in the last day',
+    lines.join('\n\n') + '\n\n' + SpreadsheetApp.getActiveSpreadsheet().getUrl());
+}

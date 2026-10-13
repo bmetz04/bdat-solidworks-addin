@@ -31,6 +31,13 @@ It is also off:
    ```
 6. Build BDAT (build.bat). It says "Anonymous usage sharing is built in." when it found the file.
 
+## Daily crash e-mail (optional)
+
+In the Apps Script editor, pick **setUpDailyReport** in the function list next to Run and click **Run** once. Allow
+access when Google asks (it now needs to send you e-mail). Every morning around 7 it then e-mails you the crashes and
+errors from the last 24 hours, grouped by button and message. No e-mail on days with none. Run **dailyReport** by
+hand to try it. To stop it, delete the trigger under **Triggers** (the clock icon).
+
 ## If junk shows up
 
 Change `KEY` in the script, then **Deploy > Manage deployments > Edit > Version: New version > Deploy**. Put the new
