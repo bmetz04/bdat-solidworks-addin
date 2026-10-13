@@ -51,6 +51,12 @@ namespace BDAT.Commands
                 csv = TestMode.EbomCsvPath;
                 source = "test EBOM";
             }
+            else if (Ebom.UseOwnCsv && Ebom.SavedPath != null && File.Exists(Ebom.SavedPath))
+            {
+                // Picked in BDAT Settings instead of the team EBOM.
+                csv = Ebom.SavedPath;
+                source = "Your EBOM CSV (" + Path.GetFileName(csv) + ")";
+            }
             else
             {
                 bool fresh;

@@ -115,6 +115,24 @@ namespace BDAT
             }
         }
 
+        /// <summary>How many assembly folders were picked on this PC (for BDAT Settings).</summary>
+        public static int MineCount
+        {
+            get { return Mine().Count; }
+        }
+
+        /// <summary>
+        /// Forgets every folder picked on this PC (BDAT Settings). Folders already in the team list are still known;
+        /// picks not yet merged by Publish BDAT are gone, so New from EBOM asks for them again.
+        /// </summary>
+        public static void ForgetAllMine()
+        {
+            try { Registry.CurrentUser.DeleteSubKeyTree(KeyPath, false); }
+            catch (Exception) { }
+            try { if (File.Exists(PickedPath)) File.Delete(PickedPath); }
+            catch (Exception) { }
+        }
+
         /// <summary>Folders picked on this PC: the picked list, plus the registry (the registry wins).</summary>
         private static Dictionary<string, Bookmark> Mine()
         {

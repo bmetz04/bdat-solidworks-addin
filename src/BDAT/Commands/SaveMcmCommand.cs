@@ -393,6 +393,39 @@ namespace BDAT.Commands
             return picked;
         }
 
+        /// <summary>The title of the McMaster Carr folder picked on this PC, or null if it uses the team's (for BDAT Settings).</summary>
+        internal static string PickedFolderTitle
+        {
+            get
+            {
+                try
+                {
+                    using (RegistryKey key = Registry.CurrentUser.OpenSubKey(UserKeyPath))
+                    {
+                        if (key == null || string.IsNullOrEmpty(key.GetValue(BookmarkIdValue) as string)) return null;
+                        string title = key.GetValue(BookmarkTitleValue) as string;
+                        return string.IsNullOrEmpty(title) ? BookmarkTitle : title;
+                    }
+                }
+                catch (Exception)
+                {
+                    return null;
+                }
+            }
+        }
+
+        /// <summary>Forgets this PC's pick, so Save MCM goes back to the team's folder (or asks, if there isn't one).</summary>
+        internal static void ForgetPickedFolder()
+        {
+            using (RegistryKey key = Registry.CurrentUser.OpenSubKey(UserKeyPath, true))
+            {
+                if (key == null) return;
+                key.DeleteValue(BookmarkIdValue, false);
+                key.DeleteValue(BookmarkTitleValue, false);
+            }
+            Log("McMaster Carr folder forgotten (BDAT Settings)");
+        }
+
         /// <summary>True if a bookmark title names the McMaster Carr folder, in any case ("Mcmaster Carr" counts).</summary>
         internal static bool IsMcMasterFolder(string title)
         {

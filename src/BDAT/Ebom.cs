@@ -304,6 +304,34 @@ namespace BDAT
 
         private const string SettingsKey = @"Software\BDAT";
         private const string CsvValue = "EbomCsv";
+        private const string UseOwnValue = "EbomUseOwnCsv";
+
+        /// <summary>
+        /// True when this PC should read its own CSV (SavedPath) instead of the team EBOM, set in BDAT Settings.
+        /// Off by default: the team EBOM is used and SavedPath only when there's no team copy.
+        /// </summary>
+        public static bool UseOwnCsv
+        {
+            get
+            {
+                try
+                {
+                    using (RegistryKey key = Registry.CurrentUser.OpenSubKey(SettingsKey))
+                        return key != null && "1".Equals(key.GetValue(UseOwnValue) as string);
+                }
+                catch
+                {
+                    return false;
+                }
+            }
+            set
+            {
+                using (RegistryKey key = Registry.CurrentUser.CreateSubKey(SettingsKey))
+                {
+                    if (key != null) key.SetValue(UseOwnValue, value ? "1" : "0", RegistryValueKind.String);
+                }
+            }
+        }
 
         /// <summary>The EBOM CSV picked by hand last time on this PC (per Windows user), or null. Only used when there's no team copy.</summary>
         public static string SavedPath

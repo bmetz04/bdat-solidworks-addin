@@ -558,7 +558,8 @@ namespace BDAT.Commands
             return true;
         }
 
-        private static string SavedFolder()
+        /// <summary>The folder DXFs went to last time on this PC (also set in BDAT Settings), or Documents.</summary>
+        internal static string SavedFolder()
         {
             try
             {
@@ -575,7 +576,7 @@ namespace BDAT.Commands
             return System.Environment.GetFolderPath(System.Environment.SpecialFolder.MyDocuments);
         }
 
-        private static void SaveFolder(string folder)
+        internal static void SaveFolder(string folder)
         {
             try
             {
