@@ -33,6 +33,7 @@ The SolidWorks tests never close a SolidWorks they didn't start. They won't run 
 - Create Origin offers mm first (the default), cm, m, in and ft, names the document's units, and tries every quarter-turn rotation for Origin' once each, likely ones first.
 - Create Origin reads coordinates in the picked unit or with a typed unit (mm, cm, m, in, ", ft), refuses anything that isn't a number, and formats the point for messages (`(10, -20.5, 0 mm)`).
 - Neither the version button nor Update BDAT launches anything.
+- Anonymous usage is off in test mode, and its error text has paths, file names and e-mail addresses removed.
 
 **SolidWorks tests:**
 - Sample parts are made in `%TEMP%\BDAT-tests\<time>`:

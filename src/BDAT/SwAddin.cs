@@ -69,6 +69,10 @@ namespace BDAT
                 PlatformSave.Log(ToolbarLog, "AddCommandManager failed: " + ex);
                 throw;
             }
+
+            try { Usage.SetSolidWorksVersion(_swApp.RevisionNumber()); }
+            catch (Exception) { }
+            Usage.Loaded();
             return true;
         }
 
@@ -263,16 +267,38 @@ namespace BDAT
 
         private void Run(IBdatCommand command)
         {
+            Usage.ButtonStarting();
+            HideOpenDocumentNames();
+            Exception crash = null;
             try
             {
                 command.Run(_swApp);
             }
             catch (Exception ex)
             {
+                crash = ex;
+                Usage.StopTimer(); // time reading the "failed" box isn't BDAT's
                 MessageBox.Show(
                     command.Title + " failed:\n\n" + ex.Message,
                     AddinTitle, MessageBoxButtons.OK, MessageBoxIcon.Error);
             }
+            HideOpenDocumentNames(); // a button may have opened or made one
+            // The version button's title is "BDAT vN", so it's sent under a fixed name.
+            Usage.ButtonFinished(command is VersionCommand ? "BDAT version" : command.Title, crash);
+        }
+
+        /// <summary>Keeps the active document's name out of the usage error text.</summary>
+        private void HideOpenDocumentNames()
+        {
+            try
+            {
+                IModelDoc2 doc = _swApp == null ? null : _swApp.ActiveDoc as IModelDoc2;
+                if (doc == null) return;
+                Usage.HideName(doc.GetTitle());
+                string path = doc.GetPathName();
+                if (!string.IsNullOrEmpty(path)) Usage.HideName(System.IO.Path.GetFileNameWithoutExtension(path));
+            }
+            catch (Exception) { }
         }
 
         private int CanRun(IBdatCommand command)
