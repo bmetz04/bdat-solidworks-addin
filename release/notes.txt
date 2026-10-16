@@ -1,13 +1,11 @@
-**Open from EBOM**
-- Faster: the slow 3DX look-ups run while you're naming the part, and a "Saving to 3DX..." window shows progress while it saves.
-- Can't save a part twice: BDAT checks 3DX fresh right before making a part, opens it instead if someone has just made it, and won't make it if the check can't run unless you choose "Make it anyway".
-- The Open button is greyed out ("Checking 3DX...") until the 3DX check is done.
-
-**Murder Part**
-- Works even when SolidWorks has no default part template set, and keeps the file if the import still fails.
-
-**Create Origin**
-- Fixed creating the origin on some SolidWorks versions.
+**BDAT Settings**
+- New grey gear button at the end of the BDAT tab, with settings saved for you on this PC.
+- Usage data: turn sharing on or off.
+- Save MCM: see which McMaster Carr folder your parts go in, or forget your pick and go back to the team's folder.
+- Open from EBOM: use your own EBOM CSV instead of the team EBOM, and forget the 3DX folders you picked for assemblies.
+- Waterjet DXF: choose the folder DXFs are saved in.
+- Help: open the BDAT logs folder, read the release notes, or check for updates.
 
 **General**
-- BDAT now installs and runs on older SolidWorks versions too.
+- The first time you click a BDAT button, BDAT asks whether to share usage data to help improve it: which buttons are used, whether they worked, how long they took, and any error messages. Never your name, files or part data. Nothing is sent unless you choose Share, and you can change your answer any time in BDAT Settings.
+- New buttons now always show up on the BDAT tab after an update.

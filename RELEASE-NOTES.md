@@ -2,6 +2,20 @@
 
 Newest first. Publish BDAT adds an entry here every time a new version goes out.
 
+## v12 (2026-10-16 14:22)
+
+**BDAT Settings**
+- New grey gear button at the end of the BDAT tab, with settings saved for you on this PC.
+- Usage data: turn sharing on or off.
+- Save MCM: see which McMaster Carr folder your parts go in, or forget your pick and go back to the team's folder.
+- Open from EBOM: use your own EBOM CSV instead of the team EBOM, and forget the 3DX folders you picked for assemblies.
+- Waterjet DXF: choose the folder DXFs are saved in.
+- Help: open the BDAT logs folder, read the release notes, or check for updates.
+
+**General**
+- The first time you click a BDAT button, BDAT asks whether to share usage data to help improve it: which buttons are used, whether they worked, how long they took, and any error messages. Never your name, files or part data. Nothing is sent unless you choose Share, and you can change your answer any time in BDAT Settings.
+- New buttons now always show up on the BDAT tab after an update.
+
 ## v11 (2026-10-10 15:37)
 
 **Open from EBOM**
