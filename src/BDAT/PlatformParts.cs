@@ -29,35 +29,9 @@ namespace BDAT
             TestMode.BlockConnector("PlatformParts.FindId");
             try
             {
-                Assembly infra = Connector.ConnectorAssembly("TaskPaneInfra");
-                Assembly wsapi = Connector.ConnectorAssembly("WSAPI");
-                Type iec = infra == null ? null : infra.GetType("TaskPaneInfra.IEC");
-                Type web = wsapi == null ? null : wsapi.GetType("WSAPI.WebServices");
-                const BindingFlags any = BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static;
-                FieldInfo lockField = iec == null ? null : iec.GetField("_serverLock", any);
-                MethodInfo getServer = iec == null ? null : iec.GetMethod("get_server", any);
-                MethodInfo login = web == null ? null : web.GetMethod("LoginTo3DSpace", any);
-                Type requestType = wsapi == null ? null : wsapi.GetType("WSAPI.DSHttpWebRequest");
-                if (lockField == null || getServer == null || login == null || requestType == null)
-                {
-                    error = "this version of the 3DX connector doesn't offer a search BDAT can use.";
-                    return null;
-                }
-
-                object serverLock = lockField.GetValue(null) ?? new object();
-                string reply;
-                lock (serverLock)
-                {
-                    object server = getServer.Invoke(null, null);
-                    if (server == null) { error = "you're not connected to 3DX."; return null; }
-                    var cc = new CookieContainer();
-                    object session = login.Invoke(null, new object[] { server, cc });
-                    if (session == null) { error = "couldn't sign in to 3DSpace."; return null; }
-                    // IEnoServer, the interop interface the server COM object is called through (LoginTo3DSpace's first parameter).
-                    Type serverType = login.GetParameters()[0].ParameterType;
-                    reply = Get(requestType, serverType, server, cc, SearchPath(number));
-                }
-
+                Session session = Session.Open(out error);
+                if (session == null) return null;
+                string reply = session.GetText(SearchPath(number));
                 string id = IdFromSearch(reply, number);
                 PlatformSave.Log(LogName, "open: search for " + number + " = " + (id ?? "no match in: " + Short(reply)));
                 if (id == null) error = "3DX's search didn't find " + number + ".";
@@ -124,44 +98,170 @@ namespace BDAT
             return ids.Count == 1 ? ids[0] : null;
         }
 
-        // A GET through the connector's DSHttpWebRequest, signed in with cc and sent in the login security context.
-        private static string Get(Type requestType, Type serverType, object server, CookieContainer cc, string path)
+        /// <summary>
+        /// A sign-in to 3DSpace through the connector, for requests sent with its DSHttpWebRequest: signed in with the
+        /// connector's cookies and sent in the login security context. Read-only use only.
+        /// </summary>
+        internal sealed class Session
         {
-            string url = serverType.GetMethod("GetServiceUrl").Invoke(server, new object[] { 2 }) as string;
-            if (string.IsNullOrEmpty(url)) throw new InvalidOperationException("no 3DSpace address");
-            if (!url.EndsWith("/")) url += "/";
-            url += path;
+            private object _lock;
+            private object _server;
+            private Type _serverType;
+            private Type _requestType;
+            private CookieContainer _cookies;
 
-            object request = null;
-            foreach (MethodInfo m in requestType.GetMethods(BindingFlags.Public | BindingFlags.Static))
-                if (m.Name == "Create" && m.GetParameters().Length == 2) request = m.Invoke(null, new object[] { server, url });
-            if (request == null) throw new InvalidOperationException("no DSHttpWebRequest");
-            requestType.GetProperty("CookieContainer").SetValue(request, cc, null);
-            requestType.GetProperty("Method").SetValue(request, "GET", null);
+            /// <summary>Signs in to 3DSpace. Null with the reason in error if it can't.</summary>
+            public static Session Open(out string error)
+            {
+                error = null;
+                TestMode.BlockConnector("PlatformParts.Session");
+                Assembly infra = Connector.ConnectorAssembly("TaskPaneInfra");
+                Assembly wsapi = Connector.ConnectorAssembly("WSAPI");
+                Type iec = infra == null ? null : infra.GetType("TaskPaneInfra.IEC");
+                Type web = wsapi == null ? null : wsapi.GetType("WSAPI.WebServices");
+                const BindingFlags any = BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static;
+                FieldInfo lockField = iec == null ? null : iec.GetField("_serverLock", any);
+                MethodInfo getServer = iec == null ? null : iec.GetMethod("get_server", any);
+                MethodInfo login = web == null ? null : web.GetMethod("LoginTo3DSpace", any);
+                Type requestType = wsapi == null ? null : wsapi.GetType("WSAPI.DSHttpWebRequest");
+                if (lockField == null || getServer == null || login == null || requestType == null)
+                {
+                    error = "this version of the 3DX connector doesn't offer a search BDAT can use.";
+                    return null;
+                }
 
-            // SecurityContext: role.organization.collabspace, as the connector sends it.
-            object sc = serverType.GetMethod("GetLoginSC").Invoke(server, null);
-            string context = Field(sc, "mbsRole") + "." + Field(sc, "mbsOrganization") + "." + Field(sc, "mbsCollabSpace");
-            object headers = requestType.GetProperty("Headers").GetValue(request, null);
-            MethodInfo add = headers.GetType().GetMethod("Add", new[] { typeof(string), typeof(string) });
-            add.Invoke(headers, new object[] { "SecurityContext", WebUtility.UrlEncode(context) });
+                var session = new Session();
+                session._lock = lockField.GetValue(null) ?? new object();
+                session._requestType = requestType;
+                lock (session._lock)
+                {
+                    session._server = getServer.Invoke(null, null);
+                    if (session._server == null) { error = "you're not connected to 3DX."; return null; }
+                    session._cookies = new CookieContainer();
+                    object signedIn = login.Invoke(null, new object[] { session._server, session._cookies });
+                    if (signedIn == null) { error = "couldn't sign in to 3DSpace."; return null; }
+                    // IEnoServer, the interop interface the server COM object is called through (LoginTo3DSpace's first parameter).
+                    session._serverType = login.GetParameters()[0].ParameterType;
+                }
+                return session;
+            }
 
-            MethodInfo getResponse = null;
-            foreach (MethodInfo m in requestType.GetMethods(BindingFlags.Public | BindingFlags.Instance))
-                if (m.Name == "GetResponse" && !m.IsGenericMethodDefinition && m.GetParameters().Length == 0) getResponse = m;
-            if (getResponse == null) throw new InvalidOperationException("no GetResponse");
-            using (var response = (WebResponse)getResponse.Invoke(request, null))
-            using (var reader = new StreamReader(response.GetResponseStream()))
-                return reader.ReadToEnd();
+            /// <summary>The address of one of the connector's services (2 is 3DSpace), or null.</summary>
+            public string ServiceUrl(int service)
+            {
+                lock (_lock)
+                    return _serverType.GetMethod("GetServiceUrl").Invoke(_server, new object[] { service }) as string;
+            }
+
+            /// <summary>A GET of a 3DSpace path (or a full address) as text. Throws if 3DX answers with an error.</summary>
+            public string GetText(string pathOrUrl)
+            {
+                Reply reply = Send("GET", pathOrUrl, null);
+                if (reply.Status >= 400) throw new WebException("3DX answered " + reply.Status + ": " + Short(reply.Text));
+                return reply.Text;
+            }
+
+            /// <summary>
+            /// Sends a request to a 3DSpace path (e.g. "resources/v1/...") or a full address, with body sent as JSON (null
+            /// for none). An error answer like 404 comes back as a Reply too; only a broken connection throws.
+            /// </summary>
+            public Reply Send(string method, string pathOrUrl, string body)
+            {
+                string url = pathOrUrl;
+                if (!url.StartsWith("http", StringComparison.OrdinalIgnoreCase))
+                {
+                    string space = ServiceUrl(2);
+                    if (string.IsNullOrEmpty(space)) throw new InvalidOperationException("no 3DSpace address");
+                    url = url.StartsWith("/") ? new Uri(space).GetLeftPart(UriPartial.Authority) + url
+                        : (space.EndsWith("/") ? space : space + "/") + url;
+                }
+
+                lock (_lock)
+                {
+                    object request = null;
+                    foreach (MethodInfo m in _requestType.GetMethods(BindingFlags.Public | BindingFlags.Static))
+                        if (m.Name == "Create" && m.GetParameters().Length == 2) request = m.Invoke(null, new object[] { _server, url });
+                    if (request == null) throw new InvalidOperationException("no DSHttpWebRequest");
+                    _requestType.GetProperty("CookieContainer").SetValue(request, _cookies, null);
+                    _requestType.GetProperty("Method").SetValue(request, method, null);
+
+                    // SecurityContext: role.organization.collabspace, as the connector sends it.
+                    object sc = _serverType.GetMethod("GetLoginSC").Invoke(_server, null);
+                    string context = Field(sc, "mbsRole") + "." + Field(sc, "mbsOrganization") + "." + Field(sc, "mbsCollabSpace");
+                    object headers = _requestType.GetProperty("Headers").GetValue(request, null);
+                    MethodInfo add = headers.GetType().GetMethod("Add", new[] { typeof(string), typeof(string) });
+                    add.Invoke(headers, new object[] { "SecurityContext", WebUtility.UrlEncode(context) });
+
+                    if (body != null)
+                    {
+                        PropertyInfo contentType = _requestType.GetProperty("ContentType");
+                        MethodInfo getStream = _requestType.GetMethod("GetRequestStream", Type.EmptyTypes);
+                        if (contentType == null || getStream == null) throw new InvalidOperationException("DSHttpWebRequest can't send a body");
+                        contentType.SetValue(request, "application/json", null);
+                        byte[] bytes = System.Text.Encoding.UTF8.GetBytes(body);
+                        using (var stream = (Stream)getStream.Invoke(request, null))
+                            stream.Write(bytes, 0, bytes.Length);
+                    }
+
+                    MethodInfo getResponse = null;
+                    foreach (MethodInfo m in _requestType.GetMethods(BindingFlags.Public | BindingFlags.Instance))
+                        if (m.Name == "GetResponse" && !m.IsGenericMethodDefinition && m.GetParameters().Length == 0) getResponse = m;
+                    if (getResponse == null) throw new InvalidOperationException("no GetResponse");
+                    try
+                    {
+                        using (var response = (WebResponse)getResponse.Invoke(request, null))
+                            return Reply.From(response);
+                    }
+                    catch (TargetInvocationException ex)
+                    {
+                        // A 4xx or 5xx answer is still an answer.
+                        var failed = ex.InnerException as WebException;
+                        if (failed == null || failed.Response == null) throw;
+                        using (failed.Response)
+                            return Reply.From(failed.Response);
+                    }
+                }
+            }
         }
 
-        private static string Short(string s)
+        /// <summary>What came back from a request.</summary>
+        internal sealed class Reply
+        {
+            public int Status;
+            public string ContentType;
+            public byte[] Data;
+
+            public string Text
+            {
+                get { return Data == null ? "" : System.Text.Encoding.UTF8.GetString(Data); }
+            }
+
+            public static Reply From(WebResponse response)
+            {
+                var http = response as HttpWebResponse;
+                var reply = new Reply { Status = http == null ? 200 : (int)http.StatusCode, ContentType = response.ContentType ?? "" };
+                using (Stream stream = response.GetResponseStream())
+                using (var copy = new MemoryStream())
+                {
+                    if (stream != null) stream.CopyTo(copy);
+                    reply.Data = copy.ToArray();
+                }
+                return reply;
+            }
+        }
+
+        internal static string Short(string s)
+        {
+            return Short(s, 300);
+        }
+
+        internal static string Short(string s, int max)
         {
             if (s == null) return "(no reply)";
-            return s.Length <= 300 ? s : s.Substring(0, 300) + "...";
+            return s.Length <= max ? s : s.Substring(0, max) + "...";
         }
 
-        private static object Field(object target, string name)
+        internal static object Field(object target, string name)
         {
             FieldInfo f = target.GetType().GetField(name, BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance);
             if (f != null) return f.GetValue(target);

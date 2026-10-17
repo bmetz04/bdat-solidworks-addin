@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Drawing;
 using System.IO;
 using System.Runtime.InteropServices;
+using System.Threading;
 using System.Windows.Forms;
 
 namespace BDAT.Commands
@@ -10,7 +11,7 @@ namespace BDAT.Commands
     /// <summary>
     /// The Open from EBOM pop-up: the EBOM as a tree of assemblies (bold, collapsed) with their parts underneath.
     /// Search or filter by area, open an assembly with its ▶ marker, double-click or Right arrow, and pick a row.
-    /// A strip under the list says what will be made and where it's saved.
+    /// The picked row's picture shows on the right, loaded in the background (see PartThumbnails).
     /// </summary>
     internal sealed class NewFromEbomForm : Form
     {
@@ -32,8 +33,8 @@ namespace BDAT.Commands
         public NewFromEbomForm(string csvPath, string source, List<EbomRow> rows)
         {
             ModernUi.Setup(this, "Open from EBOM", true);
-            ClientSize = new Size(980, 640);
-            MinimumSize = new Size(700, 460);
+            ClientSize = new Size(1240, 640);
+            MinimumSize = new Size(960, 460);
             _bold = new Font(Font, FontStyle.Bold);
 
             var layout = new TableLayoutPanel { Dock = DockStyle.Fill, Padding = new Padding(20, 16, 20, 14), ColumnCount = 1, RowCount = 6, BackColor = Page };
@@ -75,7 +76,11 @@ namespace BDAT.Commands
             tools.Controls.Add(ModernUi.Link("Collapse all", delegate { _allOpen = false; _toggled.Clear(); Fill(); }, new Padding(0, 9, 0, 0)), 4, 0);
             layout.Controls.Add(tools, 0, 1);
 
-            // The list, in a thin frame.
+            // The list, in a thin frame, with the preview on its right.
+            var middle = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 2, RowCount = 1, Margin = new Padding(0) };
+            middle.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100f));
+            middle.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 262f));
+            middle.RowStyles.Add(new RowStyle(SizeType.Percent, 100f));
             var listFrame = new Panel { Dock = DockStyle.Fill, Padding = new Padding(1), BackColor = Line, Margin = new Padding(0) };
             _list = new ListView
             {
@@ -102,7 +107,9 @@ namespace BDAT.Commands
             _list.KeyDown += OnListKeyDown;
             _list.Resize += delegate { FitNameColumn(); };
             listFrame.Controls.Add(_list);
-            layout.Controls.Add(listFrame, 0, 2);
+            middle.Controls.Add(listFrame, 0, 0);
+            middle.Controls.Add(BuildPreview(), 1, 0);
+            layout.Controls.Add(middle, 0, 2);
 
 
             // Buttons: file links on the left, Save / Create / Cancel on the right.
@@ -213,6 +220,8 @@ namespace BDAT.Commands
             if (disposing)
             {
                 _bold.Dispose();
+                _previewClosed = true;
+                _previewSignal.Set();
             }
             base.Dispose(disposing);
         }
@@ -222,6 +231,7 @@ namespace BDAT.Commands
             base.OnShown(e);
             FitNameColumn();
             _search.Focus();
+            _workFolder = PartThumbnails.WorkFolder();
             CheckExisting();
         }
 
@@ -474,6 +484,7 @@ namespace BDAT.Commands
             // Not while it's checking 3DX: until the check is back BDAT doesn't know whether to open it or offer to make it.
             _create.Enabled = row != null && !_checking;
             _create.Text = _checking ? "Checking 3DX..." : row == null ? "Open" : "Open " + (row.IsAssembly ? "assembly" : "part");
+            RequestPreview();
         }
 
         // A header with no assembly row matches the search by its number, e.g. typing "A0402".
@@ -564,6 +575,114 @@ namespace BDAT.Commands
             e.Handled = true;
         }
 
+
+        // ---------------------------------------------------------------- the preview
+
+        private PictureBox _preview;
+        private Label _previewNote;
+        private string _workFolder;
+        private Thread _previewThread;
+        private readonly AutoResetEvent _previewSignal = new AutoResetEvent(false);
+        private readonly object _previewGate = new object();
+        private EbomRow _previewWanted;
+        private bool _previewWantedInPlatform;
+        private volatile bool _previewClosed;
+        // Rows with no picture, per place looked: "BR-10101-AA|3dx" or "BR-10101-AA|local" (before the 3DX check is back).
+        private readonly HashSet<string> _noPreview = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+        /// <summary>A square white box in a thin frame, at the top of the column right of the list.</summary>
+        private Control BuildPreview()
+        {
+            var side = new Panel { Dock = DockStyle.Fill, Margin = new Padding(12, 0, 0, 0), BackColor = Page };
+            var frame = new Panel { Dock = DockStyle.Top, Padding = new Padding(1), BackColor = Line };
+            var inside = new Panel { Dock = DockStyle.Fill, BackColor = Page, Padding = new Padding(8) };
+            _preview = new PictureBox { Dock = DockStyle.Fill, SizeMode = PictureBoxSizeMode.Zoom, BackColor = Page };
+            _previewNote = new Label { Dock = DockStyle.Fill, TextAlign = ContentAlignment.MiddleCenter, ForeColor = Muted, UseMnemonic = false, Visible = false };
+            inside.Controls.Add(_preview);
+            inside.Controls.Add(_previewNote);
+            _previewNote.BringToFront();
+            frame.Controls.Add(inside);
+            side.Controls.Add(frame);
+            side.Resize += delegate { frame.Height = side.ClientSize.Width; };
+            return side;
+        }
+
+        /// <summary>Shows the picked row's picture: straight away if it's known, otherwise loads it in the background.</summary>
+        private void RequestPreview()
+        {
+            if (_preview == null) return;
+            EbomRow row = Selected;
+            if (row == null) { ShowPreview(null, null); return; }
+            Image image = PartThumbnails.Cached(row.Number);
+            if (image != null) { ShowPreview(image, null); return; }
+            if (Testing.TestMode.Enabled || !IsHandleCreated) { ShowPreview(null, null); return; }
+
+            bool inPlatform = Exists(row);
+            if (_noPreview.Contains(PreviewKey(row, inPlatform)))
+            {
+                // Not in the work folder, but 3DX may still have one once its check is back.
+                ShowPreview(null, _checking ? "Loading preview..." : "No preview");
+                return;
+            }
+            ShowPreview(null, "Loading preview...");
+            lock (_previewGate)
+            {
+                _previewWanted = row;
+                _previewWantedInPlatform = inPlatform;
+            }
+            if (_previewThread == null || !_previewThread.IsAlive)
+            {
+                // STA: Windows' thumbnail service wants it.
+                _previewThread = new Thread(PreviewLoop) { IsBackground = true, Name = "BDAT preview" };
+                _previewThread.SetApartmentState(ApartmentState.STA);
+                _previewThread.Start();
+            }
+            _previewSignal.Set();
+        }
+
+        private static string PreviewKey(EbomRow row, bool inPlatform)
+        {
+            return row.Number + (inPlatform ? "|3dx" : "|local");
+        }
+
+        // The background thread: loads whichever row was picked last, skipping any picked and left while it was busy.
+        private void PreviewLoop()
+        {
+            while (true)
+            {
+                _previewSignal.WaitOne();
+                if (_previewClosed) return;
+                EbomRow row;
+                bool inPlatform;
+                lock (_previewGate)
+                {
+                    row = _previewWanted;
+                    inPlatform = _previewWantedInPlatform;
+                    _previewWanted = null;
+                }
+                if (row == null) continue;
+                Image image = null;
+                try { image = PartThumbnails.Load(_workFolder, row, inPlatform); }
+                catch (Exception ex) { PlatformSave.Log("new-from-ebom", "preview: " + row.Number + " failed: " + ex); }
+                if (_previewClosed) return;
+                try { BeginInvoke((MethodInvoker)delegate { PreviewLoaded(row, inPlatform, image); }); }
+                catch (InvalidOperationException) { return; } // the pop-up closed
+            }
+        }
+
+        private void PreviewLoaded(EbomRow row, bool inPlatform, Image image)
+        {
+            if (IsDisposed) return;
+            if (image == null) _noPreview.Add(PreviewKey(row, inPlatform));
+            if (Selected == row) RequestPreview();
+        }
+
+        private void ShowPreview(Image image, string note)
+        {
+            if (_preview.Image != image) _preview.Image = image;
+            _previewNote.Text = note ?? "";
+            _previewNote.Visible = image == null && !string.IsNullOrEmpty(note);
+        }
 
         // ---------------------------------------------------------------- looks
 

@@ -514,6 +514,30 @@ namespace BdatTests
                 TestMode.ConnectorAttempts = 0;
             });
 
+            Test("Open from EBOM preview finds pictures", delegate
+            {
+                Equal("https://x/3dspace/thumb?id=1", PartThumbnails.ImageAddress("{\"id\":\"ID1\",\"thumbnail\":\"https:\\/\\/x\\/3dspace\\/thumb?id=1\"}", "ID1"), "a thumbnail key");
+                Equal("/3dspace/fcs/p.png", PartThumbnails.ImageAddress("{\"attributes\":[{\"name\":\"preview_url\",\"value\":\"/3dspace/fcs/p.png\"}]}", "ID1"), "a name/value preview_url");
+                Check(PartThumbnails.ImageAddress("{\"preview_url\":\"/snresources/images/icons/large/I_VPMNavProduct.png\"}", "ID1") == null, "a file-type icon isn't a picture of the part");
+                Check(PartThumbnails.ImageAddress("{\"title\":\"BR-10101-AA\"}", "ID1") == null, "no picture, no address");
+                Check(PartThumbnails.ImageAddress(null, "ID1") == null, "no reply, no address");
+
+                string folder = Path.Combine(Path.GetTempPath(), "bdat-preview-test");
+                Directory.CreateDirectory(folder);
+                try
+                {
+                    File.WriteAllText(Path.Combine(folder, "A0101.SLDASM"), "");
+                    Equal(Path.Combine(folder, "A0101.SLDASM"), PartThumbnails.LocalFile(folder, "A0101"), "an assembly in the work folder");
+                    Check(PartThumbnails.LocalFile(folder, "BR-10101-AA") == null, "not in the work folder");
+                    Check(PartThumbnails.LocalFile(null, "A0101") == null, "no work folder");
+                }
+                finally
+                {
+                    Directory.Delete(folder, true);
+                }
+                Check(PartThumbnails.WorkFolder() == null && TestMode.ConnectorAttempts == 0, "no work folder lookup in test mode");
+            });
+
             Test("Create Origin reads coordinates", delegate
             {
                 CreateOriginCommand.LengthUnit mm = CreateOriginCommand.Millimetres;
