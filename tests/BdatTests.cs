@@ -274,20 +274,21 @@ namespace BdatTests
             Test("Toolbar has the expected BDAT buttons, in order", delegate
             {
                 List<string> titles = CommandTitles(new SwAddin());
-                Check(titles.Count == 13, "expected 13 buttons, got " + titles.Count + ": " + string.Join(", ", titles.ToArray()));
+                Check(titles.Count == 14, "expected 14 buttons, got " + titles.Count + ": " + string.Join(", ", titles.ToArray()));
                 Equal("Murder Part", titles[0], "button 1");
                 Equal("Save MCM", titles[1], "button 2");
                 Equal("Create Origin", titles[2], "button 3");
                 Equal("Open from EBOM", titles[3], "button 4");
                 Equal("Save to EBOM", titles[4], "button 5");
                 Equal("Open Top Level", titles[5], "button 6");
-                Equal("Waterjet DXF", titles[6], "button 7");
-                Equal("Name Cut List", titles[7], "button 8");
-                Equal("Check Out", titles[8], "button 9");
-                Equal("Check In", titles[9], "button 10");
-                Equal("Update BDAT", titles[10], "button 11");
-                Check(Regex.IsMatch(titles[11], @"^BDAT (v\d+|dev build)$"), "button 12 should be the version (BDAT vN), got \"" + titles[11] + "\"");
-                Equal("BDAT Settings", titles[12], "button 13");
+                Equal("Check Top Level", titles[6], "button 7");
+                Equal("Waterjet DXF", titles[7], "button 8");
+                Equal("Name Cut List", titles[8], "button 9");
+                Equal("Check Out", titles[9], "button 10");
+                Equal("Check In", titles[10], "button 11");
+                Equal("Update BDAT", titles[11], "button 12");
+                Check(Regex.IsMatch(titles[12], @"^BDAT (v\d+|dev build)$"), "button 13 should be the version (BDAT vN), got \"" + titles[12] + "\"");
+                Equal("BDAT Settings", titles[13], "button 14");
             });
 
             Test("EBOM CSV is read by column heading", delegate
@@ -519,6 +520,75 @@ namespace BdatTests
                 try { string err; PlatformParts.FindTopLevels(out err); }
                 catch (InvalidOperationException) { refused = true; }
                 Check(refused && TestMode.ConnectorAttempts >= 1, "the top-level search can't reach 3DEXPERIENCE in test mode");
+                TestMode.ConnectorAttempts = 0;
+            });
+
+            Test("Check Top Level lists the folder's assemblies that aren't in the top level", delegate
+            {
+                // The folders the top level is in, as CVServletNavigateBookmarksOfObject answers (made-up ids).
+                List<FoundBookmark> holding = TopLevelCheck.FoldersFrom(new List<FakeFolderOf>
+                {
+                    new FakeFolderOf { id = "S", title = "Suspension" },
+                    new FakeFolderOf { id = "S", title = "Suspension" },
+                });
+                Check(holding.Count == 1 && holding[0].Title == "Suspension", "each folder once");
+                Check(TopLevelCheck.FoldersFrom(null).Count == 0, "no answer, no folders");
+
+                // What GetBookmarksItems answers for Suspension and its A0704 subfolder: objects plus folder -> item links.
+                var folders = new List<FoundBookmark>
+                {
+                    new FoundBookmark { Id = "S", Title = "Suspension", Path = "Suspension" },
+                    new FoundBookmark { Id = "B", Title = "A0704", Path = "Suspension > A0704", ParentId = "S" },
+                };
+                var reply = new FakeExpand();
+                reply.Results.Add(new FakeExpandRow { ResourceId = "S", Ds6w_label = "Suspension", Ds6w_type = "Workspace" });
+                reply.Results.Add(new FakeExpandRow { ResourceId = "TOP", Ds6w_label = "Sus Toplevel", Ds6w_type = "VPMReference" });
+                reply.Results.Add(new FakeExpandRow { ResourceId = "A1", Ds6w_label = "SU-70400-AA", Ds6w_type = "VPMReference" });
+                reply.Results.Add(new FakeExpandRow { ResourceId = "A2", Ds6w_label = "SU-70401-AA", Ds6w_type = "VPMReference" });
+                reply.Results.Add(new FakeExpandRow { ResourceId = "A3", Ds6w_label = "SU-70402-AA", Ds6w_type = "VPMReference" });
+                reply.Results.Add(new FakeExpandRow { ResourceId = "P1", Ds6w_label = "SU-70410-AA", Ds6w_type = "VPMReference", Bo_plmentity_v_usage = "3DPart" });
+                reply.Results.Add(new FakeExpandRow { ResourceId = "D1", Ds6w_label = "SU-70400-AA.SLDDRW", Ds6w_type = "Drawing" });
+                reply.Results.Add(new FakeExpandRow { ResourceId = "OLD", Ds6w_label = "Old Sus TopLevel", Ds6w_type = "VPMReference" });
+                reply.Results.Add(new FakeExpandRow { From = "S", To = "TOP" });
+                reply.Results.Add(new FakeExpandRow { From = "S", To = "A1" });
+                reply.Results.Add(new FakeExpandRow { From = "B", To = "A2" });
+                reply.Results.Add(new FakeExpandRow { From = "B", To = "A3" });
+                List<FolderItem> items = TopLevelCheck.ItemsFrom(reply, folders);
+                Check(items.Count == 7, "every item but the folder itself, got " + items.Count);
+                FolderItem a2 = items.Find(i => i.Id == "A2");
+                Equal("Suspension > A0704", a2 == null ? "" : a2.FolderPath, "an item's folder comes from the links");
+                Check(TopLevelCheck.IsAssembly(a2), "a physical product is an assembly");
+                Check(!TopLevelCheck.IsAssembly(items.Find(i => i.Id == "P1")), "a 3D part isn't");
+                Check(!TopLevelCheck.IsAssembly(items.Find(i => i.Id == "D1")), "a drawing isn't");
+                Check(!TopLevelCheck.IsAssembly(new FolderItem { Title = "X", Type = "VPMReference", Extension = "SLDPRT" }), "the file extension decides it when 3DX gives one");
+
+                // The top level has A1 directly (by id) and A3 inside a sub-assembly under another revision (by name).
+                List<FolderItem> missing = TopLevelCheck.Missing(items, "TOP", "Sus Toplevel", new[] { "A1" }, new[] { "su-70402-aa" });
+                Check(missing.Count == 1, "only A2 is missing (not the top level, the old top level, the part or the drawing), got " + missing.Count);
+                Equal("SU-70401-AA", missing.Count == 0 ? "" : missing[0].Title, "the missing assembly");
+                Check(TopLevelCheck.Missing(items, "TOP", "Sus Toplevel", new[] { "A1", "A2", "A3" }, new string[0]).Count == 0, "nothing missing");
+
+                // When 3DX won't say where it is: find the folders that hold it (by id, or by name for another revision)...
+                var team = new List<FoundBookmark>
+                {
+                    new FoundBookmark { Id = "ROOT", Title = "Formula UBC Racing", Path = "Formula UBC Racing" },
+                    new FoundBookmark { Id = "S", Title = "Suspension", Path = "Formula UBC Racing > Suspension", ParentId = "ROOT" },
+                    new FoundBookmark { Id = "B", Title = "A0704", Path = "Formula UBC Racing > Suspension > A0704", ParentId = "S" },
+                    new FoundBookmark { Id = "C", Title = "A0705", Path = "Formula UBC Racing > Suspension > A0704 > A0705", ParentId = "B" },
+                    new FoundBookmark { Id = "BR", Title = "Brakes", Path = "Formula UBC Racing > Brakes", ParentId = "ROOT" },
+                };
+                List<FoundBookmark> where = TopLevelCheck.FoldersHolding(items, folders, "NOT-THIS-ID", "Sus Toplevel.SLDASM");
+                Check(where.Count == 1 && where[0].Id == "S", "found by name in Suspension");
+                Check(TopLevelCheck.FoldersHolding(items, folders, "A2", "x").Count == 1, "found by id");
+                // ...then those folders and everything under them, not their siblings.
+                List<FoundBookmark> under = TopLevelCheck.Subtree(team, new List<FoundBookmark> { team[1] });
+                Check(under.Count == 3 && under.Exists(b => b.Id == "C") && !under.Exists(b => b.Id == "BR" || b.Id == "ROOT"),
+                    "Suspension, A0704 and A0705 only, got " + under.Count);
+
+                bool refused = false;
+                try { string err; TopLevelCheck.Read("TOP", "Sus Toplevel", new string[0], out err); }
+                catch (InvalidOperationException) { refused = true; }
+                Check(refused && TestMode.ConnectorAttempts >= 1, "Check Top Level can't reach 3DEXPERIENCE in test mode");
                 TestMode.ConnectorAttempts = 0;
             });
 
@@ -1684,6 +1754,16 @@ namespace BdatTests
         public string Ds6w_label { get; set; }
         public string From { get; set; }
         public string To { get; set; }
+        public string Ds6w_type { get; set; }
+        public string Bo_plmentity_v_usage { get; set; }
+        public string Ds6w_docextension { get; set; }
+    }
+
+    // Stand-in for the connector's JsBookmarkFromObject (CVServletNavigateBookmarksOfObject's answer).
+    public sealed class FakeFolderOf
+    {
+        public string id { get; set; }
+        public string title { get; set; }
     }
 
     // Stand-ins for JsCreateBookmarkResult (items is a field, as in the connector) and its Item.

@@ -692,7 +692,7 @@ namespace BDAT.Commands
         }
 
         /// <summary>Folders BDAT already knows, to find the team's top folder from: McMaster Carr, then every remembered one.</summary>
-        private static List<string> SearchStartIds()
+        internal static List<string> SearchStartIds()
         {
             var ids = new List<string> { SaveMcmCommand.KnownBookmarkId };
             foreach (Bookmark b in EbomFolders.All().Values)
