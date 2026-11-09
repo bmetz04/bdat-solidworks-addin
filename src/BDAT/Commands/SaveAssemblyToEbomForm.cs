@@ -3,7 +3,6 @@ using System.Collections.Generic;
 using System.Drawing;
 using System.IO;
 using System.Windows.Forms;
-using SolidWorks.Interop.sldworks;
 
 namespace BDAT.Commands
 {
@@ -11,7 +10,7 @@ namespace BDAT.Commands
     internal sealed class AssemblyFile
     {
         public string Path;
-        public IModelDoc2 Doc;
+        public SolidWorks.Interop.sldworks.IModelDoc2 Doc;
         public bool IsAssembly;
         /// <summary>The open (top) assembly.</summary>
         public bool IsTop;
