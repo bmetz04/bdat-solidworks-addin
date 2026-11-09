@@ -61,6 +61,15 @@ Opens one of the vehicle top-level assemblies from 3DEXPERIENCE. They aren't row
 
 Read-only: it never changes anything in 3DEXPERIENCE. You need to be logged in. Log: `%TEMP%\BDAT\new-from-ebom.log`.
 
+### Check Top Level
+With a vehicle top level open (its name has `toplevel` in it), lists the assemblies that are in the same 3DEXPERIENCE folder as the top level, or in any folder under it, but aren't anywhere in the top level. For example, every assembly in the Suspension folder (including the A0xxx folders inside it) must be in Sus Toplevel.
+
+- An assembly counts as in the top level if it's a component anywhere in it, directly or inside a sub-assembly, suppressed or not, any revision.
+- Parts, drawings, the top level itself and any other top level in the folder are ignored.
+- If nothing is missing it says so; otherwise a pop-up lists each missing assembly and the folder it's in.
+
+Read-only: it never changes anything in 3DEXPERIENCE or the assembly. You need to be logged in, and the top level must be saved in 3DEXPERIENCE. Log: `%TEMP%\BDAT\check-top-level.log`.
+
 ### Check Out / Check In
 Lock and unlock the open part or assembly in 3DEXPERIENCE without opening the task pane.
 
