@@ -86,25 +86,28 @@ namespace BDAT
                 case 4: // Save to EBOM: teal circle (like Open from EBOM) with a white up arrow
                     DrawArrowIcon(g, cell, Color.FromArgb(0, 130, 140), true);
                     break;
-                case 5: // Waterjet DXF: dark blue circle with a white plate outline and a hole
+                case 5: // Open Top Level: dark teal circle with a white tree (one assembly over two)
+                    DrawTreeIcon(g, cell, Color.FromArgb(0, 95, 105));
+                    break;
+                case 6: // Waterjet DXF: dark blue circle with a white plate outline and a hole
                     DrawPlateIcon(g, cell, Color.FromArgb(20, 70, 110));
                     break;
-                case 6: // Name Cut List: brown circle with "01"
+                case 7: // Name Cut List: brown circle with "01"
                     DrawBadge(g, cell, Color.FromArgb(150, 85, 30), "01", 0.36f);
                     break;
-                case 7: // Check Out: dark red circle with a white closed padlock
+                case 8: // Check Out: dark red circle with a white closed padlock
                     DrawLockIcon(g, cell, Color.FromArgb(170, 40, 60), false);
                     break;
-                case 8: // Check In: dark green circle with a white open padlock
+                case 9: // Check In: dark green circle with a white open padlock
                     DrawLockIcon(g, cell, Color.FromArgb(40, 120, 80), true);
                     break;
-                case 9: // Update: green circle with a white down arrow
+                case 10: // Update: green circle with a white down arrow
                     DrawArrowIcon(g, cell, Color.FromArgb(30, 140, 60), false);
                     break;
-                case 10: // Version: blue circle with an "i"
+                case 11: // Version: blue circle with an "i"
                     DrawBadge(g, cell, Color.FromArgb(30, 90, 170), "i");
                     break;
-                case 11: // Settings: grey circle with a white gear
+                case 12: // Settings: grey circle with a white gear
                     DrawGearIcon(g, cell, Color.FromArgb(90, 100, 110));
                     break;
                 default:
@@ -230,6 +233,34 @@ namespace BDAT
                     g.FillEllipse(dot, left - width, y - width, 2 * width, 2 * width);
                     g.DrawLine(pen, left + 2.5f * width, y, right, y);
                 }
+            }
+        }
+
+        private static void DrawTreeIcon(Graphics g, Rectangle cell, Color color)
+        {
+            float pad = cell.Width * 0.08f;
+            var circle = new RectangleF(cell.X + pad, cell.Y + pad, cell.Width - 2 * pad, cell.Height - 2 * pad);
+            using (var fill = new SolidBrush(color))
+                g.FillEllipse(fill, circle);
+
+            // A top-level box with two boxes under it, joined by lines.
+            float box = cell.Width * 0.18f;
+            float cx = cell.X + cell.Width / 2f;
+            float topY = cell.Y + cell.Height * 0.24f;
+            float lowY = cell.Y + cell.Height * 0.58f;
+            float leftX = cell.X + cell.Width * 0.3f;
+            float rightX = cell.Right - cell.Width * 0.3f;
+            float midY = (topY + box + lowY) / 2f;
+            using (var pen = new Pen(Color.White, Math.Max(1.2f, cell.Width * 0.07f)))
+            using (var white = new SolidBrush(Color.White))
+            {
+                g.FillRectangle(white, cx - box / 2f, topY, box, box);
+                g.FillRectangle(white, leftX - box / 2f, lowY, box, box);
+                g.FillRectangle(white, rightX - box / 2f, lowY, box, box);
+                g.DrawLine(pen, cx, topY + box, cx, midY);
+                g.DrawLine(pen, leftX, midY, rightX, midY);
+                g.DrawLine(pen, leftX, midY, leftX, lowY);
+                g.DrawLine(pen, rightX, midY, rightX, lowY);
             }
         }
 

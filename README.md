@@ -53,6 +53,14 @@ Starts a new part or assembly from a row of the team's EBOM (the Master eBOM Goo
 
 It never changes the Google Sheet.
 
+### Open Top Level
+Opens one of the vehicle top-level assemblies from 3DEXPERIENCE. They aren't rows in the EBOM, but every one has `toplevel` in its name (any case; `top level`, `top-level` and `top_level` count too).
+
+1. A pop-up lists everything 3DEXPERIENCE finds with `toplevel` in its title (the engineering item search, `PlatformParts.FindTopLevels`), with its description and revision. Drawings are left out. The list from your last click shows straight away while a fresh one is fetched; **Check 3DX again** asks again.
+2. Type to filter, then double-click one or click **Open**: it's downloaded to your work folder and opened.
+
+Read-only: it never changes anything in 3DEXPERIENCE. You need to be logged in. Log: `%TEMP%\BDAT\new-from-ebom.log`.
+
 ### Check Out / Check In
 Lock and unlock the open part or assembly in 3DEXPERIENCE without opening the task pane.
 

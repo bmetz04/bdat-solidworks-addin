@@ -25,8 +25,98 @@ namespace BDAT
         /// <summary>The physical id of the part or assembly whose title is number, or null with the reason in error.</summary>
         public static string FindId(string number, out string error)
         {
-            error = null;
             TestMode.BlockConnector("PlatformParts.FindId");
+            string reply = Search(SearchPath(number), "open: search for " + number, out error);
+            if (reply == null) return null;
+            string id = IdFromSearch(reply, number);
+            PlatformSave.Log(LogName, "open: search for " + number + " = " + (id ?? "no match in: " + Short(reply)));
+            if (id == null) error = "3DX's search didn't find " + number + ".";
+            return id;
+        }
+
+        /// <summary>One item found in 3DEXPERIENCE: its title (the name shown), description, revision and physical id.</summary>
+        internal sealed class Found
+        {
+            public string Title, Description, Revision, Id;
+        }
+
+        /// <summary>
+        /// The vehicle top levels: everything in 3DEXPERIENCE with "toplevel" in its title (any case, also "top level",
+        /// "top-level" or "top_level"). They aren't rows in the EBOM. Null with the reason in error if 3DX couldn't be asked.
+        /// Read-only. Safe to call from a background thread.
+        /// </summary>
+        public static List<Found> FindTopLevels(out string error)
+        {
+            TestMode.BlockConnector("PlatformParts.FindTopLevels");
+            // The word search first; if it finds nothing (e.g. "BR-TOPLEVEL-AA" isn't split into words), a wildcard search.
+            string reply = Search(TopLevelSearchPath("toplevel"), "top levels: search", out error);
+            if (reply == null) return null;
+            List<Found> found = TopLevelsFromSearch(reply);
+            if (found.Count == 0)
+            {
+                string error2;
+                string wild = Search(TopLevelSearchPath("*toplevel*"), "top levels: wildcard search", out error2);
+                if (wild != null) { found = TopLevelsFromSearch(wild); reply = wild; }
+            }
+            var titles = new List<string>();
+            foreach (Found f in found) titles.Add(f.Title);
+            PlatformSave.Log(LogName, "top levels: found " + found.Count + (found.Count > 0 ? ": " + string.Join(", ", titles.ToArray()) : " in: " + Short(reply)));
+            return found;
+        }
+
+        internal static string TopLevelSearchPath(string text)
+        {
+            return "resources/v1/modeler/dseng/dseng:EngItem/search?$searchStr=" + Uri.EscapeDataString(text) + "&$top=200";
+        }
+
+        // "TopLevel", "Top Level", "top-level", "TOP_LEVEL"...
+        private static readonly Regex TopLevelName = new Regex("top[\\s_-]*level", RegexOptions.IgnoreCase);
+
+        internal static bool IsTopLevelName(string title)
+        {
+            return !string.IsNullOrEmpty(title) && TopLevelName.IsMatch(title);
+        }
+
+        /// <summary>
+        /// The items in a search reply whose title has "toplevel" in it, sorted by title, each id once. A drawing
+        /// (title ending .SLDDRW) is left out: only the assemblies are opened.
+        /// </summary>
+        internal static List<Found> TopLevelsFromSearch(string json)
+        {
+            var found = new List<Found>();
+            if (string.IsNullOrEmpty(json)) return found;
+            var ids = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            foreach (Match m in Regex.Matches(json, "\\{(?:[^{}\"]|\"(?:[^\"\\\\]|\\\\.)*\")*\\}"))
+            {
+                string id = JsonValue(m.Value, "id");
+                string title = JsonValue(m.Value, "title");
+                if (string.IsNullOrEmpty(title)) title = JsonValue(m.Value, "name");
+                if (string.IsNullOrEmpty(id) || !IsTopLevelName(title)) continue;
+                if (title.EndsWith(".SLDDRW", StringComparison.OrdinalIgnoreCase)) continue;
+                if (!ids.Add(id)) continue;
+                found.Add(new Found { Title = ExistingParts.Number(title), Description = JsonValue(m.Value, "description") ?? "", Revision = JsonValue(m.Value, "revision") ?? "", Id = id });
+            }
+            found.Sort(delegate(Found a, Found b)
+            {
+                int c = string.Compare(a.Title, b.Title, StringComparison.OrdinalIgnoreCase);
+                return c != 0 ? c : string.CompareOrdinal(a.Revision, b.Revision);
+            });
+            return found;
+        }
+
+        // A string value in one flat JSON object, with \" \\ \/ \n and \uXXXX undone. Null if it isn't there.
+        private static string JsonValue(string obj, string key)
+        {
+            Match v = Regex.Match(obj, "\"" + key + "\"\\s*:\\s*\"((?:[^\"\\\\]|\\\\.)*)\"");
+            if (!v.Success) return null;
+            try { return Regex.Unescape(v.Groups[1].Value.Replace("\\/", "/")); }
+            catch (ArgumentException) { return v.Groups[1].Value; }
+        }
+
+        // A GET of path on 3DSpace, signed in with the connector's session. The reply, or null with the reason in error.
+        private static string Search(string path, string what, out string error)
+        {
+            error = null;
             try
             {
                 Assembly infra = Connector.ConnectorAssembly("TaskPaneInfra");
@@ -45,7 +135,6 @@ namespace BDAT
                 }
 
                 object serverLock = lockField.GetValue(null) ?? new object();
-                string reply;
                 lock (serverLock)
                 {
                     object server = getServer.Invoke(null, null);
@@ -55,18 +144,13 @@ namespace BDAT
                     if (session == null) { error = "couldn't sign in to 3DSpace."; return null; }
                     // IEnoServer, the interop interface the server COM object is called through (LoginTo3DSpace's first parameter).
                     Type serverType = login.GetParameters()[0].ParameterType;
-                    reply = Get(requestType, serverType, server, cc, SearchPath(number));
+                    return Get(requestType, serverType, server, cc, path);
                 }
-
-                string id = IdFromSearch(reply, number);
-                PlatformSave.Log(LogName, "open: search for " + number + " = " + (id ?? "no match in: " + Short(reply)));
-                if (id == null) error = "3DX's search didn't find " + number + ".";
-                return id;
             }
             catch (Exception ex)
             {
                 Exception inner = ex is TargetInvocationException && ex.InnerException != null ? ex.InnerException : ex;
-                PlatformSave.Log(LogName, "open: search for " + number + " failed: " + inner);
+                PlatformSave.Log(LogName, what + " failed: " + inner);
                 error = inner.Message;
                 return null;
             }

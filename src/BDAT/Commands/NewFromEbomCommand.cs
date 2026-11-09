@@ -370,6 +370,12 @@ namespace BDAT.Commands
                 return;
             }
 
+            OpenDownloaded(swApp, path, label);
+        }
+
+        /// <summary>Opens a file 3DEXPERIENCE just downloaded and brings it to the front. Says so if SolidWorks won't.</summary>
+        internal static bool OpenDownloaded(ISldWorks swApp, string path, string label)
+        {
             int type = path.EndsWith(".SLDASM", StringComparison.OrdinalIgnoreCase) ? (int)swDocumentTypes_e.swDocASSEMBLY
                 : path.EndsWith(".SLDDRW", StringComparison.OrdinalIgnoreCase) ? (int)swDocumentTypes_e.swDocDRAWING : (int)swDocumentTypes_e.swDocPART;
             int errors = 0, warnings = 0;
@@ -378,11 +384,12 @@ namespace BDAT.Commands
             {
                 Ui.Tell(swApp, "3DX downloaded " + label + ", but SolidWorks didn't open it (error " + errors + ").\n\n" + path,
                     swMessageBoxIcon_e.swMbWarning);
-                return;
+                return false;
             }
             int activateErrors = 0;
             swApp.ActivateDoc3(doc.GetTitle(), false, (int)swRebuildOnActivation_e.swDontRebuildActiveDoc, ref activateErrors);
-            PlatformSave.Log(LogName, "open: opened " + row.Number + " from " + path);
+            PlatformSave.Log(LogName, "open: opened " + label + " from " + path);
+            return true;
         }
 
         /// <summary>The file name it's saved under: the combined part number, e.g. BR-10101-AA.SLDPRT.</summary>
