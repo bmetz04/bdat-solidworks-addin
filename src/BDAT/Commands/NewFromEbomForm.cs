@@ -28,10 +28,14 @@ namespace BDAT.Commands
         private readonly Font _bold;
         private List<EbomRow> _rows;
         private string _csvPath;
+        // Save to EBOM: the open part's file name, which is about to be saved as the picked row. Null for Open from EBOM.
+        private readonly string _savingFile;
 
-        public NewFromEbomForm(string csvPath, string source, List<EbomRow> rows)
+        /// <summary>savingFile: the open part's file name for Save to EBOM (pick the row to save it as), else null.</summary>
+        public NewFromEbomForm(string csvPath, string source, List<EbomRow> rows, string savingFile)
         {
-            ModernUi.Setup(this, "Open from EBOM", true);
+            _savingFile = savingFile;
+            ModernUi.Setup(this, Caption, true);
             ClientSize = new Size(980, 640);
             MinimumSize = new Size(700, 460);
             _bold = new Font(Font, FontStyle.Bold);
@@ -46,8 +50,9 @@ namespace BDAT.Commands
             Controls.Add(layout);
 
             // Title.
-            layout.Controls.Add(ModernUi.Header("Open from EBOM",
-                "Pick a part or assembly to open it from 3DX. If it isn't there yet, you can create it with its EBOM number and description."), 0, 0);
+            layout.Controls.Add(ModernUi.Header(Caption, savingFile != null
+                ? "Pick the EBOM part to save " + savingFile + " as. It's saved to 3DX with that part number and description."
+                : "Pick a part or assembly to open it from 3DX. If it isn't there yet, you can create it with its EBOM number and description."), 0, 0);
 
             // Search box, area filter, expand and collapse.
             var tools = new TableLayoutPanel { Dock = DockStyle.Fill, AutoSize = true, ColumnCount = 5, RowCount = 1, Margin = new Padding(0, 0, 0, 10) };
@@ -70,6 +75,7 @@ namespace BDAT.Commands
             // Show only what's already in 3DEXPERIENCE (once the background check knows).
             _onlyInPlatform = new CheckBox { Text = "Only in 3DX", AutoSize = true, Margin = new Padding(0, 8, 14, 0), UseMnemonic = false };
             _onlyInPlatform.CheckedChanged += delegate { _toggled.Clear(); Fill(); };
+            _onlyInPlatform.Visible = savingFile == null; // Save to EBOM can only use rows that aren't in 3DX
             tools.Controls.Add(_onlyInPlatform, 2, 0);
             tools.Controls.Add(ModernUi.Link("Expand all", delegate { _allOpen = true; _toggled.Clear(); Fill(); }, new Padding(0, 9, 10, 0)), 3, 0);
             tools.Controls.Add(ModernUi.Link("Collapse all", delegate { _allOpen = false; _toggled.Clear(); Fill(); }, new Padding(0, 9, 0, 0)), 4, 0);
@@ -127,7 +133,7 @@ namespace BDAT.Commands
             var buttons = new FlowLayoutPanel { FlowDirection = FlowDirection.RightToLeft, AutoSize = true, WrapContents = false, Margin = new Padding(0) };
             var cancel = ModernUi.Secondary("Cancel");
             cancel.DialogResult = DialogResult.Cancel;
-            _create = ModernUi.Primary("Open");
+            _create = ModernUi.Primary(savingFile != null ? "Pick a part" : "Open");
             _create.Enabled = false;
             _create.Click += delegate { Confirm(); };
             buttons.Controls.Add(cancel);
@@ -140,6 +146,8 @@ namespace BDAT.Commands
 
             SetSource(csvPath, source, rows);
         }
+
+        private string Caption { get { return _savingFile != null ? "Save to EBOM" : "Open from EBOM"; } }
 
         /// <summary>The row picked, or null.</summary>
         public EbomRow Selected
@@ -171,6 +179,7 @@ namespace BDAT.Commands
             if (_checking) return; // double-click and Enter wait for the 3DX check too
             EbomRow row = Selected;
             if (row == null) return;
+            if (_savingFile != null) { ConfirmSave(row); return; }
             if (_existing == null || Exists(row))
             {
                 OpenRequested = true;
@@ -193,12 +202,42 @@ namespace BDAT.Commands
         }
 
         /// <summary>
+        /// Save to EBOM: only a part row that isn't in 3DX yet can be picked (one number, one part). Then the second pop-up
+        /// confirms the description. The 3DX check is asked again, fresh, right before saving.
+        /// </summary>
+        private void ConfirmSave(EbomRow row)
+        {
+            if (row.IsAssembly) return; // the button says "Pick a part"
+            if (Exists(row))
+            {
+                Ui.Show(this, row.Number + " (" + row.Name + ") is already in 3DX, so " + _savingFile + " can't be saved as it.\n\n" +
+                    "Pick a different row, or open the existing one with Open from EBOM.", Caption, MessageBoxButtons.OK, MessageBoxIcon.Information);
+                return;
+            }
+            NewFromEbomCommand.Prefetch(row); // the folder read runs while you check the description
+            string description;
+            bool save, checkIn;
+            if (!AskDetails(this, row, _savingFile, out description, out save, out checkIn)) return;
+            Description = description;
+            SaveToPlatform = true;
+            CheckIn = checkIn;
+            OpenRequested = false;
+            DialogResult = DialogResult.OK;
+        }
+
+        /// <summary>
         /// The second pop-up: what's about to be made, its description to change, and whether to save it to 3DEXPERIENCE and
         /// check it in. False if Back.
         /// </summary>
         internal static bool AskDetails(IWin32Window owner, EbomRow row, out string description, out bool save, out bool checkIn)
         {
-            using (var details = new NewFromEbomDetailsForm(row))
+            return AskDetails(owner, row, null, out description, out save, out checkIn);
+        }
+
+        /// <summary>savingFile: Save to EBOM's open part (it's always saved to 3DX), else null for a new one.</summary>
+        internal static bool AskDetails(IWin32Window owner, EbomRow row, string savingFile, out string description, out bool save, out bool checkIn)
+        {
+            using (var details = new NewFromEbomDetailsForm(row, savingFile))
             {
                 bool ok = details.ShowDialog(owner) == DialogResult.OK;
                 description = ok ? details.Description : null;
@@ -392,7 +431,7 @@ namespace BDAT.Commands
         private void OpenSheet()
         {
             try { System.Diagnostics.Process.Start(Ebom.TeamSheetUrl); }
-            catch (Exception ex) { Ui.Show(this, "Couldn't open the team EBOM: " + ex.Message + "\n\n" + Ebom.TeamSheetUrl, "Open from EBOM", MessageBoxButtons.OK, MessageBoxIcon.Warning); }
+            catch (Exception ex) { Ui.Show(this, "Couldn't open the team EBOM: " + ex.Message + "\n\n" + Ebom.TeamSheetUrl, Caption, MessageBoxButtons.OK, MessageBoxIcon.Warning); }
         }
 
         // ---------------------------------------------------------------- what's already in 3DEXPERIENCE
@@ -472,8 +511,11 @@ namespace BDAT.Commands
         {
             EbomRow row = Selected;
             // Not while it's checking 3DX: until the check is back BDAT doesn't know whether to open it or offer to make it.
-            _create.Enabled = row != null && !_checking;
-            _create.Text = _checking ? "Checking 3DX..." : row == null ? "Open" : "Open " + (row.IsAssembly ? "assembly" : "part");
+            _create.Enabled = row != null && !_checking && !(_savingFile != null && row.IsAssembly);
+            if (_savingFile != null)
+                _create.Text = _checking ? "Checking 3DX..." : row == null || row.IsAssembly ? "Pick a part" : "Save as " + row.Number;
+            else
+                _create.Text = _checking ? "Checking 3DX..." : row == null ? "Open" : "Open " + (row.IsAssembly ? "assembly" : "part");
         }
 
         // A header with no assembly row matches the search by its number, e.g. typing "A0402".

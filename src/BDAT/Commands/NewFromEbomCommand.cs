@@ -31,6 +31,10 @@ namespace BDAT.Commands
     {
         public string Title { get { return "Open from EBOM"; } }
 
+        // The pop-ups' caption: "Open from EBOM", or "Save to EBOM" when saving the open part (SaveOpenPart).
+        private string _caption;
+        private string Caption { get { return _caption ?? Title; } }
+
         public string Hint { get { return "Open a part or assembly of the EBOM from 3DX, or start it new, named and described for you"; } }
 
         internal const string DescriptionProperty = "Description";
@@ -44,51 +48,15 @@ namespace BDAT.Commands
         public void Run(ISldWorks swApp)
         {
             IWin32Window owner = SolidWorksWindow(swApp);
+            _caption = null;
 
             string csv, source;
-            if (TestMode.Enabled)
-            {
-                csv = TestMode.EbomCsvPath;
-                source = "test EBOM";
-            }
-            else if (Ebom.UseOwnCsv && Ebom.SavedPath != null && File.Exists(Ebom.SavedPath))
-            {
-                // Picked in BDAT Settings instead of the team EBOM.
-                csv = Ebom.SavedPath;
-                source = "Your EBOM CSV (" + Path.GetFileName(csv) + ")";
-            }
-            else
-            {
-                bool fresh;
-                csv = Ebom.TeamCopy(out fresh);
-                source = csv == null ? null
-                    : "Team EBOM" + (fresh ? "" : " (offline copy from " + File.GetLastWriteTime(csv).ToString("yyyy-MM-dd HH:mm") + ")");
-                if (csv == null && Ebom.SavedPath != null && File.Exists(Ebom.SavedPath)) csv = Ebom.SavedPath;
-            }
-
-            if (csv == null || !File.Exists(csv))
-            {
-                if (TestMode.Enabled)
-                {
-                    Ui.Tell(swApp, "No EBOM file.", swMessageBoxIcon_e.swMbWarning);
-                    return;
-                }
-                Ui.Show(owner,
-                    "Couldn't download the team EBOM (are you online?), and there's no copy on this PC yet.\n\n" +
-                    "To use a copy of your own: in Google Sheets, open the Master eBOM and use File > Download > " +
-                    "Comma-separated values (.csv), then pick that file in the next window.",
-                    Title, MessageBoxButtons.OK, MessageBoxIcon.Information);
-                csv = PickCsv(owner, Ebom.SavedPath);
-                if (csv == null) return;
-                Ebom.SavedPath = csv;
-            }
-
-            List<EbomRow> rows = TryLoad(owner, csv);
+            List<EbomRow> rows = LoadRows(swApp, owner, out csv, out source);
             if (rows == null) return;
 
             bool saveToPlatform, checkIn, openRequested;
             string description;
-            EbomRow row = Pick(owner, csv, source, rows, out saveToPlatform, out checkIn, out openRequested, out description);
+            EbomRow row = Pick(owner, csv, source, rows, null, out saveToPlatform, out checkIn, out openRequested, out description);
             if (row == null) return;
 
             if (!TestMode.Enabled)
@@ -105,7 +73,7 @@ namespace BDAT.Commands
                     }
                     // Not in 3DEXPERIENCE: offer to make it, the same way the pop-up does.
                     if (Ui.Show(owner, row.Number + " (" + row.Name + ") isn't in 3DX yet.\n\nMake it as a new " +
-                            (row.IsAssembly ? "assembly" : "part") + "?", Title, MessageBoxButtons.YesNo, MessageBoxIcon.Question) != DialogResult.Yes)
+                            (row.IsAssembly ? "assembly" : "part") + "?", Caption, MessageBoxButtons.YesNo, MessageBoxIcon.Question) != DialogResult.Yes)
                         return;
                     Prefetch(row); // the folder read runs while you name it
                     if (!NewFromEbomForm.AskDetails(owner, row, out description, out saveToPlatform, out checkIn)) return;
@@ -123,7 +91,7 @@ namespace BDAT.Commands
                 if (exists == null && Ui.Choose(owner,
                         "BDAT couldn't check whether " + row.Number + " is already in 3DX, so it can't be sure this won't make a second copy.\n\n" +
                         "Check in 3DX first (search for " + row.Number + "), or make it anyway if you're sure it isn't there.",
-                        Title, MessageBoxIcon.Warning, "Don't make it", "Make it anyway", "Cancel") != 1)
+                        Caption, MessageBoxIcon.Warning, "Don't make it", "Make it anyway", "Cancel") != 1)
                     return;
             }
 
@@ -188,11 +156,164 @@ namespace BDAT.Commands
                 return;
             }
 
-            if (saveToPlatform) SaveToPlatform(swApp, connector, doc, row, description, checkIn, folder);
+            if (saveToPlatform)
+                SaveToPlatform(swApp, connector, doc, row, description, checkIn, folder,
+                    "\n\n" + row.Number + " is open but not saved. Save it to 3DX by hand, or close it.", "");
         }
 
-        private static EbomRow Pick(IWin32Window owner, string csv, string source, List<EbomRow> rows, out bool saveToPlatform, out bool checkIn,
-            out bool openRequested, out string description)
+        // ---------------------------------------------------------------- Save to EBOM
+
+        /// <summary>
+        /// Save to EBOM: the open part, made on this PC, becomes an EBOM part in 3DX in one go. Pick its EBOM row, check the
+        /// description, and it's given that row's Description and Part Number, saved to 3DX as e.g. BR-10101-AA (not under
+        /// its own file name), put in its assembly's folder and checked in, the same way Open from EBOM saves a new part.
+        /// The file it was opened from stays on this PC as it was; SolidWorks carries on with the saved 3DX one.
+        /// A part that's already in 3DX is left alone (renaming one there is a different job).
+        /// </summary>
+        internal void SaveOpenPart(ISldWorks swApp, string caption)
+        {
+            IWin32Window owner = SolidWorksWindow(swApp);
+            _caption = caption;
+
+            IModelDoc2 doc = swApp.ActiveDoc as IModelDoc2;
+            if (doc == null || doc.GetType() != (int)swDocumentTypes_e.swDocPART)
+            {
+                Ui.Tell(swApp, "Open the part you want to save to the EBOM first.", swMessageBoxIcon_e.swMbInformation);
+                return;
+            }
+            string localPath = doc.GetPathName();
+            string fileLabel = string.IsNullOrEmpty(localPath) ? doc.GetTitle() : Path.GetFileName(localPath);
+
+            // Needs 3DX for everything after the pick, so check that first rather than after you've chosen.
+            Connector connector = null;
+            if (!TestMode.Enabled)
+            {
+                connector = Connector.Find();
+                if (connector == null)
+                {
+                    Ui.Tell(swApp, "Couldn't find the 3DX connector in this SolidWorks session (is the \"3DEXPERIENCE PLM Services\" " +
+                        "add-in on?), so " + fileLabel + " wasn't saved.", swMessageBoxIcon_e.swMbWarning);
+                    return;
+                }
+                if (!connector.IsConnected)
+                {
+                    Ui.Tell(swApp, "You're not logged in to 3DX, so " + fileLabel + " wasn't saved.\n\nLog in from the 3DX task pane and try again.",
+                        swMessageBoxIcon_e.swMbWarning);
+                    return;
+                }
+                string plmId = string.IsNullOrEmpty(localPath) ? null : new PlatformSave(swApp, connector, LogName).PhysicalId(localPath);
+                if (string.IsNullOrEmpty(plmId)) plmId = doc.Extension.GetPLMID();
+                if (!string.IsNullOrEmpty(plmId))
+                {
+                    Ui.Tell(swApp, fileLabel + " is already in 3DX, so Save to EBOM left it alone: it's for parts that are only on this PC.\n\n" +
+                        "To give it its EBOM name, rename it in 3DX (or check its Description and Part Number there).",
+                        swMessageBoxIcon_e.swMbInformation);
+                    return;
+                }
+            }
+
+            string csv, source;
+            List<EbomRow> rows = LoadRows(swApp, owner, out csv, out source);
+            if (rows == null) return;
+
+            bool saveToPlatform, checkIn, openRequested;
+            string description;
+            EbomRow row = Pick(owner, csv, source, rows, fileLabel, out saveToPlatform, out checkIn, out openRequested, out description);
+            if (row == null) return;
+
+            if (!TestMode.Enabled)
+            {
+                // Always a fresh answer right before saving: a number already in 3DX must never get a second part.
+                bool? exists = PrefetchedExists(row);
+                if (exists == true)
+                {
+                    Ui.Tell(swApp, row.Number + " (" + row.Name + ") is already in 3DX, so " + fileLabel + " wasn't saved as it." +
+                        "\n\nPick a different EBOM row, or open the existing one with Open from EBOM.", swMessageBoxIcon_e.swMbWarning);
+                    return;
+                }
+                if (exists == null && Ui.Choose(owner,
+                        "BDAT couldn't check whether " + row.Number + " is already in 3DX, so it can't be sure this won't make a second copy.\n\n" +
+                        "Check in 3DX first (search for " + row.Number + "), or save it anyway if you're sure it isn't there.",
+                        Caption, MessageBoxIcon.Warning, "Don't save it", "Save it anyway", "Cancel") != 1)
+                    return;
+
+                bool cancelled;
+                Bookmark folder = ResolveFolder(connector, owner, row, out cancelled);
+                if (cancelled) return; // nothing changed
+
+                SetProperties(doc, row, description);
+                string kept = string.IsNullOrEmpty(localPath) ? "" : "\n\nYour own file " + fileLabel + " is still on this PC, unchanged.";
+                SaveToPlatform(swApp, connector, doc, row, description, checkIn, folder,
+                    "\n\nIts Description and Part Number are set, but it isn't saved to 3DX. Try again, or save it to 3DX by hand as " + row.Number + ".",
+                    kept);
+                return;
+            }
+
+            // Test mode: set the properties on the open part and record where it would have gone. Never saves.
+            SetProperties(doc, row, description);
+            string savedDescription, resolved;
+            doc.Extension.get_CustomPropertyManager("").Get4(DescriptionProperty, false, out savedDescription, out resolved);
+            TestMode.LastNewFromEbom = new NewFromEbomTestResult
+            {
+                Number = row.Number,
+                Title = doc.GetTitle(),
+                Description = savedDescription,
+                IsAssembly = false,
+                Folder = row.AssemblyNumber,
+                FileName = FileName(row),
+            };
+        }
+
+        /// <summary>
+        /// The EBOM rows: the CSV picked in BDAT Settings, else the team EBOM (or its offline copy), else one you pick.
+        /// Null (having said why) if there's none.
+        /// </summary>
+        private List<EbomRow> LoadRows(ISldWorks swApp, IWin32Window owner, out string csv, out string source)
+        {
+
+            if (TestMode.Enabled)
+            {
+                csv = TestMode.EbomCsvPath;
+                source = "test EBOM";
+            }
+            else if (Ebom.UseOwnCsv && Ebom.SavedPath != null && File.Exists(Ebom.SavedPath))
+            {
+                // Picked in BDAT Settings instead of the team EBOM.
+                csv = Ebom.SavedPath;
+                source = "Your EBOM CSV (" + Path.GetFileName(csv) + ")";
+            }
+            else
+            {
+                bool fresh;
+                csv = Ebom.TeamCopy(out fresh);
+                source = csv == null ? null
+                    : "Team EBOM" + (fresh ? "" : " (offline copy from " + File.GetLastWriteTime(csv).ToString("yyyy-MM-dd HH:mm") + ")");
+                if (csv == null && Ebom.SavedPath != null && File.Exists(Ebom.SavedPath)) csv = Ebom.SavedPath;
+            }
+
+            if (csv == null || !File.Exists(csv))
+            {
+                if (TestMode.Enabled)
+                {
+                    Ui.Tell(swApp, "No EBOM file.", swMessageBoxIcon_e.swMbWarning);
+                    return null;
+                }
+                Ui.Show(owner,
+                    "Couldn't download the team EBOM (are you online?), and there's no copy on this PC yet.\n\n" +
+                    "To use a copy of your own: in Google Sheets, open the Master eBOM and use File > Download > " +
+                    "Comma-separated values (.csv), then pick that file in the next window.",
+                    Caption, MessageBoxButtons.OK, MessageBoxIcon.Information);
+                csv = PickCsv(owner, Ebom.SavedPath);
+                if (csv == null) return null;
+                Ebom.SavedPath = csv;
+            }
+
+            return TryLoad(owner, csv);
+        }
+
+        /// <summary>savingFile: the open part's file name when saving it (Save to EBOM), else null.</summary>
+        private static EbomRow Pick(IWin32Window owner, string csv, string source, List<EbomRow> rows, string savingFile, out bool saveToPlatform,
+            out bool checkIn, out bool openRequested, out string description)
         {
             saveToPlatform = false;
             checkIn = true;
@@ -203,13 +324,14 @@ namespace BDAT.Commands
                 foreach (EbomRow r in rows)
                 {
                     if (!string.Equals(r.Number, TestMode.EbomPick, StringComparison.OrdinalIgnoreCase)) continue;
+                    saveToPlatform = savingFile != null;
                     description = NewFromEbomDetailsForm.Clean(TestMode.EbomDescription ?? r.Name);
                     return r;
                 }
                 return null; // Cancel
             }
 
-            using (var form = new NewFromEbomForm(csv, source, rows))
+            using (var form = new NewFromEbomForm(csv, source, rows, savingFile))
             {
                 if (form.ShowDialog(owner) != DialogResult.OK) return null;
                 saveToPlatform = form.SaveToPlatform;
@@ -278,21 +400,23 @@ namespace BDAT.Commands
         /// in its assembly's folder (the bookmark named by the assembly number, e.g. A0101), and checks it in.
         /// If anything stops it, the document stays open and unsaved, and it says why.
         /// </summary>
-        private void SaveToPlatform(ISldWorks swApp, Connector connector, IModelDoc2 doc, EbomRow row, string description, bool checkIn, Bookmark folder)
+        /// notSaved: added to a failure message (what state the document is left in). afterNote: added to the final message.
+        private void SaveToPlatform(ISldWorks swApp, Connector connector, IModelDoc2 doc, EbomRow row, string description, bool checkIn, Bookmark folder,
+            string notSaved, string afterNote)
         {
             // A small window while it works, so the wait for 3DX doesn't look like SolidWorks has frozen.
             ModernUi.BusyWindow busy = ModernUi.Busy(SolidWorksWindow(swApp), "Saving " + row.Number + " to 3DX...", "Saving the file...");
             try
             {
                 string fileName = FileName(row);
-                string notSaved = "\n\n" + row.Number + " is open but not saved. Save it to 3DX by hand, or close it.";
 
                 var platform = new PlatformSave(swApp, connector, LogName);
                 string existing = platform.ExistingOnPlatform(doc, fileName);
                 if (existing != null)
                 {
-                    busy.Close(); Ui.Tell(swApp, row.Number + " is already in 3DX (" + existing + "), so the new one wasn't saved.\n\n" +
-                        "Open the existing one instead, and close this new one without saving.", swMessageBoxIcon_e.swMbWarning);
+                    busy.Close(); Ui.Tell(swApp, row.Number + " is already in 3DX (" + existing + "), so " + (_caption != null
+                        ? "this part wasn't saved as it." + notSaved
+                        : "the new one wasn't saved.\n\nOpen the existing one instead, and close this new one without saving."), swMessageBoxIcon_e.swMbWarning);
                     return;
                 }
 
@@ -352,7 +476,7 @@ namespace BDAT.Commands
                         icon = swMessageBoxIcon_e.swMbWarning;
                     }
                 }
-                busy.Close(); Ui.Tell(swApp, done, icon);
+                busy.Close(); Ui.Tell(swApp, done + afterNote, icon);
             }
             finally
             {
@@ -431,7 +555,7 @@ namespace BDAT.Commands
             {
                 string title = string.Equals(known.Title, number, StringComparison.OrdinalIgnoreCase) ? label : known.Title + " (" + label + ")";
                 DialogResult use = Ui.Show(owner, "Save " + row.Number + " in " + title + "?\n\nNo picks a different folder.",
-                    Title, MessageBoxButtons.YesNoCancel, MessageBoxIcon.Question);
+                    Caption, MessageBoxButtons.YesNoCancel, MessageBoxIcon.Question);
                 if (use == DialogResult.Yes) return known;
                 if (use != DialogResult.No) { cancelled = true; return null; }
             }
@@ -447,7 +571,7 @@ namespace BDAT.Commands
                         FoundBookmark best = hits[0];
                         string others = hits.Count > 1 ? "\n\n" + (hits.Count - 1) + " other folder" + (hits.Count == 2 ? " is" : "s are") + " named like it. No lets you pick." : "";
                         DialogResult use = Ui.Show(owner, "Found the folder for " + label + ":\n\n" + best.Path + "\n\nSave " + row.Number + " there?" + others,
-                            Title, MessageBoxButtons.YesNoCancel, MessageBoxIcon.Question);
+                            Caption, MessageBoxButtons.YesNoCancel, MessageBoxIcon.Question);
                         if (use == DialogResult.Yes)
                         {
                             var folder = new Bookmark { Id = best.Id, Title = best.Title };
@@ -466,7 +590,7 @@ namespace BDAT.Commands
                         "Where should " + row.Number + " go? It belongs in " + label + ".\n\n" + why + "\n\n" +
                         "BDAT can make the " + number + " folder for you, or you can pick an existing folder, or save it " +
                         "without a folder for now.",
-                        Title, MessageBoxIcon.Warning, "Make folder " + number, "Pick a folder...", "Save without folder", "Cancel");
+                        Caption, MessageBoxIcon.Warning, "Make folder " + number, "Pick a folder...", "Save without folder", "Cancel");
                     if (choice == 0)
                     {
                         Bookmark made = MakeFolder(connector, owner, number, label, row.IsAssembly ? row.Name : row.Parent);
@@ -486,7 +610,7 @@ namespace BDAT.Commands
 
             if (!EbomFolders.TitleMatches(picked.Title, number) &&
                 Ui.Show(owner, "You picked \"" + picked.Title + "\", which isn't named " + number + ". Use it for " + number + " from now on?",
-                    Title, MessageBoxButtons.YesNo, MessageBoxIcon.Warning) != DialogResult.Yes)
+                    Caption, MessageBoxButtons.YesNo, MessageBoxIcon.Warning) != DialogResult.Yes)
             {
                 cancelled = true;
                 return null;
@@ -508,7 +632,7 @@ namespace BDAT.Commands
             if (suggested != null)
             {
                 int where = Ui.Choose(owner, "Make a folder named " + number + " for " + label + " in:\n\n" + suggested.Path +
-                    "\n\nThat's where the other assembly folders like it are.", Title, MessageBoxIcon.Question,
+                    "\n\nThat's where the other assembly folders like it are.", Caption, MessageBoxIcon.Question,
                     "Make it here", "Choose another place...", "Back");
                 if (where == 2) return null;
                 if (where == 0) { parentId = suggested.Id; parentPath = suggested.Path; }
@@ -521,7 +645,7 @@ namespace BDAT.Commands
                 parentPath = string.IsNullOrEmpty(place.Title) ? "the folder you picked" : place.Title;
                 // Say exactly where before making anything, so a closed or mistaken pick never makes a folder.
                 if (Ui.Choose(owner, "Make a folder named " + number + " for " + label + " in:\n\n" + parentPath + "?",
-                        Title, MessageBoxIcon.Question, "Make it here", "Back") != 0)
+                        Caption, MessageBoxIcon.Question, "Make it here", "Back") != 0)
                     return null;
             }
 
@@ -531,7 +655,7 @@ namespace BDAT.Commands
             if (made == null)
             {
                 Ui.Show(owner, "Couldn't make the " + number + " folder: " + error + "\n\nYou can make it in 3DX yourself, or pick a folder instead.",
-                    Title, MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                    Caption, MessageBoxButtons.OK, MessageBoxIcon.Warning);
                 return null;
             }
             var folder = new Bookmark { Id = made.Id, Title = made.Title };
@@ -572,7 +696,7 @@ namespace BDAT.Commands
         private Bookmark AskNoFolder(IWin32Window owner, EbomRow row, string why, out bool cancelled)
         {
             cancelled = Ui.Show(owner, why + "\n\nSave " + row.Number + " to 3DX without putting it in a folder?",
-                Title, MessageBoxButtons.YesNo, MessageBoxIcon.Question) != DialogResult.Yes;
+                Caption, MessageBoxButtons.YesNo, MessageBoxIcon.Question) != DialogResult.Yes;
             return null;
         }
 

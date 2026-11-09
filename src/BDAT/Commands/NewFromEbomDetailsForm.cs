@@ -18,11 +18,14 @@ namespace BDAT.Commands
         private readonly Label _where;
         private readonly Label _error;
 
-        public NewFromEbomDetailsForm(EbomRow row)
+        public NewFromEbomDetailsForm(EbomRow row) : this(row, null) { }
+
+        /// <summary>savingFile: Save to EBOM's open part, which is always saved to 3DX (no Save to 3DX box). Null for a new one.</summary>
+        public NewFromEbomDetailsForm(EbomRow row, string savingFile)
         {
             _row = row;
             string kind = row.IsAssembly ? "assembly" : "part";
-            ModernUi.Setup(this, "Open from EBOM", false);
+            ModernUi.Setup(this, savingFile != null ? "Save to EBOM" : "Open from EBOM", false);
             ClientSize = new Size(560, 480);
 
             var layout = new TableLayoutPanel { Dock = DockStyle.Fill, Padding = new Padding(20, 16, 20, 14), ColumnCount = 1, RowCount = 9 };
@@ -38,7 +41,7 @@ namespace BDAT.Commands
             Controls.Add(layout);
 
             string context = row.Area + (row.IsAssembly ? "" : row.Parent.Length > 0 ? ", in " + row.AssemblyNumber + " " + row.Parent : "") + ".";
-            layout.Controls.Add(ModernUi.Header("New " + kind, context, 440), 0, 0);
+            layout.Controls.Add(ModernUi.Header(savingFile != null ? "Save " + savingFile + " as" : "New " + kind, context, 440), 0, 0);
 
             layout.Controls.Add(ModernUi.Caption("Part number (file name)"), 0, 1);
             var numberFont = new Font("Segoe UI Semibold", 12f);
@@ -56,6 +59,7 @@ namespace BDAT.Commands
             new ToolTip().SetToolTip(_checkIn, "Ticked: check it in after saving, so it isn't left reserved by you.\nUnticked: keep it checked out to you, to carry on modelling it.");
             _save.CheckedChanged += delegate { _checkIn.Enabled = _save.Checked; ShowWhere(); };
             _checkIn.CheckedChanged += delegate { NewFromEbomCommand.CheckInPreference = _checkIn.Checked; ShowWhere(); };
+            _save.Visible = savingFile == null;
             options.Controls.Add(_save);
             options.Controls.Add(_checkIn);
             layout.Controls.Add(options, 0, 5);
@@ -69,7 +73,7 @@ namespace BDAT.Commands
 
             var cancel = ModernUi.Secondary("Back");
             cancel.DialogResult = DialogResult.Cancel;
-            var create = ModernUi.Primary("Create " + kind);
+            var create = ModernUi.Primary(savingFile != null ? "Save to 3DX" : "Create " + kind);
             create.Click += OnCreate;
             var buttons = ModernUi.ButtonRow(cancel, create);
             buttons.Controls.Add(ModernUi.Link("Use the EBOM's", delegate { _description.Text = row.Name; _description.Focus(); }, new Padding(0, 10, 12, 0)));

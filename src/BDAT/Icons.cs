@@ -83,25 +83,28 @@ namespace BDAT
                 case 3: // New from EBOM: teal circle with a white list
                     DrawListIcon(g, cell, Color.FromArgb(0, 130, 140));
                     break;
-                case 4: // Waterjet DXF: dark blue circle with a white plate outline and a hole
+                case 4: // Save to EBOM: teal circle (like Open from EBOM) with a white up arrow
+                    DrawArrowIcon(g, cell, Color.FromArgb(0, 130, 140), true);
+                    break;
+                case 5: // Waterjet DXF: dark blue circle with a white plate outline and a hole
                     DrawPlateIcon(g, cell, Color.FromArgb(20, 70, 110));
                     break;
-                case 5: // Name Cut List: brown circle with "01"
+                case 6: // Name Cut List: brown circle with "01"
                     DrawBadge(g, cell, Color.FromArgb(150, 85, 30), "01", 0.36f);
                     break;
-                case 6: // Check Out: dark red circle with a white closed padlock
+                case 7: // Check Out: dark red circle with a white closed padlock
                     DrawLockIcon(g, cell, Color.FromArgb(170, 40, 60), false);
                     break;
-                case 7: // Check In: dark green circle with a white open padlock
+                case 8: // Check In: dark green circle with a white open padlock
                     DrawLockIcon(g, cell, Color.FromArgb(40, 120, 80), true);
                     break;
-                case 8: // Update: green circle with a white down arrow
+                case 9: // Update: green circle with a white down arrow
                     DrawArrowIcon(g, cell, Color.FromArgb(30, 140, 60), false);
                     break;
-                case 9: // Version: blue circle with an "i"
+                case 10: // Version: blue circle with an "i"
                     DrawBadge(g, cell, Color.FromArgb(30, 90, 170), "i");
                     break;
-                case 10: // Settings: grey circle with a white gear
+                case 11: // Settings: grey circle with a white gear
                     DrawGearIcon(g, cell, Color.FromArgb(90, 100, 110));
                     break;
                 default:
