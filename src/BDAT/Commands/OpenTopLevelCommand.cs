@@ -119,7 +119,7 @@ namespace BDAT.Commands
             _list = new ListView
             {
                 Dock = DockStyle.Fill,
-                View = View.Details,
+                View = System.Windows.Forms.View.Details,
                 FullRowSelect = true,
                 MultiSelect = false,
                 HideSelection = false,
