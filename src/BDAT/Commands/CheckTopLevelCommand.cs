@@ -75,7 +75,7 @@ namespace BDAT.Commands
                 Components((IAssemblyDoc)doc, platform, out ids, out titles);
                 TopLevelCheck.Log(name + " has " + titles.Count + " different sub-assemblies");
                 busy.Step("Reading its 3DX folder...");
-                contents = TopLevelCheck.Read(topId, out error);
+                contents = TopLevelCheck.Read(topId, name, NewFromEbomCommand.SearchStartIds(), out error);
             }
             finally { busy.Close(); }
 
@@ -86,7 +86,7 @@ namespace BDAT.Commands
             }
             if (contents.Folders.Count == 0)
             {
-                Ui.Tell(swApp, name + " isn't in a 3DX folder, so there's nothing to check it against.", swMessageBoxIcon_e.swMbInformation);
+                Ui.Tell(swApp, "BDAT couldn't find " + name + " in any of the team's 3DX folders, so there's nothing to check it against.", swMessageBoxIcon_e.swMbInformation);
                 return;
             }
 

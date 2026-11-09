@@ -78,6 +78,12 @@ namespace BDAT
             return char.IsWhiteSpace(next) || next == '-' || next == '_' || next == ':' || next == '(' || next == '.';
         }
 
+        /// <summary>Every team folder (with paths and parents), or null if they couldn't be read. Kept for a few minutes.</summary>
+        public static List<FoundBookmark> AllFolders(IEnumerable<string> knownBookmarkIds)
+        {
+            return Tree(knownBookmarkIds);
+        }
+
         /// <summary>False if the last attempt to read the folders failed (so "not found" may just mean "couldn't look").</summary>
         public static bool Available { get; private set; }
 

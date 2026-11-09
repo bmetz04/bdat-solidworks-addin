@@ -568,8 +568,25 @@ namespace BdatTests
                 Equal("SU-70401-AA", missing.Count == 0 ? "" : missing[0].Title, "the missing assembly");
                 Check(TopLevelCheck.Missing(items, "TOP", "Sus Toplevel", new[] { "A1", "A2", "A3" }, new string[0]).Count == 0, "nothing missing");
 
+                // When 3DX won't say where it is: find the folders that hold it (by id, or by name for another revision)...
+                var team = new List<FoundBookmark>
+                {
+                    new FoundBookmark { Id = "ROOT", Title = "Formula UBC Racing", Path = "Formula UBC Racing" },
+                    new FoundBookmark { Id = "S", Title = "Suspension", Path = "Formula UBC Racing > Suspension", ParentId = "ROOT" },
+                    new FoundBookmark { Id = "B", Title = "A0704", Path = "Formula UBC Racing > Suspension > A0704", ParentId = "S" },
+                    new FoundBookmark { Id = "C", Title = "A0705", Path = "Formula UBC Racing > Suspension > A0704 > A0705", ParentId = "B" },
+                    new FoundBookmark { Id = "BR", Title = "Brakes", Path = "Formula UBC Racing > Brakes", ParentId = "ROOT" },
+                };
+                List<FoundBookmark> where = TopLevelCheck.FoldersHolding(items, folders, "NOT-THIS-ID", "Sus Toplevel.SLDASM");
+                Check(where.Count == 1 && where[0].Id == "S", "found by name in Suspension");
+                Check(TopLevelCheck.FoldersHolding(items, folders, "A2", "x").Count == 1, "found by id");
+                // ...then those folders and everything under them, not their siblings.
+                List<FoundBookmark> under = TopLevelCheck.Subtree(team, new List<FoundBookmark> { team[1] });
+                Check(under.Count == 3 && under.Exists(b => b.Id == "C") && !under.Exists(b => b.Id == "BR" || b.Id == "ROOT"),
+                    "Suspension, A0704 and A0705 only, got " + under.Count);
+
                 bool refused = false;
-                try { string err; TopLevelCheck.Read("TOP", out err); }
+                try { string err; TopLevelCheck.Read("TOP", "Sus Toplevel", new string[0], out err); }
                 catch (InvalidOperationException) { refused = true; }
                 Check(refused && TestMode.ConnectorAttempts >= 1, "Check Top Level can't reach 3DEXPERIENCE in test mode");
                 TestMode.ConnectorAttempts = 0;

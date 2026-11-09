@@ -37,10 +37,13 @@ namespace BDAT
         /// The folders 3DX has the item with this physical id in, their subfolders, and everything in all of them.
         /// Null with the reason in error if 3DX couldn't be asked.
         /// </summary>
-        public static FolderContents Read(string physicalId, out string error)
+        public static FolderContents Read(string physicalId, string title, IEnumerable<string> knownBookmarkIds, out string error)
         {
             error = null;
             TestMode.BlockConnector("TopLevelCheck");
+            // The team's whole folder tree (read before taking the connector's lock, which BookmarkSearch takes itself).
+            List<FoundBookmark> teamFolders = BookmarkSearch.AllFolders(knownBookmarkIds);
+            Log("team folders: " + (teamFolders == null ? "couldn't read them" : teamFolders.Count.ToString()));
             try
             {
                 Assembly infra = Connector.ConnectorAssembly("TaskPaneInfra");
@@ -70,36 +73,54 @@ namespace BDAT
                     if (!Succeeded(login.Invoke(null, new object[] { server, cc }))) { error = "couldn't sign in to 3DSpace."; return null; }
 
                     var contents = new FolderContents();
-
-                    // 1. The folders the top level is in.
-                    object found = foldersOf.Invoke(null, new object[] { server, cc, physicalId, false });
-                    contents.Folders = FoldersFrom(found);
-                    var names = new List<string>();
-                    foreach (FoundBookmark f in contents.Folders) names.Add(f.Title + " (" + f.Id + ")");
-                    Log("folders holding " + physicalId + ": " + (names.Count == 0 ? "none" : string.Join(", ", names.ToArray())));
-                    if (contents.Folders.Count == 0) return contents;
-
-                    // 2. Those folders and every folder under them.
-                    var have = new HashSet<string>(StringComparer.Ordinal);
-                    foreach (FoundBookmark folder in contents.Folders)
-                    {
-                        List<FoundBookmark> under;
-                        try { under = BookmarkSearch.Parse(tree.Invoke(null, new object[] { server, cc, folder.Id }), folder.Id, folder.Title); }
-                        catch (TargetInvocationException ex)
-                        {
-                            Log("couldn't read the folders under " + folder.Title + ": " + (ex.InnerException ?? ex).Message);
-                            under = new List<FoundBookmark> { new FoundBookmark { Id = folder.Id, Title = folder.Title, Path = folder.Title } };
-                        }
-                        foreach (FoundBookmark b in under)
-                            if (have.Add(b.Id)) contents.AllFolders.Add(b);
-                    }
-                    Log("read " + contents.AllFolders.Count + " folder(s) including subfolders");
-
-                    // 3. Everything in them, in one call.
                     Type listType = items.GetParameters()[2].ParameterType;
-                    object ids = MakeIdList(listType, contents.AllFolders);
-                    object reply = items.Invoke(null, new object[] { server, cc, ids });
-                    contents.Items = ItemsFrom(reply, contents.AllFolders);
+
+                    // 1. The folders the top level is in, as the connector's "where is this bookmarked" asks.
+                    List<FoundBookmark> holding = new List<FoundBookmark>();
+                    try { holding = FoldersFrom(foldersOf.Invoke(null, new object[] { server, cc, physicalId, false })); }
+                    catch (TargetInvocationException ex) { Log("asking which folders hold it failed: " + (ex.InnerException ?? ex).Message); }
+                    Log("folders holding " + physicalId + ": " + Names(holding));
+
+                    // 2. If that finds nothing, look through every team folder for it (by id or by name).
+                    List<FolderItem> everything = null;
+                    if (holding.Count == 0 && teamFolders != null && teamFolders.Count > 0)
+                    {
+                        everything = ReadItems(items, listType, server, cc, teamFolders);
+                        holding = FoldersHolding(everything, teamFolders, physicalId, title);
+                        Log("looked in all " + teamFolders.Count + " team folders (" + everything.Count + " entries): " + title + " is in " + Names(holding));
+                    }
+                    contents.Folders = holding;
+                    if (holding.Count == 0) return contents;
+
+                    // 3. Those folders and every folder under them.
+                    if (everything != null) contents.AllFolders = Subtree(teamFolders, holding);
+                    else
+                    {
+                        var have = new HashSet<string>(StringComparer.Ordinal);
+                        foreach (FoundBookmark folder in holding)
+                        {
+                            List<FoundBookmark> under;
+                            try { under = BookmarkSearch.Parse(tree.Invoke(null, new object[] { server, cc, folder.Id }), folder.Id, folder.Title); }
+                            catch (TargetInvocationException ex)
+                            {
+                                Log("couldn't read the folders under " + folder.Title + ": " + (ex.InnerException ?? ex).Message);
+                                under = new List<FoundBookmark> { new FoundBookmark { Id = folder.Id, Title = folder.Title, Path = folder.Title } };
+                            }
+                            foreach (FoundBookmark b in under)
+                                if (have.Add(b.Id)) contents.AllFolders.Add(b);
+                        }
+                    }
+                    Log("checking " + contents.AllFolders.Count + " folder(s) including subfolders");
+
+                    // 4. Everything in them.
+                    if (everything != null)
+                    {
+                        var inside = new HashSet<string>(StringComparer.Ordinal);
+                        foreach (FoundBookmark f in contents.AllFolders) inside.Add(f.Id);
+                        foreach (FolderItem i in everything)
+                            if (i.FolderId != null && inside.Contains(i.FolderId)) contents.Items.Add(i);
+                    }
+                    else contents.Items = ReadItems(items, listType, server, cc, contents.AllFolders);
                     Log("found " + contents.Items.Count + " item(s) in them");
                     int shown = 0;
                     foreach (FolderItem i in contents.Items)
@@ -118,6 +139,65 @@ namespace BDAT
                 error = inner.Message;
                 return null;
             }
+        }
+
+        // What's in the folders, asked in batches so one request never gets too big.
+        private static List<FolderItem> ReadItems(MethodInfo items, Type listType, object server, CookieContainer cc, List<FoundBookmark> folders)
+        {
+            var found = new List<FolderItem>();
+            for (int start = 0; start < folders.Count; start += 40)
+            {
+                List<FoundBookmark> batch = folders.GetRange(start, Math.Min(40, folders.Count - start));
+                try { found.AddRange(ItemsFrom(items.Invoke(null, new object[] { server, cc, MakeIdList(listType, batch) }), batch)); }
+                catch (TargetInvocationException ex) { Log("reading folder contents failed: " + (ex.InnerException ?? ex).Message); }
+            }
+            return found;
+        }
+
+        /// <summary>The folders whose items include the top level, by its id or (any revision) its name.</summary>
+        internal static List<FoundBookmark> FoldersHolding(List<FolderItem> items, List<FoundBookmark> folders, string physicalId, string title)
+        {
+            var byId = new Dictionary<string, FoundBookmark>(StringComparer.Ordinal);
+            foreach (FoundBookmark f in folders) byId[f.Id] = f;
+            string name = ExistingParts.Number(title);
+            var holding = new List<FoundBookmark>();
+            var have = new HashSet<string>(StringComparer.Ordinal);
+            foreach (FolderItem i in items)
+            {
+                if (i.FolderId == null || !byId.ContainsKey(i.FolderId)) continue;
+                bool isIt = string.Equals(i.Id, physicalId, StringComparison.OrdinalIgnoreCase)
+                    || string.Equals(ExistingParts.Number(i.Title), name, StringComparison.OrdinalIgnoreCase);
+                if (isIt && have.Add(i.FolderId)) holding.Add(byId[i.FolderId]);
+            }
+            return holding;
+        }
+
+        /// <summary>The given folders and every folder under them, from the whole tree's parent links.</summary>
+        internal static List<FoundBookmark> Subtree(List<FoundBookmark> tree, List<FoundBookmark> roots)
+        {
+            var result = new List<FoundBookmark>();
+            var have = new HashSet<string>(StringComparer.Ordinal);
+            var queue = new Queue<string>();
+            foreach (FoundBookmark r in roots) queue.Enqueue(r.Id);
+            while (queue.Count > 0)
+            {
+                string id = queue.Dequeue();
+                if (!have.Add(id)) continue;
+                foreach (FoundBookmark b in tree)
+                {
+                    if (b.Id == id) result.Add(b);
+                    else if (b.ParentId == id) queue.Enqueue(b.Id);
+                }
+            }
+            return result;
+        }
+
+        private static string Names(List<FoundBookmark> folders)
+        {
+            if (folders.Count == 0) return "none";
+            var names = new List<string>();
+            foreach (FoundBookmark f in folders) names.Add((f.Path ?? f.Title) + " (" + f.Id + ")");
+            return string.Join(", ", names.ToArray());
         }
 
         // GetBookmarksItems takes the folder ids as a List<string> (or, just in case, a string[]).
@@ -160,7 +240,8 @@ namespace BDAT
             foreach (FoundBookmark f in folders) byFolder[f.Id] = f;
             var objects = new Dictionary<string, FolderItem>(StringComparer.Ordinal);
             var order = new List<string>();
-            var folderOf = new Dictionary<string, string>(StringComparer.Ordinal);
+            var links = new List<KeyValuePair<string, string>>(); // item id -> folder id
+            var linkSeen = new HashSet<string>(StringComparer.Ordinal);
             IEnumerable results = answer == null ? null : Field(answer, "Results") as IEnumerable;
             if (results == null) return new List<FolderItem>();
             foreach (object r in results)
@@ -170,7 +251,7 @@ namespace BDAT
                 string to = Field(r, "To") as string;
                 if (!string.IsNullOrEmpty(from) && !string.IsNullOrEmpty(to))
                 {
-                    if (byFolder.ContainsKey(from) && !folderOf.ContainsKey(to)) folderOf[to] = from;
+                    if (byFolder.ContainsKey(from) && linkSeen.Add(to + "|" + from)) links.Add(new KeyValuePair<string, string>(to, from));
                     continue;
                 }
                 string id = Field(r, "ResourceId") as string;
@@ -185,18 +266,20 @@ namespace BDAT
                 };
                 order.Add(id);
             }
+            // One entry per folder an item is in (an item can be in several); items with no link get one with no folder.
             var found = new List<FolderItem>();
+            var linked = new HashSet<string>(StringComparer.Ordinal);
             foreach (string id in order)
             {
                 FolderItem item = objects[id];
-                string folderId;
-                FoundBookmark folder;
-                if (folderOf.TryGetValue(id, out folderId) && byFolder.TryGetValue(folderId, out folder))
+                foreach (KeyValuePair<string, string> link in links)
                 {
-                    item.FolderId = folder.Id;
-                    item.FolderPath = folder.Path;
+                    if (link.Key != id) continue;
+                    FoundBookmark folder = byFolder[link.Value];
+                    found.Add(new FolderItem { Id = item.Id, Title = item.Title, Type = item.Type, Usage = item.Usage, Extension = item.Extension, FolderId = folder.Id, FolderPath = folder.Path });
+                    linked.Add(id);
                 }
-                found.Add(item);
+                if (!linked.Contains(id)) found.Add(item);
             }
             return found;
         }
