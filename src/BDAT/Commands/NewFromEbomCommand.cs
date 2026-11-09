@@ -484,6 +484,268 @@ namespace BDAT.Commands
             }
         }
 
+        // ---------------------------------------------------------------- Save to EBOM, assembly
+
+        /// <summary>
+        /// Save to EBOM with an assembly open: lists every file of it that's only on this PC (or only the components you
+        /// selected), you pick an EBOM row for each or skip it, and each is given that row's Description and Part Number
+        /// and saved to 3DX under its part number, in its folder, deepest first and the assembly last. Saving under the new
+        /// name repoints the open assembly at it, so the assembly goes up with the renamed parts. Files already in 3DX are
+        /// left as they are. The original files stay on this PC unchanged. Stops at the first save that fails.
+        /// </summary>
+        internal void SaveOpenAssembly(ISldWorks swApp, string caption)
+        {
+            IWin32Window owner = SolidWorksWindow(swApp);
+            _caption = caption;
+
+            IModelDoc2 top = swApp.ActiveDoc as IModelDoc2;
+            IAssemblyDoc assembly = top as IAssemblyDoc;
+            if (top == null || assembly == null)
+            {
+                Ui.Tell(swApp, "Open the assembly you want to save to the EBOM first.", swMessageBoxIcon_e.swMbInformation);
+                return;
+            }
+
+            Connector connector = null;
+            PlatformSave platform = null;
+            if (!TestMode.Enabled)
+            {
+                connector = Connector.Find();
+                if (connector == null || !connector.IsConnected)
+                {
+                    Ui.Tell(swApp, (connector == null
+                        ? "Couldn't find the 3DX connector in this SolidWorks session (is the \"3DEXPERIENCE PLM Services\" add-in on?)"
+                        : "You're not logged in to 3DX") + ", so nothing was saved.", swMessageBoxIcon_e.swMbWarning);
+                    return;
+                }
+                platform = new PlatformSave(swApp, connector, LogName);
+            }
+
+            // Every file of the assembly that's only on this PC: the components you selected, or else all of them.
+            Cursor.Current = Cursors.WaitCursor;
+            assembly.ResolveAllLightWeightComponents(false);
+            var components = new List<Component2>();
+            SelectionMgr selection = top.SelectionManager as SelectionMgr;
+            int selectedCount = selection == null ? 0 : selection.GetSelectedObjectCount2(-1);
+            for (int i = 1; i <= selectedCount; i++)
+            {
+                Component2 c = selection.GetSelectedObjectsComponent4(i, -1) as Component2;
+                if (c != null && !components.Contains(c)) components.Add(c);
+            }
+            bool fromSelection = components.Count > 0;
+            if (!fromSelection)
+            {
+                object[] all = assembly.GetComponents(false) as object[];
+                if (all != null) foreach (object o in all) { Component2 c = o as Component2; if (c != null) components.Add(c); }
+            }
+
+            var files = new List<AssemblyFile>();
+            var seen = new Dictionary<string, AssemblyFile>(StringComparer.OrdinalIgnoreCase);
+            var inPlatform = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            foreach (Component2 c in components)
+            {
+                if (c.IsSuppressed() || c.IsVirtual) continue; // a virtual component is saved inside its assembly
+                IModelDoc2 doc = c.GetModelDoc2() as IModelDoc2;
+                string path = doc == null ? null : doc.GetPathName();
+                if (string.IsNullOrEmpty(path)) continue;
+                int depth = Depth(c);
+                AssemblyFile known;
+                if (seen.TryGetValue(path, out known)) { if (depth > known.Depth) known.Depth = depth; continue; }
+                if (inPlatform.Contains(path)) continue;
+                if (InPlatform(platform, doc, path)) { inPlatform.Add(path); continue; }
+                var file = new AssemblyFile { Path = path, Doc = doc, IsAssembly = doc.GetType() == (int)swDocumentTypes_e.swDocASSEMBLY, Depth = depth };
+                seen[path] = file;
+                files.Add(file);
+            }
+            string topPath = top.GetPathName();
+            if (!InPlatform(platform, top, topPath))
+                files.Insert(0, new AssemblyFile
+                {
+                    Path = string.IsNullOrEmpty(topPath) ? top.GetTitle() + ".SLDASM" : topPath,
+                    Doc = top,
+                    IsAssembly = true,
+                    IsTop = true,
+                });
+            else
+                inPlatform.Add(topPath);
+            Cursor.Current = Cursors.Default;
+
+            string assemblyName = string.IsNullOrEmpty(topPath) ? top.GetTitle() : Path.GetFileName(topPath);
+            if (files.Count == 0)
+            {
+                Ui.Tell(swApp, (fromSelection ? "Everything you selected" : "Everything in " + assemblyName) + " is already in 3DX, so there's nothing to save.",
+                    swMessageBoxIcon_e.swMbInformation);
+                return;
+            }
+
+            string csv, source;
+            List<EbomRow> rows = LoadRows(swApp, owner, out csv, out source);
+            if (rows == null) return;
+            var guessed = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            foreach (AssemblyFile f in files)
+            {
+                EbomRow guess = SaveAssemblyToEbomForm.GuessRow(f.FileName, f.IsAssembly, rows);
+                if (guess == null || !guessed.Add(guess.Number)) continue;
+                f.Row = guess;
+                f.Description = NewFromEbomDetailsForm.Clean(guess.Name);
+            }
+
+            bool checkIn;
+            if (TestMode.Enabled)
+            {
+                // Test mode never saves: only say what would have been saved.
+                var lines = new List<string>();
+                foreach (AssemblyFile f in Ordered(files)) lines.Add(f.FileName + " = " + (f.Row == null ? "skip" : f.Row.Number));
+                Ui.Tell(swApp, "Would save: " + string.Join("; ", lines.ToArray()), swMessageBoxIcon_e.swMbInformation);
+                return;
+            }
+            using (var form = new SaveAssemblyToEbomForm(assemblyName, files, inPlatform.Count, fromSelection, csv, source, rows))
+            {
+                if (form.ShowDialog(owner) != DialogResult.OK) return;
+                checkIn = form.CheckIn;
+            }
+            List<AssemblyFile> chosen = Ordered(files);
+            if (chosen.Count == 0) return;
+
+            // Fresh "already in 3DX?" for every number, right before saving: one number must never get two files.
+            var unsure = new List<string>();
+            foreach (AssemblyFile f in chosen)
+            {
+                bool? exists = ExistingParts.Exists(f.Row.Number, f.Row.IsAssembly);
+                if (exists == true)
+                {
+                    Ui.Tell(swApp, f.Row.Number + " (" + f.Row.Name + ") is already in 3DX, so nothing was saved.\n\nRun Save to EBOM again and " +
+                        "pick a different row for " + f.FileName + ", or skip it.", swMessageBoxIcon_e.swMbWarning);
+                    return;
+                }
+                if (exists == null) unsure.Add(f.Row.Number);
+            }
+            if (unsure.Count > 0 && Ui.Choose(owner,
+                    "BDAT couldn't check whether " + string.Join(", ", unsure.ToArray()) + (unsure.Count == 1 ? " is" : " are") +
+                    " already in 3DX, so it can't be sure this won't make a second copy.\n\nCheck in 3DX first, or save anyway if you're sure.",
+                    Caption, MessageBoxIcon.Warning, "Don't save", "Save anyway", "Cancel") != 1)
+                return;
+
+            // Files left on this PC that a saved assembly still uses: 3DX needs them too when the assembly goes up.
+            int skipped = 0;
+            foreach (AssemblyFile f in files) if (f.Row == null && !f.IsTop) skipped++;
+            bool savingAnAssembly = false;
+            foreach (AssemblyFile f in chosen) if (f.IsAssembly) savingAnAssembly = true;
+            if (skipped > 0 && savingAnAssembly && Ui.Choose(owner,
+                    skipped + " skipped file" + (skipped == 1 ? " is" : "s are") + " only on this PC. When an assembly that uses " +
+                    (skipped == 1 ? "it" : "them") + " is saved, 3DX may save " + (skipped == 1 ? "it" : "them") + " too, under " +
+                    (skipped == 1 ? "its own name" : "their own names") + ".\n\nGo back and pick rows for them, or save anyway.",
+                    Caption, MessageBoxIcon.Question, "Save anyway", "Cancel") != 0)
+                return;
+
+            // Folders first, one question per assembly number, so cancelling leaves nothing changed.
+            var folders = new Dictionary<string, Bookmark>(StringComparer.OrdinalIgnoreCase);
+            var noFolder = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            foreach (AssemblyFile f in chosen)
+            {
+                string key = f.Row.AssemblyNumber;
+                if (folders.ContainsKey(key) || noFolder.Contains(key)) continue;
+                bool cancelled;
+                Bookmark folder = ResolveFolder(connector, owner, f.Row, out cancelled);
+                if (cancelled) return;
+                if (folder == null) noFolder.Add(key); else folders[key] = folder;
+            }
+
+            var report = new List<string>();
+            var problems = new List<string>();
+            string stoppedAt = null;
+            ModernUi.BusyWindow busy = ModernUi.Busy(owner, "Saving " + assemblyName + " to 3DX...", "Starting...");
+            try
+            {
+                for (int i = 0; i < chosen.Count; i++)
+                {
+                    AssemblyFile f = chosen[i];
+                    busy.Step("Saving " + f.FileName + " as " + f.Row.Number + " (" + (i + 1) + " of " + chosen.Count + ")...");
+                    SetProperties(f.Doc, f.Row, f.Description);
+                    Bookmark folder;
+                    folders.TryGetValue(f.Row.AssemblyNumber, out folder);
+                    string problem;
+                    if (!SaveOne(platform, f.Doc, f.Row, checkIn, folder, out problem))
+                    {
+                        stoppedAt = f.FileName + " (" + f.Row.Number + "): " + problem;
+                        break;
+                    }
+                    report.Add(f.Row.Number + "  " + f.Description + (f.IsTop ? "" : "   (was " + f.FileName + ")"));
+                    if (problem != null) problems.Add(f.Row.Number + ": " + problem);
+                }
+            }
+            finally
+            {
+                busy.Close();
+            }
+
+            string done = report.Count == 0 ? "Nothing was saved." : "Saved to 3DX:\n\n" + string.Join("\n", report.ToArray());
+            if (problems.Count > 0) done += "\n\nBut:\n" + string.Join("\n", problems.ToArray());
+            if (stoppedAt != null)
+                done += "\n\nStopped at " + stoppedAt + "\n\nNothing after it was saved, so the assembly isn't in 3DX yet. Fix that and run Save to EBOM again: " +
+                    "what's already saved is left as it is.";
+            done += "\n\nYour own files are still on this PC, unchanged.";
+            Ui.Tell(swApp, done, stoppedAt != null || problems.Count > 0 ? swMessageBoxIcon_e.swMbWarning : swMessageBoxIcon_e.swMbInformation);
+        }
+
+        /// <summary>The files with a row, deepest first (parts before the assemblies that use them), the open assembly last.</summary>
+        private static List<AssemblyFile> Ordered(List<AssemblyFile> files)
+        {
+            var chosen = new List<AssemblyFile>();
+            foreach (AssemblyFile f in files) if (f.Row != null) chosen.Add(f);
+            chosen.Sort(delegate(AssemblyFile a, AssemblyFile b)
+            {
+                if (a.IsTop != b.IsTop) return a.IsTop ? 1 : -1;
+                if (a.Depth != b.Depth) return b.Depth.CompareTo(a.Depth);
+                if (a.IsAssembly != b.IsAssembly) return a.IsAssembly ? 1 : -1;
+                return string.Compare(a.FileName, b.FileName, StringComparison.OrdinalIgnoreCase);
+            });
+            return chosen;
+        }
+
+        // 1 for a component straight under the open assembly, 2 for one inside a sub-assembly, and so on.
+        private static int Depth(Component2 component)
+        {
+            int depth = 0;
+            for (Component2 c = component; c != null && depth < 64; c = c.GetParent() as Component2) depth++;
+            return depth;
+        }
+
+        // Already in 3DX? Never in test mode (it can't ask).
+        private static bool InPlatform(PlatformSave platform, IModelDoc2 doc, string path)
+        {
+            if (platform == null) return false;
+            string id = string.IsNullOrEmpty(path) ? null : platform.PhysicalId(path);
+            if (string.IsNullOrEmpty(id)) id = doc.Extension.GetPLMID();
+            return !string.IsNullOrEmpty(id);
+        }
+
+        /// <summary>
+        /// Saves one file to 3DX as its row's number, puts it in its folder and checks it in (or keeps it checked out), with
+        /// no messages. False if it wasn't saved (problem says why). True with a problem if it was saved but a later step failed.
+        /// </summary>
+        private static bool SaveOne(PlatformSave platform, IModelDoc2 doc, EbomRow row, bool checkIn, Bookmark folder, out string problem)
+        {
+            problem = null;
+            string fileName = FileName(row);
+            string existing = platform.ExistingOnPlatform(doc, fileName);
+            if (existing != null) { problem = "already in 3DX (" + existing + ")."; return false; }
+            if (!platform.Save(doc, fileName)) { problem = "3DX didn't save it. Check the 3DX task pane for details."; return false; }
+            ExistingParts.Remember(row.Number);
+
+            var issues = new List<string>();
+            if (folder != null)
+            {
+                string phid = platform.WaitForPhysicalId(doc);
+                string refused = string.IsNullOrEmpty(phid) ? "it didn't show up in time to be put in its folder" : platform.AddToBookmark(folder.Id, phid);
+                if (refused != null) issues.Add("not put in " + row.AssemblyNumber + " (" + refused + "); add it by hand");
+            }
+            if (checkIn ? !platform.Unlock(doc.GetPathName()) : !platform.Reserve(doc.GetPathName(), true))
+                issues.Add(checkIn ? "couldn't be checked in" : "couldn't be kept checked out to you");
+            if (issues.Count > 0) problem = string.Join("; ", issues.ToArray()) + ".";
+            return true;
+        }
+
         /// <summary>The pop-up's "Check in" box, remembered for this Windows user (ticked unless you've unticked it).</summary>
         internal static bool CheckInPreference
         {
