@@ -274,19 +274,20 @@ namespace BdatTests
             Test("Toolbar has the expected BDAT buttons, in order", delegate
             {
                 List<string> titles = CommandTitles(new SwAddin());
-                Check(titles.Count == 12, "expected 12 buttons, got " + titles.Count + ": " + string.Join(", ", titles.ToArray()));
+                Check(titles.Count == 13, "expected 13 buttons, got " + titles.Count + ": " + string.Join(", ", titles.ToArray()));
                 Equal("Murder Part", titles[0], "button 1");
                 Equal("Save MCM", titles[1], "button 2");
                 Equal("Create Origin", titles[2], "button 3");
                 Equal("Open from EBOM", titles[3], "button 4");
                 Equal("Save to EBOM", titles[4], "button 5");
-                Equal("Waterjet DXF", titles[5], "button 6");
-                Equal("Name Cut List", titles[6], "button 7");
-                Equal("Check Out", titles[7], "button 8");
-                Equal("Check In", titles[8], "button 9");
-                Equal("Update BDAT", titles[9], "button 10");
-                Check(Regex.IsMatch(titles[10], @"^BDAT (v\d+|dev build)$"), "button 11 should be the version (BDAT vN), got \"" + titles[10] + "\"");
-                Equal("BDAT Settings", titles[11], "button 12");
+                Equal("Open Top Level", titles[5], "button 6");
+                Equal("Waterjet DXF", titles[6], "button 7");
+                Equal("Name Cut List", titles[7], "button 8");
+                Equal("Check Out", titles[8], "button 9");
+                Equal("Check In", titles[9], "button 10");
+                Equal("Update BDAT", titles[10], "button 11");
+                Check(Regex.IsMatch(titles[11], @"^BDAT (v\d+|dev build)$"), "button 12 should be the version (BDAT vN), got \"" + titles[11] + "\"");
+                Equal("BDAT Settings", titles[12], "button 13");
             });
 
             Test("EBOM CSV is read by column heading", delegate
@@ -491,6 +492,33 @@ namespace BdatTests
                 try { BookmarkSearch.Find("A0704", new[] { "X" }); }
                 catch (InvalidOperationException) { refused = true; }
                 Check(refused && TestMode.ConnectorAttempts >= 1, "the folder search can't reach 3DEXPERIENCE in test mode");
+                TestMode.ConnectorAttempts = 0;
+            });
+
+            Test("Open Top Level lists what 3DX finds with toplevel in its name", delegate
+            {
+                string reply = "{\"totalItems\":5,\"member\":[" +
+                    "{\"name\":\"prd-1\",\"title\":\"FUBC27 TopLevel\",\"description\":\"2027 car \\\"main\\\"\",\"revision\":\"A.1\",\"id\":\"ID1\"}," +
+                    "{\"name\":\"prd-2\",\"title\":\"BR-10101-AA\",\"id\":\"ID2\"}," +
+                    "{\"name\":\"prd-3\",\"title\":\"Chassis toplevel.SLDASM\",\"id\":\"ID3\",\"revision\":\"B.1\"}," +
+                    "{\"name\":\"prd-4\",\"title\":\"FUBC27 TopLevel.SLDDRW\",\"id\":\"ID4\"}," +
+                    "{\"name\":\"prd-1\",\"title\":\"FUBC27 TopLevel\",\"id\":\"ID1\"}]}";
+                List<PlatformParts.Found> found = PlatformParts.TopLevelsFromSearch(reply);
+                Check(found.Count == 2, "two top levels (not the part, not the drawing, ID1 once), got " + found.Count);
+                Equal("Chassis toplevel", found[0].Title, "sorted by title, extension dropped");
+                Equal("ID3", found[0].Id, "its id");
+                Equal("FUBC27 TopLevel", found[1].Title, "second");
+                Equal("2027 car \"main\"", found[1].Description, "escaped quotes in the description are undone");
+                Equal("A.1", found[1].Revision, "revision");
+                Check(PlatformParts.IsTopLevelName("Car Top Level") && PlatformParts.IsTopLevelName("TOP_LEVEL") && !PlatformParts.IsTopLevelName("Top Plate"),
+                    "toplevel with or without a space, any case");
+                Check(PlatformParts.TopLevelsFromSearch(null).Count == 0, "no reply, nothing found");
+                Equal("resources/v1/modeler/dseng/dseng:EngItem/search?$searchStr=toplevel&$top=200", PlatformParts.TopLevelSearchPath("toplevel"), "search path");
+
+                bool refused = false;
+                try { string err; PlatformParts.FindTopLevels(out err); }
+                catch (InvalidOperationException) { refused = true; }
+                Check(refused && TestMode.ConnectorAttempts >= 1, "the top-level search can't reach 3DEXPERIENCE in test mode");
                 TestMode.ConnectorAttempts = 0;
             });
 
