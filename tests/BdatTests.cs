@@ -334,6 +334,12 @@ namespace BdatTests
                 Equal("FR-40202-AA", Ebom.Search(rows, "a0402", false)[0].Number, "searches the assembly number");
                 Equal("BR-10101-AA.SLDPRT", NewFromEbomCommand.FileName(rows[1]), "saved under the combined part number");
                 Equal("BR-A0101-AA.SLDASM", NewFromEbomCommand.FileName(rows[0]), "assemblies save as .SLDASM");
+                // Save to EBOM for an assembly: a file whose name holds a current EBOM number of its kind starts matched to it.
+                Check(SaveAssemblyToEbomForm.GuessRow("BR-10101-AA bracket.SLDPRT", false, rows) == rows[1], "a part file named with its number is matched");
+                Check(SaveAssemblyToEbomForm.GuessRow("br-a0101-aa.SLDASM", true, rows) == rows[0], "an assembly file is matched, any case");
+                Check(SaveAssemblyToEbomForm.GuessRow("BR-A0101-AA.SLDPRT", false, rows) == null, "a part file isn't matched to an assembly row");
+                Check(SaveAssemblyToEbomForm.GuessRow("BR-10102-AA.SLDPRT", false, rows) == null, "obsolete rows are never matched");
+                Check(SaveAssemblyToEbomForm.GuessRow("Bracket.SLDPRT", false, rows) == null, "no number, no match");
                 Equal("Front Bellcrank Plate, 6061", NewFromEbomDetailsForm.Clean("  Front Bellcrank Plate,\r\n6061 "),
                     "an edited description is one trimmed line");
 

@@ -51,7 +51,7 @@ namespace BDAT.Commands
 
             // Title.
             layout.Controls.Add(ModernUi.Header(Caption, savingFile != null
-                ? "Pick the EBOM part to save " + savingFile + " as. It's saved to 3DX with that part number and description."
+                ? "Pick the EBOM row to save " + savingFile + " as. It's saved to 3DX with that part number and description."
                 : "Pick a part or assembly to open it from 3DX. If it isn't there yet, you can create it with its EBOM number and description."), 0, 0);
 
             // Search box, area filter, expand and collapse.
@@ -133,7 +133,7 @@ namespace BDAT.Commands
             var buttons = new FlowLayoutPanel { FlowDirection = FlowDirection.RightToLeft, AutoSize = true, WrapContents = false, Margin = new Padding(0) };
             var cancel = ModernUi.Secondary("Cancel");
             cancel.DialogResult = DialogResult.Cancel;
-            _create = ModernUi.Primary(savingFile != null ? "Pick a part" : "Open");
+            _create = ModernUi.Primary(savingFile != null ? "Pick a row" : "Open");
             _create.Enabled = false;
             _create.Click += delegate { Confirm(); };
             buttons.Controls.Add(cancel);
@@ -148,6 +148,32 @@ namespace BDAT.Commands
         }
 
         private string Caption { get { return _savingFile != null ? "Save to EBOM" : "Open from EBOM"; } }
+
+        // ---- Save to EBOM for an assembly's files (SaveAssemblyToEbomForm), set before ShowDialog.
+
+        /// <summary>Only assembly rows can be picked (saving an assembly file), instead of only part rows.</summary>
+        public bool PickAssembly { get; set; }
+
+        /// <summary>No second pop-up: the row is picked with the EBOM name as its description.</summary>
+        public bool SkipDetails { get; set; }
+
+        /// <summary>Numbers already given to another file in this save, which can't be picked twice.</summary>
+        public ICollection<string> Taken { get; set; }
+
+        /// <summary>
+        /// The numbers already in 3DX, from an earlier pop-up in the same save: used instead of asking 3DX again.
+        /// After the pop-up closes, whatever it knew (null if the check never finished).
+        /// </summary>
+        public HashSet<string> Existing
+        {
+            get { return _existing; }
+            set { _existing = value; }
+        }
+
+        private bool WrongKind(EbomRow row)
+        {
+            return row == null || row.IsAssembly != PickAssembly;
+        }
 
         /// <summary>The row picked, or null.</summary>
         public EbomRow Selected
@@ -207,11 +233,26 @@ namespace BDAT.Commands
         /// </summary>
         private void ConfirmSave(EbomRow row)
         {
-            if (row.IsAssembly) return; // the button says "Pick a part"
+            if (WrongKind(row)) return; // the button says "Pick a part" (or "Pick an assembly")
+            if (Taken != null && Taken.Contains(row.Number))
+            {
+                Ui.Show(this, row.Number + " is already picked for another file in this save. Pick a different row.", Caption,
+                    MessageBoxButtons.OK, MessageBoxIcon.Information);
+                return;
+            }
             if (Exists(row))
             {
                 Ui.Show(this, row.Number + " (" + row.Name + ") is already in 3DX, so " + _savingFile + " can't be saved as it.\n\n" +
                     "Pick a different row, or open the existing one with Open from EBOM.", Caption, MessageBoxButtons.OK, MessageBoxIcon.Information);
+                return;
+            }
+            if (SkipDetails)
+            {
+                Description = NewFromEbomDetailsForm.Clean(row.Name);
+                SaveToPlatform = true;
+                CheckIn = true;
+                OpenRequested = false;
+                DialogResult = DialogResult.OK;
                 return;
             }
             NewFromEbomCommand.Prefetch(row); // the folder read runs while you check the description
@@ -460,6 +501,13 @@ namespace BDAT.Commands
         private void CheckExisting()
         {
             if (Testing.TestMode.Enabled) return;
+            if (_existing != null && _checkedAt == DateTime.MinValue && _savingFile != null)
+            {
+                // Given by an earlier pop-up in the same save (Existing): no need to ask 3DX again just to open this one.
+                _checkedAt = DateTime.Now;
+                Fill();
+                return;
+            }
             var numbers = new List<string>();
             foreach (EbomRow row in _rows)
                 if (!row.IsObsolete && !numbers.Contains(row.Number)) numbers.Add(row.Number);
@@ -511,9 +559,10 @@ namespace BDAT.Commands
         {
             EbomRow row = Selected;
             // Not while it's checking 3DX: until the check is back BDAT doesn't know whether to open it or offer to make it.
-            _create.Enabled = row != null && !_checking && !(_savingFile != null && row.IsAssembly);
+            _create.Enabled = row != null && !_checking && !(_savingFile != null && WrongKind(row));
             if (_savingFile != null)
-                _create.Text = _checking ? "Checking 3DX..." : row == null || row.IsAssembly ? "Pick a part" : "Save as " + row.Number;
+                _create.Text = _checking ? "Checking 3DX..." : WrongKind(row) ? (PickAssembly ? "Pick an assembly" : "Pick a part")
+                    : (SkipDetails ? "Use " : "Save as ") + row.Number;
             else
                 _create.Text = _checking ? "Checking 3DX..." : row == null ? "Open" : "Open " + (row.IsAssembly ? "assembly" : "part");
         }
